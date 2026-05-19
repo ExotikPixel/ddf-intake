@@ -308,7 +308,10 @@ export default function IntakeForm() {
 
       {/* Header */}
       <header style={{ background: 'var(--charcoal)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 20 }}>
-        <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: '15px', letterSpacing: '2.5px', color: '#fff', textTransform: 'uppercase' }}>DDF-Pixel</span>
+        <div style={{ lineHeight: 1 }}>
+          <div style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '2px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: '2px' }}>Designer Dance Floors</div>
+          <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '16px', letterSpacing: '3px', color: '#fff', textTransform: 'uppercase' }}>PIXEL <span style={{ color: 'var(--coral)' }}>PRODUCTION</span></span>
+        </div>
         <span style={{ background: 'var(--coral)', color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '1.5px', padding: '3px 9px', borderRadius: '3px', textTransform: 'uppercase' }}>Job Brief</span>
       </header>
 
@@ -441,7 +444,7 @@ export default function IntakeForm() {
           <Section num="04" title="Job Summary">
             <div style={{ border: '1px solid var(--charcoal-border)', borderRadius: '8px', padding: '16px', background: '#fff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid var(--charcoal)', paddingBottom: '10px', marginBottom: '12px' }}>
-                <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: '16px', letterSpacing: '2px', textTransform: 'uppercase' }}>DDF<span style={{ color: 'var(--coral)' }}>-</span>PIXEL</span>
+                <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '16px', letterSpacing: '3px', textTransform: 'uppercase' }}>PIXEL <span style={{ color: 'var(--coral)' }}>PRODUCTION</span></span>
                 <span style={{ background: 'var(--coral-light)', color: 'var(--coral)', fontWeight: 700, fontSize: '11px', padding: '3px 10px', borderRadius: '3px', letterSpacing: '1px' }}>DRAFT</span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', background: 'var(--bg)', padding: '10px 12px', borderRadius: '6px', marginBottom: '12px', fontSize: '13px' }}>

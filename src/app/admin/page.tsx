@@ -84,8 +84,11 @@ export default function AdminPage() {
     <main style={{ minHeight: '100vh', background: 'var(--bg)', fontFamily: 'var(--font-body)' }}>
       <header style={{ background: '#1a1a1a', color: '#fff', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, letterSpacing: 3, fontSize: 18 }}>DDF-PIXEL</span>
-          <span style={{ marginLeft: 12, fontSize: 12, background: 'var(--coral)', padding: '2px 8px', fontWeight: 700, letterSpacing: 1 }}>ADMIN</span>
+          <div style={{ lineHeight: 1 }}>
+            <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: 2, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 2 }}>Designer Dance Floors</div>
+            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, letterSpacing: 3, fontSize: 16, textTransform: 'uppercase' }}>PIXEL <span style={{ color: 'var(--coral)' }}>PRODUCTION</span></span>
+          </div>
+          <span style={{ marginLeft: 12, fontSize: 11, background: 'var(--coral)', color: '#fff', padding: '2px 8px', fontWeight: 700, letterSpacing: 1, borderRadius: 3 }}>ADMIN</span>
         </div>
         <button onClick={signOut} style={{ background: 'none', border: '1px solid #555', color: '#ccc', padding: '6px 14px', fontSize: 13, cursor: 'pointer' }}>Sign out</button>
       </header>

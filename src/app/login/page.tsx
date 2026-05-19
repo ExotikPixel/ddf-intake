@@ -30,7 +30,10 @@ export default function LoginPage() {
     <main style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-body)' }}>
       <div style={{ background: '#fff', padding: '48px 40px', width: '100%', maxWidth: 420, border: '1px solid var(--charcoal-border)' }}>
         <div style={{ marginBottom: 32 }}>
-          <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 20, letterSpacing: 3, color: 'var(--charcoal)', marginBottom: 4 }}>DDF-PIXEL</div>
+          <div style={{ lineHeight: 1, marginBottom: 8 }}>
+            <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: 2, color: 'var(--charcoal-60)', textTransform: 'uppercase', marginBottom: 3 }}>Designer Dance Floors</div>
+            <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 20, letterSpacing: 3, color: 'var(--charcoal)', textTransform: 'uppercase' }}>PIXEL <span style={{ color: 'var(--coral)' }}>PRODUCTION</span></div>
+          </div>
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: 'var(--charcoal)' }}>Client Portal</h1>
           <p style={{ margin: '8px 0 0', color: 'var(--charcoal-60)', fontSize: 14 }}>Sign in to track your jobs</p>
         </div>

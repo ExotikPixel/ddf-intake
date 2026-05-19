@@ -1,20 +1,20 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #F8F6F2;
+  --bg: #f8f7f4;
   --surface: #FFFFFF;
-  --charcoal: #1A1A1A;
-  --charcoal-60: #6B6B6B;
-  --charcoal-border: #E0DEDA;
-  --coral: #FF4D2D;
-  --coral-light: #FFF2EF;
-  --coral-dark: #CC3D22;
+  --charcoal: #131313;
+  --charcoal-60: #535353;
+  --charcoal-border: #e8e3d9;
+  --coral: #b8955a;
+  --coral-light: #faf6ef;
+  --coral-dark: #9d7d4d;
   --green-ok: #1B7F4F;
   --red-err: #C62828;
-  --font-heading: var(--font-heading, 'Bricolage Grotesque', sans-serif);
-  --font-body: var(--font-body, 'Manrope', sans-serif);
-  --background: #F8F6F2;
-  --foreground: #1A1A1A;
+  --font-heading: var(--font-heading, 'Oswald', sans-serif);
+  --font-body: var(--font-body, 'Montserrat', sans-serif);
+  --background: #f8f7f4;
+  --foreground: #131313;
 }
 
 @theme inline {
@@ -24,15 +24,9 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
 }
