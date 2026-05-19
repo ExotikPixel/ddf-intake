@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@getbrevo/brevo": "^5.0.4",
+    "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.0",
     "axios": "^1.16.1",
     "file-type": "^22.0.1",
