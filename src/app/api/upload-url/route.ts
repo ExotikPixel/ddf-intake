@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     const path = `uploads/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
     const { data, error } = await supabaseAdmin.storage
       .from('job-files')
-      .createSignedUploadUrl(path, { expiresIn: 300 })
+      .createSignedUploadUrl(path)
 
     if (error || !data) {
       return NextResponse.json({ error: 'Could not create upload URL' }, { status: 500 })
