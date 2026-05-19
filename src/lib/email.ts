@@ -1,8 +1,7 @@
 import 'server-only'
-import * as Brevo from '@getbrevo/brevo'
+import { BrevoClient } from '@getbrevo/brevo'
 
-const apiInstance = new Brevo.TransactionalEmailsApi()
-apiInstance.authentications['api-key'].apiKey = process.env.BREVO_API_KEY!
+const brevo = new BrevoClient({ apiKey: process.env.BREVO_API_KEY! })
 
 const SENDER = {
   email: process.env.SENDER_EMAIL!,
@@ -88,7 +87,7 @@ export async function sendNotificationEmail(job: JobEmailData) {
 </body>
 </html>`
 
-  await apiInstance.sendTransacEmail({
+  await brevo.transactionalEmails.sendTransacEmail({
     to: [{ email: process.env.NOTIFICATION_EMAIL! }],
     replyTo: { email: job.contactEmail, name: job.clientName },
     sender: SENDER,
@@ -135,7 +134,7 @@ export async function sendConfirmationEmail(job: JobEmailData) {
 </body>
 </html>`
 
-  await apiInstance.sendTransacEmail({
+  await brevo.transactionalEmails.sendTransacEmail({
     to: [{ email: job.contactEmail, name: job.clientName }],
     sender: SENDER,
     subject: `Job Brief Received — ${job.referenceNumber}`,
