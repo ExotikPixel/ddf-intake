@@ -308,10 +308,7 @@ export default function IntakeForm() {
 
       {/* Header */}
       <header style={{ background: 'var(--charcoal)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 20 }}>
-        <div style={{ lineHeight: 1 }}>
-          <div style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '2px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: '2px' }}>Designer Dance Floors</div>
-          <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '16px', letterSpacing: '3px', color: '#fff', textTransform: 'uppercase' }}>PIXEL <span style={{ color: 'var(--coral)' }}>PRODUCTION</span></span>
-        </div>
+        <img src="/logo-pixel.png" alt="Pixel Production" style={{ height: '32px', width: 'auto', filter: 'brightness(0) invert(1)' }} />
         <span style={{ background: 'var(--coral)', color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '1.5px', padding: '3px 9px', borderRadius: '3px', textTransform: 'uppercase' }}>Job Brief</span>
       </header>
 
