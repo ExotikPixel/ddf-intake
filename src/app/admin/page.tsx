@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-// fetchJobs uses /api/admin/jobs (service role) to bypass RLS and see all jobs
+import { STATUSES, STATUS_LABELS, STATUS_CONFIG } from '@/lib/job-types'
+import type { JobItem } from '@/lib/job-types'
 
 interface Job {
   id: number
@@ -16,33 +17,28 @@ interface Job {
   notes: string | null
   status: string
   submitted_at: string
-  items: Array<{ name: string; quantity: number; size: string; material: string }>
+  items: JobItem[]
   file_paths: string[]
 }
 
-const STATUSES = ['pending', 'received', 'in_progress', 'completed', 'cancelled']
-const STATUS_LABELS: Record<string, string> = {
-  pending: 'Pending',
-  received: 'Received',
-  in_progress: 'In Progress',
-  completed: 'Completed',
-  cancelled: 'Cancelled',
+function escHtml(s: string) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+         .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
-const STATUS_COLORS: Record<string, string> = {
-  pending: '#999',
-  received: '#1B7F4F',
-  in_progress: '#E67E00',
-  completed: '#1A1A1A',
-  cancelled: '#C62828',
-}
+
+const STATUS_COLORS: Record<string, string> = Object.fromEntries(
+  Object.entries(STATUS_CONFIG).map(([k, v]) => [k, v.color])
+)
 
 export default function AdminPage() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [filter, setFilter] = useState('all')
   const [updating, setUpdating] = useState<number | null>(null)
-  const [fileUrls, setFileUrls] = useState<Record<number, { name: string; url: string }[]>>({})
+  const [fileUrls, setFileUrls] = useState<Record<number, { path: string; name: string; url: string }[]>>({})
   const [loadingFiles, setLoadingFiles] = useState<number | null>(null)
+  const [fileError, setFileError] = useState<number | null>(null)
   const router = useRouter()
 
   useEffect(() => {
@@ -54,37 +50,57 @@ export default function AdminPage() {
   }, [router])
 
   async function fetchJobs() {
-    const res = await fetch('/api/admin/jobs')
-    if (res.status === 401) { router.push('/login'); return }
-    const { jobs: data } = await res.json()
-    setJobs(data ?? [])
-    setLoading(false)
+    try {
+      const res = await fetch('/api/admin/jobs')
+      if (res.status === 401) { router.push('/login'); return }
+      if (!res.ok) { setLoadError('Failed to load jobs — please refresh.'); return }
+      const { jobs: data } = await res.json()
+      setJobs(data ?? [])
+    } catch {
+      setLoadError('Network error — please check your connection and refresh.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function updateStatus(jobId: number, newStatus: string) {
     setUpdating(jobId)
-    const res = await fetch(`/api/admin/jobs/${jobId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus }),
-    })
-    if (res.ok) {
-      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j))
+    try {
+      const res = await fetch(`/api/admin/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (res.ok) {
+        setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j))
+      } else {
+        alert('Failed to update status — please try again.')
+      }
+    } catch {
+      alert('Network error — status not updated.')
+    } finally {
+      setUpdating(null)
     }
-    setUpdating(null)
   }
 
   async function loadFiles(jobId: number, paths: string[]) {
     if (fileUrls[jobId] || paths.length === 0) return
     setLoadingFiles(jobId)
-    const res = await fetch('/api/admin/files', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paths }),
-    })
-    const { urls } = await res.json()
-    setFileUrls(prev => ({ ...prev, [jobId]: urls }))
-    setLoadingFiles(null)
+    setFileError(null)
+    try {
+      const res = await fetch('/api/admin/files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths }),
+      })
+      if (!res.ok) { setFileError(jobId); return }
+      const { urls } = await res.json()
+      setFileUrls(prev => ({ ...prev, [jobId]: urls }))
+    } catch {
+      setFileError(jobId)
+    } finally {
+      setLoadingFiles(null)
+    }
   }
 
   function printJobTicket(job: Job) {
@@ -92,32 +108,34 @@ export default function AdminPage() {
     const submittedDate = new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
     const printDate = new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-    const itemRows = job.items.map((item, i) => `
+    const BRAND = '#b8955a'
+
+    const itemRows = job.items.map(item => `
       <tr>
-        <td style="width:52px;text-align:center;font-size:22px;font-weight:900;color:#C8702A;border-bottom:1px solid #e8e8e8;padding:10px 8px;">${item.quantity}</td>
-        <td style="font-weight:600;border-bottom:1px solid #e8e8e8;padding:10px 12px;">${item.name}</td>
-        <td style="border-bottom:1px solid #e8e8e8;padding:10px 12px;color:#555;">${item.size || '—'}</td>
-        <td style="border-bottom:1px solid #e8e8e8;padding:10px 12px;color:#555;">${item.material || '—'}</td>
+        <td style="width:52px;text-align:center;font-size:22px;font-weight:900;color:${BRAND};border-bottom:1px solid #e8e8e8;padding:10px 8px;">${item.quantity}</td>
+        <td style="font-weight:600;border-bottom:1px solid #e8e8e8;padding:10px 12px;">${escHtml(item.name)}</td>
+        <td style="border-bottom:1px solid #e8e8e8;padding:10px 12px;color:#555;">${escHtml(item.size || '—')}</td>
+        <td style="border-bottom:1px solid #e8e8e8;padding:10px 12px;color:#555;">${escHtml(item.material || '—')}</td>
       </tr>
     `).join('')
 
     const notesSection = job.notes ? `
       <div style="margin-bottom:24px;">
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#999;border-bottom:1px solid #e8e8e8;padding-bottom:6px;margin-bottom:10px;">Notes / Special Instructions</div>
-        <div style="background:#fafafa;border-left:4px solid #C8702A;padding:12px 16px;font-size:13px;line-height:1.6;color:#333;">${job.notes}</div>
+        <div style="background:#fafafa;border-left:4px solid ${BRAND};padding:12px 16px;font-size:13px;line-height:1.6;color:#333;">${escHtml(job.notes)}</div>
       </div>` : ''
 
     const eventSection = job.event_name ? `
       <div>
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:2px;">Event / Location</div>
-        <div style="font-size:14px;font-weight:600;">${job.event_name}</div>
+        <div style="font-size:14px;font-weight:600;">${escHtml(job.event_name)}</div>
       </div>` : ''
 
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Job Ticket — ${job.reference_number}</title>
+  <title>Job Ticket — ${escHtml(job.reference_number)}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 32px; }
@@ -143,8 +161,8 @@ export default function AdminPage() {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a1a1a;padding-bottom:20px;margin-bottom:24px;">
       <div>
         <div style="font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#999;margin-bottom:4px;">Pixel Production</div>
-        <div style="font-size:32px;font-weight:900;color:#C8702A;letter-spacing:1px;line-height:1;">${job.reference_number}</div>
-        <div style="margin-top:8px;display:inline-block;padding:3px 10px;background:#1a1a1a;color:#fff;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">${statusLabel}</div>
+        <div style="font-size:32px;font-weight:900;color:${BRAND};letter-spacing:1px;line-height:1;">${escHtml(job.reference_number)}</div>
+        <div style="margin-top:8px;display:inline-block;padding:3px 10px;background:#1a1a1a;color:#fff;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">${escHtml(statusLabel)}</div>
       </div>
       <div style="text-align:right;">
         <div style="font-size:22px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#1a1a1a;">Job Ticket</div>
@@ -158,19 +176,19 @@ export default function AdminPage() {
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
         <div>
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:2px;">Client Name</div>
-          <div style="font-size:15px;font-weight:700;">${job.client_name}</div>
+          <div style="font-size:15px;font-weight:700;">${escHtml(job.client_name)}</div>
         </div>
         <div>
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:2px;">Company</div>
-          <div style="font-size:15px;font-weight:700;">${job.company_name}</div>
+          <div style="font-size:15px;font-weight:700;">${escHtml(job.company_name)}</div>
         </div>
         <div>
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:2px;">Contact Email</div>
-          <div style="font-size:13px;color:#555;">${job.contact_email}</div>
+          <div style="font-size:13px;color:#555;">${escHtml(job.contact_email)}</div>
         </div>
         <div>
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:2px;">Due Date</div>
-          <div style="font-size:15px;font-weight:900;color:#C8702A;">${job.date_required}</div>
+          <div style="font-size:15px;font-weight:900;color:${BRAND};">${escHtml(job.date_required)}</div>
         </div>
         ${eventSection}
       </div>
@@ -215,7 +233,10 @@ export default function AdminPage() {
     router.push('/login')
   }
 
-  const filtered = filter === 'all' ? jobs : jobs.filter(j => j.status === filter)
+  const filtered = useMemo(
+    () => filter === 'all' ? jobs : jobs.filter(j => j.status === filter),
+    [jobs, filter]
+  )
 
   return (
     <main style={{ minHeight: '100vh', background: 'var(--bg)', fontFamily: 'var(--font-body)' }}>
@@ -242,7 +263,7 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {loading ? <p style={{ color: 'var(--charcoal-60)' }}>Loading…</p> : (
+        {loading ? <p style={{ color: 'var(--charcoal-60)' }}>Loading…</p> : loadError ? <p style={{ color: 'var(--red-err)' }}>{loadError}</p> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {filtered.map(job => (
               <div key={job.id} style={{ background: '#fff', border: '1px solid var(--charcoal-border)', padding: '20px 24px' }}>
@@ -297,9 +318,9 @@ export default function AdminPage() {
                     {fileUrls[job.id] ? (
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--charcoal-60)', textTransform: 'uppercase', letterSpacing: 1 }}>Files:</span>
-                        {fileUrls[job.id].map((f, i) => (
+                        {fileUrls[job.id].map(f => (
                           <a
-                            key={i}
+                            key={f.path}
                             href={f.url}
                             target="_blank"
                             rel="noopener noreferrer"
@@ -309,6 +330,8 @@ export default function AdminPage() {
                           </a>
                         ))}
                       </div>
+                    ) : fileError === job.id ? (
+                      <span style={{ fontSize: 12, color: 'var(--red-err)' }}>Failed to load files — try again.</span>
                     ) : (
                       <button
                         onClick={() => loadFiles(job.id, job.file_paths)}

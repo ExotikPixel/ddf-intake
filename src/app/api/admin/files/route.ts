@@ -1,48 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { supabaseAdmin } from '@/lib/supabase-server'
+import { requireAdmin } from '@/lib/admin-auth'
 
 export async function POST(req: NextRequest) {
-  // Verify admin session
-  const cookieStore = await cookies()
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: (cookiesToSet) => {
-          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
-        },
-      },
-    }
-  )
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user || user.email !== process.env.ADMIN_EMAIL) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = await requireAdmin()
+  if ('unauthorized' in auth) return auth.unauthorized
 
   const { paths } = await req.json() as { paths: string[] }
   if (!paths || !Array.isArray(paths)) {
     return NextResponse.json({ error: 'Invalid paths' }, { status: 400 })
   }
 
-  // Generate signed URLs valid for 1 hour
-  const urls: { path: string; url: string; name: string }[] = []
-  for (const path of paths) {
-    const { data } = await supabaseAdmin.storage
-      .from('job-files')
-      .createSignedUrl(path, 60 * 60)
-    if (data?.signedUrl) {
-      urls.push({
-        path,
-        url: data.signedUrl,
-        name: path.split('/').pop() ?? path,
-      })
-    }
-  }
+  // Generate all signed URLs in parallel (1 hour TTL)
+  const results = await Promise.all(
+    paths.map(path =>
+      supabaseAdmin.storage.from('job-files').createSignedUrl(path, 60 * 60)
+    )
+  )
+
+  const urls = results
+    .map((r, i) =>
+      r.data?.signedUrl
+        ? { path: paths[i], url: r.data.signedUrl, name: paths[i].split('/').pop() ?? paths[i] }
+        : null
+    )
+    .filter((u): u is { path: string; url: string; name: string } => u !== null)
 
   return NextResponse.json({ urls })
 }

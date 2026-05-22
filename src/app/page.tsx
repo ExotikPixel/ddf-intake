@@ -103,7 +103,6 @@ export default function IntakeForm() {
     return () => window.removeEventListener('beforeunload', handler)
   }, [hasInput])
 
-  // Scroll spy for sidebar active step
   useEffect(() => {
     function onScroll() {
       const offsets = sectionRefs.current.map(el => el?.getBoundingClientRect().top ?? 9999)
@@ -111,7 +110,7 @@ export default function IntakeForm() {
       for (let i = 0; i < offsets.length; i++) {
         if (offsets[i] < 200) active = i
       }
-      setActiveStep(active)
+      setActiveStep(prev => prev === active ? prev : active)
     }
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
