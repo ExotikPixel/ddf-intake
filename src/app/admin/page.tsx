@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
+// fetchJobs uses /api/admin/jobs (service role) to bypass RLS and see all jobs
 
 interface Job {
   id: number
@@ -40,21 +41,22 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [updating, setUpdating] = useState<number | null>(null)
+  const [fileUrls, setFileUrls] = useState<Record<number, { name: string; url: string }[]>>({})
+  const [loadingFiles, setLoadingFiles] = useState<number | null>(null)
   const router = useRouter()
 
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) { router.push('/login'); return }
-      fetchJobs(supabase)
+      fetchJobs()
     })
   }, [router])
 
-  async function fetchJobs(supabase: ReturnType<typeof createClient>) {
-    const { data } = await supabase
-      .from('jobs')
-      .select('*')
-      .order('submitted_at', { ascending: false })
+  async function fetchJobs() {
+    const res = await fetch('/api/admin/jobs')
+    if (res.status === 401) { router.push('/login'); return }
+    const { jobs: data } = await res.json()
     setJobs(data ?? [])
     setLoading(false)
   }
@@ -70,6 +72,141 @@ export default function AdminPage() {
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j))
     }
     setUpdating(null)
+  }
+
+  async function loadFiles(jobId: number, paths: string[]) {
+    if (fileUrls[jobId] || paths.length === 0) return
+    setLoadingFiles(jobId)
+    const res = await fetch('/api/admin/files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths }),
+    })
+    const { urls } = await res.json()
+    setFileUrls(prev => ({ ...prev, [jobId]: urls }))
+    setLoadingFiles(null)
+  }
+
+  function printJobTicket(job: Job) {
+    const statusLabel = STATUS_LABELS[job.status] ?? job.status
+    const submittedDate = new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
+    const printDate = new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+    const itemRows = job.items.map((item, i) => `
+      <tr>
+        <td style="width:52px;text-align:center;font-size:22px;font-weight:900;color:#C8702A;border-bottom:1px solid #e8e8e8;padding:10px 8px;">${item.quantity}</td>
+        <td style="font-weight:600;border-bottom:1px solid #e8e8e8;padding:10px 12px;">${item.name}</td>
+        <td style="border-bottom:1px solid #e8e8e8;padding:10px 12px;color:#555;">${item.size || '—'}</td>
+        <td style="border-bottom:1px solid #e8e8e8;padding:10px 12px;color:#555;">${item.material || '—'}</td>
+      </tr>
+    `).join('')
+
+    const notesSection = job.notes ? `
+      <div style="margin-bottom:24px;">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#999;border-bottom:1px solid #e8e8e8;padding-bottom:6px;margin-bottom:10px;">Notes / Special Instructions</div>
+        <div style="background:#fafafa;border-left:4px solid #C8702A;padding:12px 16px;font-size:13px;line-height:1.6;color:#333;">${job.notes}</div>
+      </div>` : ''
+
+    const eventSection = job.event_name ? `
+      <div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:2px;">Event / Location</div>
+        <div style="font-size:14px;font-weight:600;">${job.event_name}</div>
+      </div>` : ''
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Job Ticket — ${job.reference_number}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 32px; }
+    table { width: 100%; border-collapse: collapse; }
+    @media print {
+      body { padding: 0; }
+      @page { margin: 18mm 20mm; size: A4 portrait; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Print button (screen only) -->
+  <div class="no-print" style="margin-bottom:24px;display:flex;gap:10px;">
+    <button onclick="window.print()" style="background:#1a1a1a;color:#fff;border:none;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Print Ticket</button>
+    <button onclick="window.close()" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;padding:10px 24px;font-size:13px;cursor:pointer;">Close</button>
+  </div>
+
+  <!-- Ticket start -->
+  <div style="max-width:720px;margin:0 auto;">
+
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a1a1a;padding-bottom:20px;margin-bottom:24px;">
+      <div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#999;margin-bottom:4px;">Pixel Production</div>
+        <div style="font-size:32px;font-weight:900;color:#C8702A;letter-spacing:1px;line-height:1;">${job.reference_number}</div>
+        <div style="margin-top:8px;display:inline-block;padding:3px 10px;background:#1a1a1a;color:#fff;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">${statusLabel}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:22px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#1a1a1a;">Job Ticket</div>
+        <div style="font-size:12px;color:#666;margin-top:4px;">Submitted: ${submittedDate}</div>
+      </div>
+    </div>
+
+    <!-- Client info -->
+    <div style="margin-bottom:24px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#999;border-bottom:1px solid #e8e8e8;padding-bottom:6px;margin-bottom:12px;">Client Information</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+        <div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:2px;">Client Name</div>
+          <div style="font-size:15px;font-weight:700;">${job.client_name}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:2px;">Company</div>
+          <div style="font-size:15px;font-weight:700;">${job.company_name}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:2px;">Contact Email</div>
+          <div style="font-size:13px;color:#555;">${job.contact_email}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:2px;">Due Date</div>
+          <div style="font-size:15px;font-weight:900;color:#C8702A;">${job.date_required}</div>
+        </div>
+        ${eventSection}
+      </div>
+    </div>
+
+    <!-- Items -->
+    <div style="margin-bottom:24px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#999;border-bottom:1px solid #e8e8e8;padding-bottom:6px;margin-bottom:0;">Items (${job.items.length})</div>
+      <table>
+        <thead>
+          <tr>
+            <th style="background:#1a1a1a;color:#fff;padding:9px 8px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-align:center;width:52px;">Qty</th>
+            <th style="background:#1a1a1a;color:#fff;padding:9px 12px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-align:left;">Description</th>
+            <th style="background:#1a1a1a;color:#fff;padding:9px 12px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-align:left;">Size</th>
+            <th style="background:#1a1a1a;color:#fff;padding:9px 12px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-align:left;">Material</th>
+          </tr>
+        </thead>
+        <tbody>${itemRows}</tbody>
+      </table>
+    </div>
+
+    ${notesSection}
+
+    <!-- Footer -->
+    <div style="margin-top:32px;padding-top:12px;border-top:1px solid #e8e8e8;display:flex;justify-content:space-between;font-size:11px;color:#aaa;">
+      <span>Pixel Production — Internal Job Ticket</span>
+      <span>Printed: ${printDate}</span>
+    </div>
+  </div>
+</body>
+</html>`
+
+    const win = window.open('', '_blank', 'width=800,height=900')
+    if (!win) return
+    win.document.write(html)
+    win.document.close()
   }
 
   async function signOut() {
@@ -128,6 +265,13 @@ export default function AdminPage() {
                     <span style={{ fontSize: 12, color: 'var(--charcoal-60)' }}>
                       {new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </span>
+                    <button
+                      onClick={() => printJobTicket(job)}
+                      title="Print job ticket"
+                      style={{ fontSize: 12, fontWeight: 700, color: 'var(--charcoal)', background: '#fff', border: '1px solid var(--charcoal-border)', padding: '6px 12px', cursor: 'pointer', fontFamily: 'var(--font-body)', display: 'flex', alignItems: 'center', gap: 5 }}
+                    >
+                      🖨 Print
+                    </button>
                     <select
                       value={job.status}
                       disabled={updating === job.id}
@@ -146,6 +290,36 @@ export default function AdminPage() {
                   ))}
                 </div>
                 {job.notes && <p style={{ margin: '10px 0 0', fontSize: 13, color: 'var(--charcoal-60)', borderTop: '1px solid var(--charcoal-border)', paddingTop: 10 }}><strong>Notes:</strong> {job.notes}</p>}
+
+                {/* Files section */}
+                {job.file_paths.length > 0 && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--charcoal-border)' }}>
+                    {fileUrls[job.id] ? (
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--charcoal-60)', textTransform: 'uppercase', letterSpacing: 1 }}>Files:</span>
+                        {fileUrls[job.id].map((f, i) => (
+                          <a
+                            key={i}
+                            href={f.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontSize: 12, color: 'var(--coral)', textDecoration: 'none', fontWeight: 600, background: 'var(--coral-light)', border: '1px solid var(--coral)', padding: '3px 10px' }}
+                          >
+                            ↓ {f.name}
+                          </a>
+                        ))}
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => loadFiles(job.id, job.file_paths)}
+                        disabled={loadingFiles === job.id}
+                        style={{ fontSize: 12, fontWeight: 700, color: 'var(--coral)', background: 'none', border: '1px solid var(--coral)', padding: '4px 12px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}
+                      >
+                        {loadingFiles === job.id ? 'Loading…' : `View ${job.file_paths.length} attached file${job.file_paths.length !== 1 ? 's' : ''}`}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
