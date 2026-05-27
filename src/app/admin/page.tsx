@@ -21,24 +21,77 @@ interface Job {
   file_paths: string[]
 }
 
+// ── XSS guard ──────────────────────────────────────────────────────────────
 function escHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
          .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
+// ── SVG Icons ──────────────────────────────────────────────────────────────
+function PrintIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 9 6 2 18 2 18 9"/>
+      <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
+      <rect x="6" y="14" width="12" height="8"/>
+    </svg>
+  )
+}
+function InvoiceIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/>
+      <line x1="16" y1="17" x2="8" y2="17"/>
+      <polyline points="10 9 9 9 8 9"/>
+    </svg>
+  )
+}
+function CheckIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg>
+  )
+}
+
+// ── Status pill ────────────────────────────────────────────────────────────
+function StatusPill({ status }: { status: string }) {
+  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending
+  return (
+    <span style={{
+      background: cfg.bg,
+      color: cfg.color,
+      fontSize: '10px',
+      fontWeight: 700,
+      letterSpacing: '0.8px',
+      textTransform: 'uppercase',
+      padding: '2px 8px',
+      border: `1px solid ${cfg.color}33`,
+      whiteSpace: 'nowrap',
+    }}>
+      {cfg.label}
+    </span>
+  )
 }
 
 const STATUS_COLORS: Record<string, string> = Object.fromEntries(
   Object.entries(STATUS_CONFIG).map(([k, v]) => [k, v.color])
 )
 
+// ── Page ───────────────────────────────────────────────────────────────────
 export default function AdminPage() {
-  const [jobs, setJobs] = useState<Job[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState('')
-  const [filter, setFilter] = useState('all')
-  const [updating, setUpdating] = useState<number | null>(null)
-  const [fileUrls, setFileUrls] = useState<Record<number, { path: string; name: string; url: string }[]>>({})
+  const [jobs, setJobs]                 = useState<Job[]>([])
+  const [loading, setLoading]           = useState(true)
+  const [loadError, setLoadError]       = useState('')
+  const [filter, setFilter]             = useState('all')
+  const [updating, setUpdating]         = useState<number | null>(null)
+  const [fileUrls, setFileUrls]         = useState<Record<number, { path: string; name: string; url: string }[]>>({})
   const [loadingFiles, setLoadingFiles] = useState<number | null>(null)
-  const [fileError, setFileError] = useState<number | null>(null)
+  const [fileError, setFileError]       = useState<number | null>(null)
+  const [sendingToCC, setSendingToCC]   = useState<number | null>(null)
+  const [sentToCC, setSentToCC]         = useState<Set<number>>(new Set())
   const router = useRouter()
 
   useEffect(() => {
@@ -103,11 +156,30 @@ export default function AdminPage() {
     }
   }
 
-  function printJobTicket(job: Job) {
-    const statusLabel = STATUS_LABELS[job.status] ?? job.status
-    const submittedDate = new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
-    const printDate = new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  async function sendToCommandCentre(job: Job) {
+    setSendingToCC(job.id)
+    try {
+      const res = await fetch('/api/admin/send-to-cc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: job.id }),
+      })
+      if (res.ok) {
+        setSentToCC(prev => new Set(prev).add(job.id))
+      } else {
+        alert('Failed to send to Command Centre — please try again.')
+      }
+    } catch {
+      alert('Network error — could not reach Command Centre.')
+    } finally {
+      setSendingToCC(null)
+    }
+  }
 
+  function printJobTicket(job: Job) {
+    const statusLabel   = STATUS_LABELS[job.status] ?? job.status
+    const submittedDate = new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
+    const printDate     = new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     const BRAND = '#b8955a'
 
     const itemRows = job.items.map(item => `
@@ -148,16 +220,11 @@ export default function AdminPage() {
   </style>
 </head>
 <body>
-  <!-- Print button (screen only) -->
   <div class="no-print" style="margin-bottom:24px;display:flex;gap:10px;">
     <button onclick="window.print()" style="background:#1a1a1a;color:#fff;border:none;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Print Ticket</button>
     <button onclick="window.close()" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;padding:10px 24px;font-size:13px;cursor:pointer;">Close</button>
   </div>
-
-  <!-- Ticket start -->
   <div style="max-width:720px;margin:0 auto;">
-
-    <!-- Header -->
     <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a1a1a;padding-bottom:20px;margin-bottom:24px;">
       <div>
         <div style="font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#999;margin-bottom:4px;">Pixel Production</div>
@@ -169,8 +236,6 @@ export default function AdminPage() {
         <div style="font-size:12px;color:#666;margin-top:4px;">Submitted: ${submittedDate}</div>
       </div>
     </div>
-
-    <!-- Client info -->
     <div style="margin-bottom:24px;">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#999;border-bottom:1px solid #e8e8e8;padding-bottom:6px;margin-bottom:12px;">Client Information</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
@@ -193,8 +258,6 @@ export default function AdminPage() {
         ${eventSection}
       </div>
     </div>
-
-    <!-- Items -->
     <div style="margin-bottom:24px;">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#999;border-bottom:1px solid #e8e8e8;padding-bottom:6px;margin-bottom:0;">Items (${job.items.length})</div>
       <table>
@@ -209,10 +272,7 @@ export default function AdminPage() {
         <tbody>${itemRows}</tbody>
       </table>
     </div>
-
     ${notesSection}
-
-    <!-- Footer -->
     <div style="margin-top:32px;padding-top:12px;border-top:1px solid #e8e8e8;display:flex;justify-content:space-between;font-size:11px;color:#aaa;">
       <span>Pixel Production — Internal Job Ticket</span>
       <span>Printed: ${printDate}</span>
@@ -238,114 +298,304 @@ export default function AdminPage() {
     [jobs, filter]
   )
 
+  const statCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    STATUSES.forEach(s => { counts[s] = jobs.filter(j => j.status === s).length })
+    return counts
+  }, [jobs])
+
   return (
-    <main style={{ minHeight: '100vh', background: 'var(--bg)', fontFamily: 'var(--font-body)' }}>
-      <header style={{ background: '#1a1a1a', color: '#fff', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <img src="/logo-pixel.png" alt="Pixel Production" style={{ height: '30px', width: 'auto', filter: 'brightness(0) invert(1)' }} />
-            <span style={{ fontSize: 11, background: 'var(--coral)', color: '#fff', padding: '2px 8px', fontWeight: 700, letterSpacing: 1, borderRadius: 3 }}>ADMIN</span>
-          </div>
+    <main style={{ minHeight: '100vh', background: '#f2f1ef', fontFamily: 'var(--font-body)' }}>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .stat-btn:hover { opacity: 0.85; }
+        .filter-btn:hover { background: #f5f5f5 !important; }
+        .job-action-btn:hover:not(:disabled) { filter: brightness(0.95); }
+        .invoice-btn:hover:not(:disabled) { background: #dcfce7 !important; }
+        .file-link:hover { opacity: 0.8; }
+      `}</style>
+
+      {/* Header */}
+      <header style={{
+        background: '#1a1a1a',
+        height: 54,
+        padding: '0 28px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        borderBottom: '2px solid var(--coral)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 50,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <img src="/logo-pixel.png" alt="Pixel Production" style={{ height: 26, width: 'auto', filter: 'brightness(0) invert(1)' }} />
+          <span style={{ fontSize: 9, background: 'var(--coral)', color: '#fff', padding: '2px 7px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase' }}>
+            ADMIN
+          </span>
         </div>
-        <button onClick={signOut} style={{ background: 'none', border: '1px solid #555', color: '#ccc', padding: '6px 14px', fontSize: 13, cursor: 'pointer' }}>Sign out</button>
+        <button
+          onClick={signOut}
+          style={{ background: 'none', border: '1px solid #3a3a3a', color: '#777', padding: '5px 14px', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}
+        >
+          Sign out
+        </button>
       </header>
 
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '40px 24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700 }}>All Jobs <span style={{ fontSize: 18, color: 'var(--charcoal-60)', fontWeight: 400 }}>({filtered.length})</span></h1>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {['all', ...STATUSES].map(s => (
-              <button key={s} onClick={() => setFilter(s)}
-                style={{ padding: '6px 14px', fontSize: 13, fontWeight: filter === s ? 700 : 400, background: filter === s ? '#1a1a1a' : '#fff', color: filter === s ? '#fff' : 'var(--charcoal)', border: '1px solid var(--charcoal-border)', cursor: 'pointer' }}>
-                {s === 'all' ? 'All' : STATUS_LABELS[s]}
-              </button>
-            ))}
-          </div>
+      <div style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 64px' }}>
+
+        {/* Page title */}
+        <div style={{ marginBottom: 24 }}>
+          <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>
+            Pixel Production
+          </p>
+          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#1a1a1a' }}>
+            Job Dashboard
+          </h1>
         </div>
 
-        {loading ? <p style={{ color: 'var(--charcoal-60)' }}>Loading…</p> : loadError ? <p style={{ color: 'var(--red-err)' }}>{loadError}</p> : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {filtered.map(job => (
-              <div key={job.id} style={{ background: '#fff', border: '1px solid var(--charcoal-border)', padding: '20px 24px' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-                  <div style={{ flex: 1, minWidth: 200 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
-                      <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--coral)' }}>{job.reference_number}</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: STATUS_COLORS[job.status], textTransform: 'uppercase', letterSpacing: 1 }}>
-                        {STATUS_LABELS[job.status]}
-                      </span>
-                    </div>
-                    <p style={{ margin: '0 0 2px', fontWeight: 600 }}>{job.client_name} — {job.company_name}</p>
-                    <p style={{ margin: 0, fontSize: 13, color: 'var(--charcoal-60)' }}>
-                      <a href={`mailto:${job.contact_email}`} style={{ color: 'var(--charcoal-60)' }}>{job.contact_email}</a>
-                      &nbsp;·&nbsp; Due <strong style={{ color: 'var(--charcoal)' }}>{job.date_required}</strong>
-                      {job.event_name && <>&nbsp;·&nbsp; {job.event_name}</>}
-                    </p>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{ fontSize: 12, color: 'var(--charcoal-60)' }}>
-                      {new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    </span>
-                    <button
-                      onClick={() => printJobTicket(job)}
-                      title="Print job ticket"
-                      style={{ fontSize: 12, fontWeight: 700, color: 'var(--charcoal)', background: '#fff', border: '1px solid var(--charcoal-border)', padding: '6px 12px', cursor: 'pointer', fontFamily: 'var(--font-body)', display: 'flex', alignItems: 'center', gap: 5 }}
-                    >
-                      🖨 Print
-                    </button>
-                    <select
-                      value={job.status}
-                      disabled={updating === job.id}
-                      onChange={e => updateStatus(job.id, e.target.value)}
-                      style={{ padding: '6px 10px', fontSize: 13, border: '1.5px solid var(--charcoal-border)', background: '#fff', cursor: 'pointer', fontFamily: 'var(--font-body)' }}
-                    >
-                      {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {job.items.map((item, i) => (
-                    <span key={i} style={{ background: 'var(--bg)', border: '1px solid var(--charcoal-border)', padding: '3px 10px', fontSize: 12 }}>
-                      {item.quantity}× {item.name} ({item.size}, {item.material})
-                    </span>
-                  ))}
-                </div>
-                {job.notes && <p style={{ margin: '10px 0 0', fontSize: 13, color: 'var(--charcoal-60)', borderTop: '1px solid var(--charcoal-border)', paddingTop: 10 }}><strong>Notes:</strong> {job.notes}</p>}
-
-                {/* Files section */}
-                {job.file_paths.length > 0 && (
-                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--charcoal-border)' }}>
-                    {fileUrls[job.id] ? (
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--charcoal-60)', textTransform: 'uppercase', letterSpacing: 1 }}>Files:</span>
-                        {fileUrls[job.id].map(f => (
-                          <a
-                            key={f.path}
-                            href={f.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ fontSize: 12, color: 'var(--coral)', textDecoration: 'none', fontWeight: 600, background: 'var(--coral-light)', border: '1px solid var(--coral)', padding: '3px 10px' }}
-                          >
-                            ↓ {f.name}
-                          </a>
-                        ))}
-                      </div>
-                    ) : fileError === job.id ? (
-                      <span style={{ fontSize: 12, color: 'var(--red-err)' }}>Failed to load files — try again.</span>
-                    ) : (
-                      <button
-                        onClick={() => loadFiles(job.id, job.file_paths)}
-                        disabled={loadingFiles === job.id}
-                        style={{ fontSize: 12, fontWeight: 700, color: 'var(--coral)', background: 'none', border: '1px solid var(--coral)', padding: '4px 12px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}
-                      >
-                        {loadingFiles === job.id ? 'Loading…' : `View ${job.file_paths.length} attached file${job.file_paths.length !== 1 ? 's' : ''}`}
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
+        {/* ── Loading ────────────────────────────────────────────────────────── */}
+        {loading ? (
+          <div style={{ padding: '80px 0', textAlign: 'center' }}>
+            <div style={{ width: 32, height: 32, border: '3px solid #e0e0e0', borderTopColor: 'var(--coral)', borderRadius: '50%', margin: '0 auto 14px', animation: 'spin 0.8s linear infinite' }} />
+            <p style={{ color: '#999', fontSize: 13, margin: 0 }}>Loading jobs…</p>
           </div>
+
+        ) : loadError ? (
+          <div style={{ background: '#fff0f0', border: '1px solid #fca5a5', padding: '14px 18px', color: '#b91c1c', fontSize: 13 }}>
+            {loadError}
+          </div>
+
+        ) : (
+          <>
+            {/* ── Stats bar ───────────────────────────────────────────────────── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginBottom: 24 }}>
+              {STATUSES.map(s => (
+                <button
+                  key={s}
+                  className="stat-btn"
+                  onClick={() => setFilter(prev => prev === s ? 'all' : s)}
+                  style={{
+                    background: filter === s ? STATUS_CONFIG[s].bg : '#fff',
+                    border: `1px solid ${filter === s ? STATUS_CONFIG[s].color + '55' : '#e0e0e0'}`,
+                    borderTop: `3px solid ${STATUS_CONFIG[s].color}`,
+                    padding: '14px 14px 12px',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-body)',
+                    transition: 'opacity 0.15s',
+                  }}
+                >
+                  <div style={{ fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-heading)', color: STATUS_CONFIG[s].color, lineHeight: 1, letterSpacing: '-0.5px' }}>
+                    {statCounts[s] ?? 0}
+                  </div>
+                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: '#999', marginTop: 5 }}>
+                    {STATUS_LABELS[s]}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* ── Toolbar ─────────────────────────────────────────────────────── */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+              <p style={{ margin: 0, fontSize: 12, color: '#999' }}>
+                {filter === 'all'
+                  ? `${jobs.length} job${jobs.length !== 1 ? 's' : ''} total`
+                  : `${filtered.length} ${STATUS_LABELS[filter]?.toLowerCase()}`}
+              </p>
+              <div style={{ display: 'flex', gap: 3 }}>
+                {(['all', ...STATUSES] as string[]).map(s => (
+                  <button
+                    key={s}
+                    className="filter-btn"
+                    onClick={() => setFilter(s)}
+                    style={{
+                      padding: '4px 11px',
+                      fontSize: 11,
+                      fontWeight: filter === s ? 700 : 500,
+                      background: filter === s ? '#1a1a1a' : '#fff',
+                      color: filter === s ? '#fff' : '#666',
+                      border: `1px solid ${filter === s ? '#1a1a1a' : '#ddd'}`,
+                      cursor: 'pointer',
+                      fontFamily: 'var(--font-body)',
+                      letterSpacing: '0.3px',
+                    }}
+                  >
+                    {s === 'all' ? 'All' : STATUS_LABELS[s]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── Empty state ──────────────────────────────────────────────────── */}
+            {filtered.length === 0 ? (
+              <div style={{ background: '#fff', border: '1px solid #e0e0e0', padding: '48px 32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>
+                No {filter !== 'all' ? STATUS_LABELS[filter]?.toLowerCase() + ' ' : ''}jobs.
+              </div>
+            ) : (
+
+              /* ── Job list ──────────────────────────────────────────────────── */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {filtered.map(job => (
+                  <div
+                    key={job.id}
+                    style={{
+                      background: '#fff',
+                      border: '1px solid #e0e0e0',
+                      borderLeft: `4px solid ${STATUS_COLORS[job.status] ?? '#ccc'}`,
+                    }}
+                  >
+                    {/* Card top: identity + date */}
+                    <div style={{ padding: '15px 18px 13px', borderBottom: '1px solid #f2f2f2' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          {/* Ref + status + file badge */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
+                            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 14, color: 'var(--coral)', letterSpacing: '0.5px' }}>
+                              {job.reference_number}
+                            </span>
+                            <StatusPill status={job.status} />
+                            {job.file_paths.length > 0 && (
+                              <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.8px', color: '#999', background: '#f5f5f5', border: '1px solid #e0e0e0', padding: '1px 6px' }}>
+                                {job.file_paths.length} FILE{job.file_paths.length !== 1 ? 'S' : ''}
+                              </span>
+                            )}
+                          </div>
+                          {/* Client name + company */}
+                          <p style={{ margin: '0 0 3px', fontWeight: 700, fontSize: 14, color: '#1a1a1a' }}>
+                            {job.client_name}
+                            {job.company_name && (
+                              <span style={{ fontWeight: 400, color: '#888', fontSize: 13 }}> — {job.company_name}</span>
+                            )}
+                          </p>
+                          {/* Meta row */}
+                          <div style={{ fontSize: 12, color: '#999', display: 'flex', flexWrap: 'wrap', columnGap: 14, rowGap: 2, marginTop: 1 }}>
+                            <a href={`mailto:${job.contact_email}`} style={{ color: '#999', textDecoration: 'none' }}>
+                              {job.contact_email}
+                            </a>
+                            <span>
+                              Due&nbsp;
+                              <strong style={{ color: '#1a1a1a', fontWeight: 700 }}>{job.date_required}</strong>
+                            </span>
+                            {job.event_name && <span>{job.event_name}</span>}
+                          </div>
+                        </div>
+                        {/* Submitted date */}
+                        <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap', flexShrink: 0, paddingTop: 2 }}>
+                          {new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Items */}
+                    <div style={{ padding: '10px 18px', borderBottom: '1px solid #f2f2f2', display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                      {job.items.map((item, i) => (
+                        <span key={i} style={{ background: '#f8f7f5', border: '1px solid #eaeaea', padding: '3px 9px', fontSize: 12, color: '#444' }}>
+                          <strong style={{ color: 'var(--coral)', marginRight: 2 }}>{item.quantity}×</strong>
+                          {item.name}
+                          {item.size     && <span style={{ color: '#999' }}> · {item.size}</span>}
+                          {item.material && <span style={{ color: '#bbb' }}> · {item.material}</span>}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* Notes */}
+                    {job.notes && (
+                      <div style={{ padding: '9px 18px', borderBottom: '1px solid #f2f2f2', background: '#fafafa', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: '#bbb', paddingTop: 1, flexShrink: 0 }}>Notes</span>
+                        <span style={{ fontSize: 12, color: '#666', lineHeight: 1.5 }}>{job.notes}</span>
+                      </div>
+                    )}
+
+                    {/* Files */}
+                    {job.file_paths.length > 0 && (
+                      <div style={{ padding: '9px 18px', borderBottom: '1px solid #f2f2f2', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {fileUrls[job.id] ? (
+                          <>
+                            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: '#bbb' }}>Files</span>
+                            {fileUrls[job.id].map(f => (
+                              <a
+                                key={f.path}
+                                href={f.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="file-link"
+                                style={{ fontSize: 12, color: 'var(--coral)', textDecoration: 'none', fontWeight: 600, background: '#fff8f6', border: '1px solid var(--coral)44', padding: '2px 9px' }}
+                              >
+                                ↓ {f.name}
+                              </a>
+                            ))}
+                          </>
+                        ) : fileError === job.id ? (
+                          <span style={{ fontSize: 12, color: '#b91c1c' }}>Failed to load files.</span>
+                        ) : (
+                          <button
+                            onClick={() => loadFiles(job.id, job.file_paths)}
+                            disabled={loadingFiles === job.id}
+                            style={{ fontSize: 12, fontWeight: 600, color: 'var(--coral)', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-body)' }}
+                          >
+                            {loadingFiles === job.id
+                              ? 'Loading…'
+                              : `View ${job.file_paths.length} attached file${job.file_paths.length !== 1 ? 's' : ''} →`}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Actions footer */}
+                    <div style={{ padding: '10px 18px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, background: '#fafafa' }}>
+
+                      {/* Print */}
+                      <button
+                        onClick={() => printJobTicket(job)}
+                        className="job-action-btn"
+                        title="Print job ticket"
+                        style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: '#555', background: '#fff', border: '1px solid #ddd', padding: '5px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}
+                      >
+                        <PrintIcon /> Print
+                      </button>
+
+                      {/* Invoice → Command Centre */}
+                      <button
+                        onClick={() => sendToCommandCentre(job)}
+                        disabled={sendingToCC === job.id || sentToCC.has(job.id)}
+                        className="job-action-btn invoice-btn"
+                        title={sentToCC.has(job.id) ? 'Draft invoice created in Command Centre' : 'Create draft invoice in Command Centre'}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 5,
+                          fontSize: 11, fontWeight: 700,
+                          color: sentToCC.has(job.id) ? '#15803d' : '#166534',
+                          background: sentToCC.has(job.id) ? '#dcfce7' : '#f0fdf4',
+                          border: `1px solid ${sentToCC.has(job.id) ? '#86efac' : '#bbf7d0'}`,
+                          padding: '5px 11px',
+                          cursor: (sendingToCC === job.id || sentToCC.has(job.id)) ? 'default' : 'pointer',
+                          opacity: sendingToCC === job.id ? 0.6 : 1,
+                          fontFamily: 'var(--font-body)',
+                        }}
+                      >
+                        {sentToCC.has(job.id)
+                          ? <><CheckIcon /> Invoiced</>
+                          : sendingToCC === job.id
+                            ? 'Sending…'
+                            : <><InvoiceIcon /> Invoice</>}
+                      </button>
+
+                      {/* Status dropdown */}
+                      <select
+                        value={job.status}
+                        disabled={updating === job.id}
+                        onChange={e => updateStatus(job.id, e.target.value)}
+                        style={{ padding: '5px 9px', fontSize: 11, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontFamily: 'var(--font-body)', color: '#333', fontWeight: 600 }}
+                      >
+                        {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+                      </select>
+                    </div>
+
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </main>
