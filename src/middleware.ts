@@ -30,9 +30,9 @@ export async function middleware(req: NextRequest) {
   // Auth guard for /portal and /admin
   if (pathname.startsWith('/portal') || pathname.startsWith('/admin')) {
     const supabase = createMiddlewareClient(req, res)
-    const { data: { session } } = await supabase.auth.getSession()
+    const { data: { user } } = await supabase.auth.getUser()
 
-    if (!session) {
+    if (!user) {
       const loginUrl = new URL('/login', req.url)
       loginUrl.searchParams.set('next', pathname)
       return NextResponse.redirect(loginUrl)
@@ -41,7 +41,7 @@ export async function middleware(req: NextRequest) {
     // Admin-only guard
     if (pathname.startsWith('/admin')) {
       const adminEmail = process.env.ADMIN_EMAIL
-      if (!adminEmail || session.user.email !== adminEmail) {
+      if (!adminEmail || user.email !== adminEmail) {
         return NextResponse.redirect(new URL('/portal', req.url))
       }
     }
