@@ -5,7 +5,7 @@ const ipMap = new Map<string, { count: number; resetAt: number }>()
 const WINDOW_MS = 60_000
 const MAX_REQUESTS = 5
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl
   const res = NextResponse.next()
 
