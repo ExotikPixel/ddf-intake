@@ -14,9 +14,10 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
     const supabase = createClient()
+    const next = new URLSearchParams(location.search).get('next') ?? '/portal'
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${location.origin}/auth/callback` },
+      options: { emailRedirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(next)}` },
     })
     if (error) {
       setError(error.message)
