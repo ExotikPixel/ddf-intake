@@ -24,3 +24,7 @@ export const STATUS_CONFIG: Record<string, { label: string; color: string; bg: s
   completed:   { label: 'Completed',   color: '#131313', bg: '#f0f0f0' },
   cancelled:   { label: 'Cancelled',   color: '#C62828', bg: '#fff0f0' },
 }
+
+/** DB status values that trigger a client notification email */
+export const NOTIFICATION_STATUSES = ['in_progress', 'completed'] as const
+export type NotificationStatus = typeof NOTIFICATION_STATUSES[number]
