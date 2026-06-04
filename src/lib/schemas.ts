@@ -23,3 +23,9 @@ export const SubmitSchema = z.object({
 
 export type SubmitInput = z.infer<typeof SubmitSchema>
 export type ItemInput = z.infer<typeof ItemSchema>
+
+export const JobPatchNotifySchema = z.object({
+  notify_client: z.boolean(),
+})
+
+export type JobPatchNotifyInput = z.infer<typeof JobPatchNotifySchema>
