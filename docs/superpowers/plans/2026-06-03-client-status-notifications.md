@@ -217,9 +217,9 @@ Two changes:
 1. Add a new `notify_client` PATCH branch (toggle-only update).
 2. After a status update, re-fetch the job and conditionally send a notification email.
 
-- [ ] **Step 1: Update the imports**
+- [ ] **Step 1: Update the top of the file**
 
-Open `src/app/api/admin/jobs/[id]/route.ts`. Replace the current imports block — **keep the `const VALID_STATUSES` line that follows it**:
+Open `src/app/api/admin/jobs/[id]/route.ts`. Replace **everything from line 1 through the `const VALID_STATUSES` line** (the imports, the `export const dynamic`, and the `VALID_STATUSES` declaration) with:
 
 ```ts
 import { NextRequest, NextResponse } from 'next/server'
@@ -234,9 +234,11 @@ export const dynamic = 'force-dynamic'
 const VALID_STATUSES: string[] = [...STATUSES]
 ```
 
-- [ ] **Step 2: Replace the status branch with notification logic**
+Everything after `const VALID_STATUSES` (the `export async function PATCH` and its body) is untouched.
 
-Find the status-only update block (starts with `if ('status' in body) {`). Replace it entirely with:
+- [ ] **Step 2: Replace ONLY the status branch**
+
+Find the `if ('status' in body) { ... }` block — it ends with `return NextResponse.json({ success: true })`. Replace **only that block** (leave the edit branch and final `return NextResponse.json({ error: 'Nothing to update' })` completely untouched). Replace the status block with:
 
 ```ts
   // notify_client toggle update
@@ -274,9 +276,7 @@ Find the status-only update block (starts with `if ('status' in body) {`). Repla
         .single()
 
       if (!job) {
-        // Status write already succeeded — log and return success, skip notification
-        console.warn(`[notify] Re-fetch after status update returned no row for job ${jobId}`)
-        return NextResponse.json({ success: true })
+        return NextResponse.json({ error: 'Job not found' }, { status: 404 })
       }
 
       if (job.notify_client && job.contact_email) {
@@ -308,7 +308,7 @@ Expected: no errors.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/app/api/admin/jobs/\[id\]/route.ts src/lib/job-types.ts
+git add src/app/api/admin/jobs/\[id\]/route.ts
 git commit -m "feat: extend PATCH handler with notify_client branch and status notification trigger"
 ```
 
@@ -382,7 +382,7 @@ async function toggleNotify(jobId: number, currentValue: boolean) {
 
 - [ ] **Step 4: Add the toggle to each job card**
 
-Find the job card action buttons area — look for the `{/* Status dropdown */}` comment. Just before it (or after the Invoice button), add the notify toggle:
+Find the `{/* Status dropdown */}` comment in the job card JSX. Place the notify toggle **immediately before** that comment:
 
 ```tsx
 {/* Notify client toggle */}
