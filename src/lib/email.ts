@@ -1,5 +1,6 @@
 import 'server-only'
 import { BrevoClient } from '@getbrevo/brevo'
+import type { NotificationStatus } from '@/lib/job-types'
 
 const brevo = new BrevoClient({ apiKey: process.env.BREVO_API_KEY! })
 
@@ -144,7 +145,7 @@ export async function sendConfirmationEmail(job: JobEmailData) {
 
 export async function sendStatusNotification(
   job: { reference_number: string; client_name: string; contact_email: string },
-  status: 'in_progress' | 'completed'
+  status: NotificationStatus
 ): Promise<void> {
   const isInProgress = status === 'in_progress'
 
@@ -162,7 +163,7 @@ export async function sendStatusNotification(
 <body style="font-family:sans-serif;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px">
   <div style="background:#1a1a1a;color:#fff;padding:16px 20px;margin-bottom:24px">
     <span style="font-weight:800;font-size:18px;letter-spacing:2px">DDF-PIXEL</span>
-    <span style="float:right;background:#C8702A;color:#fff;padding:4px 10px;font-size:12px;font-weight:700;border-radius:3px">${job.reference_number}</span>
+    <span style="float:right;background:#ff4d2d;color:#fff;padding:4px 10px;font-size:12px;font-weight:700;border-radius:3px">${job.reference_number}</span>
   </div>
 
   <p>Hi ${job.client_name},</p>
@@ -174,6 +175,8 @@ export async function sendStatusNotification(
 </body>
 </html>`
 
+  // Best-effort delivery — swallow errors so a transient email failure
+  // never prevents the status update from being persisted.
   try {
     await brevo.transactionalEmails.sendTransacEmail({
       to: [{ email: job.contact_email, name: job.client_name }],
