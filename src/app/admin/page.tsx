@@ -19,6 +19,15 @@ interface Job {
   submitted_at: string
   items: JobItem[]
   file_paths: string[]
+  notify_client: boolean
+}
+
+interface EditForm {
+  date_required: string
+  event_name: string
+  notes: string
+  items: JobItem[]
+  file_paths: string[]
 }
 
 // ── XSS guard ──────────────────────────────────────────────────────────────
@@ -55,6 +64,14 @@ function CheckIcon() {
     </svg>
   )
 }
+function EditIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+    </svg>
+  )
+}
 
 // ── Status pill ────────────────────────────────────────────────────────────
 function StatusPill({ status }: { status: string }) {
@@ -87,11 +104,17 @@ export default function AdminPage() {
   const [loadError, setLoadError]       = useState('')
   const [filter, setFilter]             = useState('all')
   const [updating, setUpdating]         = useState<number | null>(null)
+  const [togglingNotify, setTogglingNotify] = useState<number | null>(null)
   const [fileUrls, setFileUrls]         = useState<Record<number, { path: string; name: string; url: string }[]>>({})
   const [loadingFiles, setLoadingFiles] = useState<number | null>(null)
   const [fileError, setFileError]       = useState<number | null>(null)
   const [sendingToCC, setSendingToCC]   = useState<number | null>(null)
   const [sentToCC, setSentToCC]         = useState<Set<number>>(new Set())
+  const [editingJob, setEditingJob]     = useState<number | null>(null)
+  const [editForm, setEditForm]         = useState<EditForm | null>(null)
+  const [savingEdit, setSavingEdit]     = useState(false)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [uploadPhotoError, setUploadPhotoError] = useState('')
   const router = useRouter()
 
   useEffect(() => {
@@ -136,6 +159,26 @@ export default function AdminPage() {
     }
   }
 
+  async function toggleNotify(jobId: number, currentValue: boolean) {
+    const newValue = !currentValue
+    // Optimistic update
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, notify_client: newValue } : j))
+    setTogglingNotify(jobId)
+    try {
+      const res = await fetch(`/api/admin/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notify_client: newValue }),
+      })
+      if (!res.ok) throw new Error('PATCH failed')
+    } catch {
+      // Rollback on failure
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, notify_client: currentValue } : j))
+    } finally {
+      setTogglingNotify(null)
+    }
+  }
+
   async function loadFiles(jobId: number, paths: string[]) {
     if (fileUrls[jobId] || paths.length === 0) return
     setLoadingFiles(jobId)
@@ -149,10 +192,127 @@ export default function AdminPage() {
       if (!res.ok) { setFileError(jobId); return }
       const { urls } = await res.json()
       setFileUrls(prev => ({ ...prev, [jobId]: urls }))
+      return urls as { path: string; name: string; url: string }[]
     } catch {
       setFileError(jobId)
     } finally {
       setLoadingFiles(null)
+    }
+  }
+
+  function startEdit(job: Job) {
+    setEditingJob(job.id)
+    setEditForm({
+      date_required: job.date_required,
+      event_name: job.event_name ?? '',
+      notes: job.notes ?? '',
+      items: job.items.map(i => ({ ...i })),
+      file_paths: [...job.file_paths],
+    })
+  }
+
+  function cancelEdit() {
+    setEditingJob(null)
+    setEditForm(null)
+  }
+
+  async function saveEdit(jobId: number) {
+    if (!editForm) return
+    setSavingEdit(true)
+    try {
+      const res = await fetch(`/api/admin/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date_required: editForm.date_required,
+          event_name: editForm.event_name || null,
+          notes: editForm.notes || null,
+          items: editForm.items,
+          file_paths: editForm.file_paths,
+        }),
+      })
+      if (res.ok) {
+        setJobs(prev => prev.map(j => j.id === jobId ? {
+          ...j,
+          date_required: editForm.date_required,
+          event_name: editForm.event_name || null,
+          notes: editForm.notes || null,
+          items: editForm.items,
+          file_paths: editForm.file_paths,
+        } : j))
+        // clear cached file urls if files were removed
+        setFileUrls(prev => {
+          const next = { ...prev }
+          if (next[jobId]) {
+            next[jobId] = next[jobId].filter(f => editForm.file_paths.includes(f.path))
+          }
+          return next
+        })
+        cancelEdit()
+      } else {
+        alert('Failed to save changes — please try again.')
+      }
+    } catch {
+      alert('Network error — changes not saved.')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  function updateEditItem(index: number, field: keyof JobItem, value: string | number) {
+    if (!editForm) return
+    setEditForm(prev => {
+      if (!prev) return prev
+      const items = [...prev.items]
+      items[index] = { ...items[index], [field]: value }
+      return { ...prev, items }
+    })
+  }
+
+  function addEditItem() {
+    if (!editForm) return
+    setEditForm(prev => prev ? {
+      ...prev,
+      items: [...prev.items, { name: '', quantity: 1, size: '', material: 'vinyl' }],
+    } : prev)
+  }
+
+  function removeEditItem(index: number) {
+    if (!editForm) return
+    setEditForm(prev => prev ? {
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index),
+    } : prev)
+  }
+
+  async function addPhoto(file: File) {
+    if (!editForm) return
+    setUploadPhotoError('')
+    setUploadingPhoto(true)
+    try {
+      const urlRes = await fetch('/api/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: [{ name: file.name, type: file.type, size: file.size }] }),
+      })
+      if (!urlRes.ok) {
+        const { error } = await urlRes.json()
+        setUploadPhotoError(error ?? 'Could not get upload URL')
+        return
+      }
+      const { uploads } = await urlRes.json()
+      const { path, signedUrl } = uploads[0]
+      const putRes = await fetch(signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      })
+      if (!putRes.ok) { setUploadPhotoError('Upload failed — please try again.'); return }
+      setEditForm(prev => prev ? { ...prev, file_paths: [...prev.file_paths, path] } : prev)
+    } catch {
+      setUploadPhotoError('Network error during upload.')
+    } finally {
+      setUploadingPhoto(false)
     }
   }
 
@@ -176,7 +336,7 @@ export default function AdminPage() {
     }
   }
 
-  function printJobTicket(job: Job) {
+  async function printJobTicket(job: Job) {
     const statusLabel   = STATUS_LABELS[job.status] ?? job.status
     const submittedDate = new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
     const printDate     = new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -201,6 +361,25 @@ export default function AdminPage() {
       <div>
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:2px;">Event / Location</div>
         <div style="font-size:14px;font-weight:600;">${escHtml(job.event_name)}</div>
+      </div>` : ''
+
+    // Load reference photos if not already cached
+    let resolvedFiles = fileUrls[job.id]
+    if (!resolvedFiles && job.file_paths.length > 0) {
+      resolvedFiles = await loadFiles(job.id, job.file_paths) ?? []
+    }
+
+    const imageSection = resolvedFiles && resolvedFiles.length > 0 ? `
+      <div style="margin-bottom:24px;">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#999;border-bottom:1px solid #e8e8e8;padding-bottom:6px;margin-bottom:12px;">Reference Photos (${resolvedFiles.length})</div>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;">
+          ${resolvedFiles.map(f => `
+            <div style="text-align:center;">
+              <img src="${f.url}" alt="${escHtml(f.name)}" style="max-width:200px;max-height:160px;object-fit:contain;border:1px solid #e8e8e8;display:block;" />
+              <div style="font-size:10px;color:#999;margin-top:4px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(f.name)}</div>
+            </div>
+          `).join('')}
+        </div>
       </div>` : ''
 
     const html = `<!DOCTYPE html>
@@ -273,6 +452,7 @@ export default function AdminPage() {
       </table>
     </div>
     ${notesSection}
+    ${imageSection}
     <div style="margin-top:32px;padding-top:12px;border-top:1px solid #e8e8e8;display:flex;justify-content:space-between;font-size:11px;color:#aaa;">
       <span>Pixel Production — Internal Job Ticket</span>
       <span>Printed: ${printDate}</span>
@@ -545,6 +725,16 @@ export default function AdminPage() {
                     {/* Actions footer */}
                     <div style={{ padding: '10px 18px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, background: '#fafafa' }}>
 
+                      {/* Edit */}
+                      <button
+                        onClick={() => editingJob === job.id ? cancelEdit() : startEdit(job)}
+                        className="job-action-btn"
+                        title="Edit brief"
+                        style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: editingJob === job.id ? 'var(--coral)' : '#555', background: editingJob === job.id ? '#fff8f6' : '#fff', border: `1px solid ${editingJob === job.id ? 'var(--coral)44' : '#ddd'}`, padding: '5px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}
+                      >
+                        <EditIcon /> {editingJob === job.id ? 'Cancel' : 'Edit Brief'}
+                      </button>
+
                       {/* Print */}
                       <button
                         onClick={() => printJobTicket(job)}
@@ -580,6 +770,34 @@ export default function AdminPage() {
                             : <><InvoiceIcon /> Invoice</>}
                       </button>
 
+                      {/* Notify client toggle */}
+                      <button
+                        onClick={() => toggleNotify(job.id, job.notify_client)}
+                        disabled={togglingNotify === job.id}
+                        title={job.notify_client ? 'Client notifications ON — click to disable' : 'Client notifications OFF — click to enable'}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          padding: '5px 9px',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          border: '1px solid',
+                          borderColor: job.notify_client ? '#C8702A' : '#ddd',
+                          background: job.notify_client ? '#fff7ed' : '#fff',
+                          color: job.notify_client ? '#C8702A' : '#999',
+                          cursor: togglingNotify === job.id ? 'wait' : 'pointer',
+                          opacity: togglingNotify === job.id ? 0.6 : 1,
+                          fontFamily: 'var(--font-body)',
+                        }}
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                          <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                        </svg>
+                        {job.notify_client ? 'Notify: ON' : 'Notify: OFF'}
+                      </button>
+
                       {/* Status dropdown */}
                       <select
                         value={job.status}
@@ -590,6 +808,149 @@ export default function AdminPage() {
                         {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
                       </select>
                     </div>
+
+                    {/* ── Edit panel ───────────────────────────────────────── */}
+                    {editingJob === job.id && editForm && (
+                      <div style={{ padding: '18px', borderTop: '2px solid var(--coral)', background: '#fffdf9' }}>
+                        <p style={{ margin: '0 0 14px', fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>Edit Brief</p>
+
+                        {/* Date + Event */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+                            Due Date
+                            <input
+                              type="date"
+                              value={editForm.date_required}
+                              onChange={e => setEditForm(prev => prev ? { ...prev, date_required: e.target.value } : prev)}
+                              style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', color: '#1a1a1a' }}
+                            />
+                          </label>
+                          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+                            Event / Location
+                            <input
+                              type="text"
+                              value={editForm.event_name}
+                              onChange={e => setEditForm(prev => prev ? { ...prev, event_name: e.target.value } : prev)}
+                              placeholder="Optional"
+                              style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', color: '#1a1a1a' }}
+                            />
+                          </label>
+                        </div>
+
+                        {/* Notes */}
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 14 }}>
+                          Notes / Special Instructions
+                          <textarea
+                            value={editForm.notes}
+                            onChange={e => setEditForm(prev => prev ? { ...prev, notes: e.target.value } : prev)}
+                            rows={3}
+                            placeholder="Optional"
+                            style={{ padding: '8px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', color: '#1a1a1a', resize: 'vertical' }}
+                          />
+                        </label>
+
+                        {/* Reference Photos */}
+                        <div style={{ marginBottom: 14 }}>
+                          <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Reference Photos</p>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                            {editForm.file_paths.map(path => {
+                              const name = path.split('/').pop() ?? path
+                              const cached = fileUrls[job.id]?.find(f => f.path === path)
+                              return (
+                                <div key={path} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f8f7f5', border: '1px solid #e0e0e0', padding: '4px 8px 4px 4px' }}>
+                                  {cached && (
+                                    <img src={cached.url} alt={name} style={{ width: 36, height: 36, objectFit: 'cover', flexShrink: 0 }} />
+                                  )}
+                                  <span style={{ fontSize: 11, color: '#555', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                                  <button
+                                    onClick={() => setEditForm(prev => prev ? { ...prev, file_paths: prev.file_paths.filter(p => p !== path) } : prev)}
+                                    title="Remove photo"
+                                    style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 14, fontWeight: 700, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
+                                  >×</button>
+                                </div>
+                              )
+                            })}
+                            {editForm.file_paths.length < 3 && (
+                              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: uploadingPhoto ? '#aaa' : 'var(--coral)', background: 'none', border: '1px dashed var(--coral)66', padding: '5px 12px', cursor: uploadingPhoto ? 'default' : 'pointer' }}>
+                                <input
+                                  type="file"
+                                  accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
+                                  style={{ display: 'none' }}
+                                  disabled={uploadingPhoto}
+                                  onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addPhoto(f) } }}
+                                />
+                                {uploadingPhoto ? 'Uploading…' : '+ Add Photo'}
+                              </label>
+                            )}
+                          </div>
+                          {uploadPhotoError && <p style={{ margin: '0 0 4px', fontSize: 11, color: '#dc2626' }}>{uploadPhotoError}</p>}
+                          {editForm.file_paths.length > 0 && <p style={{ margin: 0, fontSize: 11, color: '#aaa' }}>Removing a photo cannot be undone after saving.</p>}
+                        </div>
+
+                        {/* Items */}
+                        <div style={{ marginBottom: 14 }}>
+                          <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Items</p>
+                          {editForm.items.map((item, idx) => (
+                            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '52px 1fr 120px 140px 32px', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                              <input
+                                type="number" min={1} value={item.quantity}
+                                onChange={e => updateEditItem(idx, 'quantity', parseInt(e.target.value) || 1)}
+                                style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', textAlign: 'center' }}
+                                placeholder="Qty"
+                              />
+                              <input
+                                type="text" value={item.name}
+                                onChange={e => updateEditItem(idx, 'name', e.target.value)}
+                                style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}
+                                placeholder="Description"
+                              />
+                              <input
+                                type="text" value={item.size}
+                                onChange={e => updateEditItem(idx, 'size', e.target.value)}
+                                style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}
+                                placeholder="Size"
+                              />
+                              <select
+                                value={item.material}
+                                onChange={e => updateEditItem(idx, 'material', e.target.value)}
+                                style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}
+                              >
+                                {['vinyl','fabric','foam-board','acrylic','other'].map(m => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))}
+                              </select>
+                              <button
+                                onClick={() => removeEditItem(idx)}
+                                disabled={editForm.items.length === 1}
+                                style={{ background: 'none', border: '1px solid #fca5a5', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: '4px 6px', opacity: editForm.items.length === 1 ? 0.3 : 1 }}
+                              >×</button>
+                            </div>
+                          ))}
+                          {editForm.items.length < 10 && (
+                            <button
+                              onClick={addEditItem}
+                              style={{ fontSize: 11, fontWeight: 600, color: 'var(--coral)', background: 'none', border: '1px dashed var(--coral)66', padding: '5px 14px', cursor: 'pointer', fontFamily: 'var(--font-body)', marginTop: 4 }}
+                            >
+                              + Add Item
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Save / Cancel */}
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                          <button onClick={cancelEdit} style={{ fontSize: 12, padding: '7px 18px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => saveEdit(job.id)}
+                            disabled={savingEdit}
+                            style={{ fontSize: 12, fontWeight: 700, padding: '7px 20px', background: '#1a1a1a', color: '#fff', border: 'none', cursor: savingEdit ? 'default' : 'pointer', opacity: savingEdit ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}
+                          >
+                            {savingEdit ? 'Saving…' : 'Save Changes'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                   </div>
                 ))}
