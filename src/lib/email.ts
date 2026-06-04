@@ -141,3 +141,47 @@ export async function sendConfirmationEmail(job: JobEmailData) {
     htmlContent: html,
   })
 }
+
+export async function sendStatusNotification(
+  job: { reference_number: string; client_name: string; contact_email: string },
+  status: 'in_progress' | 'completed'
+): Promise<void> {
+  const isInProgress = status === 'in_progress'
+
+  const subject = isInProgress
+    ? `Your job is in production — ${job.reference_number}`
+    : `Your job is ready — ${job.reference_number}`
+
+  const bodyText = isInProgress
+    ? `Good news — your job is now in production. We'll be in touch when it's ready for pickup.`
+    : `Great news — your job is ready! Come collect at your convenience during business hours.`
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px">
+  <div style="background:#1a1a1a;color:#fff;padding:16px 20px;margin-bottom:24px">
+    <span style="font-weight:800;font-size:18px;letter-spacing:2px">DDF-PIXEL</span>
+    <span style="float:right;background:#C8702A;color:#fff;padding:4px 10px;font-size:12px;font-weight:700;border-radius:3px">${job.reference_number}</span>
+  </div>
+
+  <p>Hi ${job.client_name},</p>
+  <p>${bodyText}</p>
+  <p><strong>Job Reference:</strong> ${job.reference_number}</p>
+  <hr style="border:none;border-top:1px solid #e0deda;margin:24px 0">
+  <p style="color:#666;font-size:13px">If you have any questions, feel free to contact us.</p>
+  <p style="color:#666;font-size:13px">— The DDF Pixel team</p>
+</body>
+</html>`
+
+  try {
+    await brevo.transactionalEmails.sendTransacEmail({
+      to: [{ email: job.contact_email, name: job.client_name }],
+      sender: SENDER,
+      subject,
+      htmlContent: html,
+    })
+  } catch (err) {
+    console.error('[sendStatusNotification] Brevo send failed:', err)
+  }
+}
