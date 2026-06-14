@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 import { sendNotificationEmail, sendConfirmationEmail } from '@/lib/email'
+import { sendNtfy } from '@/lib/ntfy'
+
+export const dynamic = 'force-dynamic'
 import { SubmitSchema } from '@/lib/schemas'
 import { generateReferenceNumber } from '@/lib/reference'
 
@@ -90,10 +93,16 @@ export async function POST(req: NextRequest) {
     }),
   }
 
-  // Emails are best-effort — a failed email does not fail the submission
+  // Emails + phone push are best-effort — a failure does not fail the submission
   await Promise.allSettled([
     sendNotificationEmail(emailData).catch((e) => console.error('[email] notification failed:', e)),
     sendConfirmationEmail(emailData).catch((e) => console.error('[email] confirmation failed:', e)),
+    sendNtfy({
+      title: 'New job submitted',
+      message: `${data.companyName} — ${data.clientName}\n${data.items.length} item${data.items.length !== 1 ? 's' : ''}, due ${data.dateRequired}\nRef ${referenceNumber}`,
+      tags: 'inbox_tray',
+      priority: 4,
+    }),
   ])
 
   return NextResponse.json({ success: true, referenceNumber })
