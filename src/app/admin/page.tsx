@@ -550,12 +550,16 @@ export default function AdminPage() {
   }
 
   async function printApprovedSheet(job: Job) {
-    const BRAND = '#b8955a'
-    const printDate = new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    const CORAL = '#ff4d2d'
+    const printDate = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+    const createdDate = new Date(job.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
+    const proofItems = job.items.filter(i => itemProofs(i).length > 0)
     const approved = job.items
       .map((it, i) => ({ it, i }))
       .filter(x => itemProofs(x.it).length > 0 && x.it.approval_status === 'approved')
+    const total = proofItems.length
+    const isFull = approved.length === total
 
     const paths = approved.flatMap(x => itemProofs(x.it))
     const urlMap: Record<string, string> = {}
@@ -573,54 +577,99 @@ export default function AdminPage() {
 
     const itemBlocks = approved.map(({ it }) => {
       const imgs = itemProofs(it).map(p => urlMap[p]
-        ? `<img src="${urlMap[p]}" alt="${escHtml(it.name)}" style="max-width:320px;max-height:300px;object-fit:contain;border:1px solid #e8e8e8;" />`
+        ? `<img src="${urlMap[p]}" alt="${escHtml(it.name)}" style="width:100%;max-height:360px;object-fit:contain;border:1px solid #e8e8e8;display:block;margin-bottom:8px;" />`
         : '').join('')
       const when = it.approved_at
-        ? new Date(it.approved_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })
+        ? new Date(it.approved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
         : ''
       return `
-        <div style="margin-bottom:28px;page-break-inside:avoid;">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #1a1a1a;padding-bottom:6px;margin-bottom:12px;">
-            <div style="font-size:16px;font-weight:800;">${escHtml(it.quantity + '× ' + it.name)}${it.size ? `<span style="font-weight:400;color:#777;font-size:13px;"> · ${escHtml(it.size)}</span>` : ''}</div>
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#1B7F4F;">✓ Approved${when ? ' · ' + when : ''}</div>
+        <div style="margin-bottom:26px;page-break-inside:avoid;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+            <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;">${escHtml(it.quantity + '× ' + it.name)}${it.size ? `<span style="font-weight:400;color:#888;text-transform:none;letter-spacing:0;"> · ${escHtml(it.size)}</span>` : ''}</div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#1B7F4F;white-space:nowrap;">✓ Approved${when ? ' · ' + when : ''}</div>
           </div>
-          <div style="display:flex;flex-wrap:wrap;gap:12px;">${imgs || '<span style="color:#aaa;font-size:12px;">Image unavailable</span>'}</div>
+          ${imgs || '<span style="color:#aaa;font-size:12px;">Image unavailable</span>'}
         </div>`
     }).join('')
+
+    const cell = (label: string, value: string, strong = false) =>
+      `<td style="padding:14px 16px;border:1px solid #ececec;vertical-align:top;">
+        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#aaa;margin-bottom:4px;">${label}</div>
+        <div style="font-size:14px;font-weight:${strong ? 800 : 600};color:${strong ? '#1a1a1a' : '#333'};">${value || '—'}</div>
+      </td>`
+
+    const statusPill = isFull
+      ? `<span style="display:inline-block;padding:4px 12px;background:#eef7f3;color:#1B7F4F;border:1px solid #1B7F4F33;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;">Fully Approved</span>`
+      : `<span style="display:inline-block;padding:4px 12px;background:#fff7ed;color:#b06a00;border:1px solid #b06a0033;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;">Partial · ${approved.length} of ${total} approved</span>`
 
     const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8" /><title>Approved Designs — ${escHtml(job.reference_number)}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 32px; }
-  @media print { body { padding: 0; } @page { margin: 16mm 18mm; size: A4 portrait; } .no-print { display: none !important; } }
+  table { width: 100%; border-collapse: collapse; }
+  @media print { body { padding: 0; } @page { margin: 14mm 16mm; size: A4 portrait; } .no-print { display: none !important; } }
 </style></head>
 <body>
   <div class="no-print" style="margin-bottom:24px;display:flex;gap:10px;">
     <button onclick="window.print()" style="background:#1a1a1a;color:#fff;border:none;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Print</button>
     <button onclick="window.close()" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;padding:10px 24px;font-size:13px;cursor:pointer;">Close</button>
   </div>
-  <div style="max-width:720px;margin:0 auto;">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a1a1a;padding-bottom:20px;margin-bottom:24px;">
+  <div style="max-width:760px;margin:0 auto;">
+
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
       <div>
-        <div style="font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#999;margin-bottom:4px;">Pixel Production</div>
-        <div style="font-size:30px;font-weight:900;color:${BRAND};letter-spacing:1px;line-height:1;">${escHtml(job.reference_number)}</div>
+        <div style="font-size:22px;font-weight:900;letter-spacing:1px;color:#1a1a1a;">DDF <span style="font-weight:400;">X</span> PIXEL</div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#999;margin-top:2px;">Approved Designs</div>
       </div>
       <div style="text-align:right;">
-        <div style="font-size:20px;font-weight:900;letter-spacing:2px;text-transform:uppercase;">Approved Designs</div>
-        <div style="font-size:12px;color:#666;margin-top:4px;">${escHtml(job.client_name)}${job.company_name ? ' — ' + escHtml(job.company_name) : ''}</div>
-        <div style="font-size:12px;color:#666;">Due: ${escHtml(job.date_required)}</div>
+        <div style="font-size:22px;font-weight:900;letter-spacing:0.5px;color:#1a1a1a;">#${escHtml(job.reference_number)}</div>
+        <div style="font-size:11px;color:#888;margin-top:4px;">Printed ${escHtml(printDate)}</div>
+        <div style="font-size:11px;color:#888;">Created ${escHtml(createdDate)}</div>
       </div>
     </div>
+
+    <!-- Accent bar -->
+    <div style="display:flex;height:4px;margin-bottom:22px;">
+      <div style="width:76px;background:${CORAL};"></div>
+      <div style="flex:1;background:#1a1a1a;"></div>
+    </div>
+
+    <!-- Title + status -->
+    <h1 style="font-size:26px;font-weight:800;line-height:1.15;margin-bottom:12px;">${escHtml(job.event_name || job.reference_number)}</h1>
+    <div style="margin-bottom:22px;">${statusPill}</div>
+
+    <!-- Job details -->
+    <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#999;margin-bottom:8px;">Job Details</div>
+    <table style="margin-bottom:26px;">
+      <tr>
+        ${cell('Client Name', escHtml(job.client_name))}
+        ${cell('Client Contact', escHtml(job.contact_email))}
+        ${cell('Due Date', escHtml(job.date_required), true)}
+      </tr>
+      <tr>
+        ${cell('Company', escHtml(job.company_name))}
+        ${cell('Event / Location', job.event_name ? escHtml(job.event_name) : '—')}
+        ${cell('Approved', `${approved.length} of ${total} items`, true)}
+      </tr>
+    </table>
+
+    <!-- Approved designs -->
+    <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#999;border-bottom:1px solid #e8e8e8;padding-bottom:6px;margin-bottom:16px;">
+      Approved Designs (${approved.length})${!isFull ? ' — partial; remaining items still awaiting client approval' : ''}
+    </div>
     ${itemBlocks || '<p style="color:#aaa;">No approved designs yet.</p>'}
+
+    <!-- Footer -->
     <div style="margin-top:24px;padding-top:12px;border-top:1px solid #e8e8e8;display:flex;justify-content:space-between;font-size:11px;color:#aaa;">
-      <span>Pixel Production — Approved for print</span>
-      <span>Printed: ${printDate}</span>
+      <span>DDF x Pixel — info@exotikwrapz.com</span>
+      <span>1 of 1</span>
     </div>
   </div>
 </body></html>`
 
-    const win = window.open('', '_blank', 'width=800,height=900')
+    const win = window.open('', '_blank', 'width=820,height=900')
     if (!win) return
     win.document.write(html)
     win.document.close()
@@ -932,19 +981,20 @@ export default function AdminPage() {
                         )
                       })()}
 
-                      {/* Approved designs sheet — appears once every proofed item is approved */}
+                      {/* Approved designs sheet — appears as soon as any item is approved (partial OK) */}
                       {(() => {
                         const proofItems = job.items.filter(i => itemProofs(i).length > 0)
-                        const allApproved = proofItems.length > 0 && proofItems.every(i => i.approval_status === 'approved')
-                        if (!allApproved) return null
+                        const approvedCount = proofItems.filter(i => i.approval_status === 'approved').length
+                        if (approvedCount === 0) return null
+                        const isFull = approvedCount === proofItems.length
                         return (
                           <button
                             onClick={() => printApprovedSheet(job)}
                             className="job-action-btn"
-                            title="Print a one-page sheet of all approved designs"
+                            title={isFull ? 'Print all approved designs' : `Print the ${approvedCount} approved item${approvedCount !== 1 ? 's' : ''} so the team can start`}
                             style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: '#15803d', background: '#dcfce7', border: '1px solid #86efac', padding: '5px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}
                           >
-                            <CheckIcon /> Approved Sheet
+                            <CheckIcon /> Approved Sheet {isFull ? '' : `(${approvedCount}/${proofItems.length})`}
                           </button>
                         )
                       })()}
