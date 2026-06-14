@@ -36,6 +36,21 @@ function escHtml(s: string) {
          .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
+// Items are often named "June 15 - Welcome Sign" — the part before " - " is the
+// event date used to group designs; the rest is the description.
+function parseItemDate(name: string): { label: string; short: string } {
+  const i = name.indexOf(' - ')
+  if (i > 0) return { label: name.slice(0, i).trim(), short: name.slice(i + 3).trim() }
+  return { label: '', short: name }
+}
+// Sortable timestamp for a date label ("June 15" or "15 June 2026"); unparseable → last.
+function dateSortKey(label: string): number {
+  if (!label) return Infinity
+  let t = new Date(label).getTime()
+  if (isNaN(t)) t = new Date(`${label} ${new Date().getFullYear()}`).getTime()
+  return isNaN(t) ? Infinity : t
+}
+
 // ── SVG Icons ──────────────────────────────────────────────────────────────
 function PrintIcon() {
   return (
@@ -602,32 +617,52 @@ export default function AdminPage() {
       } catch { /* images just won't render */ }
     }
 
-    // Compact 2-up grid: every approved proof image as a card so a big job
-    // prints on a few pages instead of one image per page.
-    const cells = approved.flatMap(({ it }) => {
+    // Group approved proofs by the event-date prefix in the item name
+    // ("June 15 - Welcome Sign" → "June 15"); compact 2-up grid per date.
+    type Cell = { label: string; short: string; size: string; qty: number; path: string; pi: number; total: number; when: string }
+    const allCells: Cell[] = []
+    approved.forEach(({ it }) => {
       const proofs = itemProofs(it)
+      const { label, short } = parseItemDate(it.name)
       const when = it.approved_at
         ? new Date(it.approved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
         : ''
-      return proofs.map((p, pi) => {
-        const u = urlMap[p]
-        const label = `${it.quantity}× ${it.name}${it.size ? ' · ' + it.size : ''}${proofs.length > 1 ? ` (${pi + 1}/${proofs.length})` : ''}`
-        return `
-          <div style="page-break-inside:avoid;border:1px solid #e8e8e8;">
-            ${u
-              ? `<img src="${u}" alt="${escHtml(it.name)}" style="width:100%;height:240px;object-fit:contain;display:block;background:#fafafa;border-bottom:1px solid #eee;" />`
-              : `<div style="height:240px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:12px;">Image unavailable</div>`}
-            <div style="padding:7px 10px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
-              <span style="font-size:11px;font-weight:700;line-height:1.3;">${escHtml(label)}</span>
-              <span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#1B7F4F;white-space:nowrap;">✓${when ? ' ' + when : ''}</span>
-            </div>
-          </div>`
-      })
-    }).join('')
+      proofs.forEach((p, pi) => allCells.push({ label, short, size: it.size, qty: it.quantity, path: p, pi, total: proofs.length, when }))
+    })
 
-    const itemBlocks = cells
-      ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">${cells}</div>`
-      : ''
+    const renderCell = (c: Cell) => {
+      const u = urlMap[c.path]
+      const cap = `${c.qty}× ${c.short}${c.size ? ' · ' + c.size : ''}${c.total > 1 ? ` (${c.pi + 1}/${c.total})` : ''}`
+      return `
+        <div style="page-break-inside:avoid;border:1px solid #e8e8e8;">
+          ${u
+            ? `<img src="${u}" alt="${escHtml(c.short)}" style="width:100%;height:240px;object-fit:contain;display:block;background:#fafafa;border-bottom:1px solid #eee;" />`
+            : `<div style="height:240px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:12px;">Image unavailable</div>`}
+          <div style="padding:7px 10px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+            <span style="font-size:11px;font-weight:700;line-height:1.3;">${escHtml(cap)}</span>
+            <span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#1B7F4F;white-space:nowrap;">✓${c.when ? ' ' + c.when : ''}</span>
+          </div>
+        </div>`
+    }
+    const grid = (cells: Cell[]) => `<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">${cells.map(renderCell).join('')}</div>`
+
+    const labels = [...new Set(allCells.map(c => c.label))].sort((a, b) => dateSortKey(a) - dateSortKey(b) || a.localeCompare(b))
+    const onlyUnlabeled = labels.length <= 1 && (labels[0] ?? '') === ''
+    const itemBlocks = allCells.length === 0
+      ? ''
+      : onlyUnlabeled
+        ? grid(allCells)
+        : labels.map(lab => {
+            const cells = allCells.filter(c => c.label === lab)
+            return `
+              <div style="margin-bottom:18px;">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #ddd;padding-bottom:4px;margin-bottom:12px;">
+                  <span style="font-size:14px;font-weight:800;">${escHtml(lab || 'Other')}</span>
+                  <span style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:1px;">${cells.length} design${cells.length !== 1 ? 's' : ''}</span>
+                </div>
+                ${grid(cells)}
+              </div>`
+          }).join('')
 
     const cell = (label: string, value: string, strong = false) =>
       `<td style="padding:14px 16px;border:1px solid #ececec;vertical-align:top;">
@@ -717,14 +752,16 @@ export default function AdminPage() {
   async function printProductionSheet() {
     setBuildingProdSheet(true)
     try {
-      type Entry = { date: string; jobRef: string; event: string | null; qty: number; name: string; size: string; path: string }
+      type Entry = { group: string; jobRef: string; event: string | null; qty: number; short: string; size: string; path: string }
       const entries: Entry[] = []
       for (const job of jobs) {
         if (job.status === 'completed' || job.status === 'cancelled') continue
         for (const it of job.items) {
           if (it.approval_status !== 'approved') continue
+          const { label, short } = parseItemDate(it.name)
+          const group = label || new Date(job.date_required + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
           for (const path of itemProofs(it)) {
-            entries.push({ date: job.date_required, jobRef: job.reference_number, event: job.event_name, qty: it.quantity, name: it.name, size: it.size, path })
+            entries.push({ group, jobRef: job.reference_number, event: job.event_name, qty: it.quantity, short, size: it.size, path })
           }
         }
       }
@@ -738,29 +775,28 @@ export default function AdminPage() {
       } catch { /* images just won't render */ }
 
       const byDate = new Map<string, Entry[]>()
-      for (const e of entries) { const a = byDate.get(e.date) ?? []; a.push(e); byDate.set(e.date, a) }
-      const dates = [...byDate.keys()].sort()  // YYYY-MM-DD sorts chronologically
+      for (const e of entries) { const a = byDate.get(e.group) ?? []; a.push(e); byDate.set(e.group, a) }
+      const groups = [...byDate.keys()].sort((a, b) => dateSortKey(a) - dateSortKey(b) || a.localeCompare(b))
 
-      const sections = dates.map((d, di) => {
-        const list = byDate.get(d)!
-        const heading = new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+      const sections = groups.map((g, gi) => {
+        const list = byDate.get(g)!
         const cells = list.map(e => {
           const u = urlMap[e.path]
           return `
             <div style="page-break-inside:avoid;border:1px solid #e8e8e8;">
               ${u
-                ? `<img src="${u}" alt="${escHtml(e.name)}" style="width:100%;height:230px;object-fit:contain;display:block;background:#fafafa;border-bottom:1px solid #eee;" />`
+                ? `<img src="${u}" alt="${escHtml(e.short)}" style="width:100%;height:230px;object-fit:contain;display:block;background:#fafafa;border-bottom:1px solid #eee;" />`
                 : `<div style="height:230px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:12px;">Image unavailable</div>`}
               <div style="padding:7px 10px;">
-                <div style="font-size:11px;font-weight:700;line-height:1.3;">${escHtml(e.qty + '× ' + e.name)}${e.size ? `<span style="font-weight:400;color:#888;"> · ${escHtml(e.size)}</span>` : ''}</div>
+                <div style="font-size:11px;font-weight:700;line-height:1.3;">${escHtml(e.qty + '× ' + e.short)}${e.size ? `<span style="font-weight:400;color:#888;"> · ${escHtml(e.size)}</span>` : ''}</div>
                 <div style="font-size:9px;color:#999;margin-top:2px;">${escHtml(e.jobRef)}${e.event ? ' · ' + escHtml(e.event) : ''}</div>
               </div>
             </div>`
         }).join('')
         return `
-          <section style="${di > 0 ? 'page-break-before:always;' : ''}">
+          <section style="${gi > 0 ? 'page-break-before:always;' : ''}">
             <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #1a1a1a;padding-bottom:6px;margin:0 0 14px;">
-              <span style="font-size:18px;font-weight:800;">${escHtml(heading)}</span>
+              <span style="font-size:18px;font-weight:800;">${escHtml(g)}</span>
               <span style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;">${list.length} design${list.length !== 1 ? 's' : ''}</span>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">${cells}</div>
@@ -790,7 +826,7 @@ export default function AdminPage() {
       </div>
       <div style="text-align:right;font-size:11px;color:#888;">
         <div>Printed ${escHtml(printDate)}</div>
-        <div>${entries.length} design${entries.length !== 1 ? 's' : ''} · ${dates.length} date${dates.length !== 1 ? 's' : ''}</div>
+        <div>${entries.length} design${entries.length !== 1 ? 's' : ''} · ${groups.length} date${groups.length !== 1 ? 's' : ''}</div>
       </div>
     </div>
     <div style="display:flex;height:4px;margin-bottom:22px;"><div style="width:76px;background:${CORAL};"></div><div style="flex:1;background:#1a1a1a;"></div></div>
