@@ -5,6 +5,11 @@ export const ItemSchema = z.object({
   quantity: z.number().int().min(1, 'Quantity must be at least 1'),
   size: z.string().min(1, 'Size is required'),
   material: z.enum(['vinyl', 'fabric', 'foam-board', 'acrylic', 'other']),
+  // Optional approval fields — preserved on edit, set by admin (proof) and client (status)
+  proof_url: z.string().optional(),
+  approval_status: z.enum(['pending', 'approved', 'changes_requested']).optional(),
+  client_note: z.string().optional(),
+  approved_at: z.string().optional(),
 })
 
 export const SubmitSchema = z.object({
@@ -29,3 +34,12 @@ export const JobPatchNotifySchema = z.object({
 })
 
 export type JobPatchNotifyInput = z.infer<typeof JobPatchNotifySchema>
+
+// Client design-approval action (one item at a time, by index)
+export const ApprovalActionSchema = z.object({
+  itemIndex: z.number().int().min(0),
+  action: z.enum(['approve', 'request_changes']),
+  note: z.string().max(2000).optional(),
+})
+
+export type ApprovalActionInput = z.infer<typeof ApprovalActionSchema>

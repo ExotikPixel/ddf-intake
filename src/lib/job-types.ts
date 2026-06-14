@@ -3,6 +3,21 @@ export interface JobItem {
   quantity: number
   size: string
   material: string
+  // ── Client design-approval fields (optional; items is JSONB, no migration) ──
+  proof_url?: string                                  // job-files path to the design proof
+  approval_status?: 'pending' | 'approved' | 'changes_requested'
+  client_note?: string                                // client's change-request text
+  approved_at?: string                                // ISO timestamp when approved
+}
+
+export const APPROVAL_STATUSES = ['pending', 'approved', 'changes_requested'] as const
+export type ApprovalStatus = typeof APPROVAL_STATUSES[number]
+
+/** Pill styling for per-item approval state (mirrors STATUS_CONFIG shape) */
+export const APPROVAL_CONFIG: Record<ApprovalStatus, { label: string; color: string; bg: string }> = {
+  pending:            { label: 'Awaiting Review', color: '#888888', bg: '#f0f0f0' },
+  approved:           { label: 'Approved',        color: '#1B7F4F', bg: '#eef7f3' },
+  changes_requested:  { label: 'Changes Requested', color: '#C62828', bg: '#fff0f0' },
 }
 
 export const STATUSES = ['pending', 'received', 'in_progress', 'completed', 'cancelled'] as const

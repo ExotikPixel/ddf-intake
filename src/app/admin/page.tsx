@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-import { STATUSES, STATUS_LABELS, STATUS_CONFIG } from '@/lib/job-types'
-import type { JobItem } from '@/lib/job-types'
+import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG } from '@/lib/job-types'
+import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 
 interface Job {
   id: number
@@ -93,6 +93,19 @@ function StatusPill({ status }: { status: string }) {
   )
 }
 
+function ApprovalPill({ status }: { status: ApprovalStatus }) {
+  const cfg = APPROVAL_CONFIG[status]
+  return (
+    <span style={{
+      background: cfg.bg, color: cfg.color, fontSize: 9, fontWeight: 700,
+      letterSpacing: '0.6px', textTransform: 'uppercase', padding: '1px 7px',
+      border: `1px solid ${cfg.color}33`, whiteSpace: 'nowrap',
+    }}>
+      {cfg.label}
+    </span>
+  )
+}
+
 const STATUS_COLORS: Record<string, string> = Object.fromEntries(
   Object.entries(STATUS_CONFIG).map(([k, v]) => [k, v.color])
 )
@@ -115,6 +128,8 @@ export default function AdminPage() {
   const [savingEdit, setSavingEdit]     = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [uploadPhotoError, setUploadPhotoError] = useState('')
+  const [uploadingProof, setUploadingProof] = useState<number | null>(null)
+  const [proofError, setProofError] = useState('')
   const router = useRouter()
 
   useEffect(() => {
@@ -313,6 +328,39 @@ export default function AdminPage() {
       setUploadPhotoError('Network error during upload.')
     } finally {
       setUploadingPhoto(false)
+    }
+  }
+
+  async function addProof(index: number, file: File) {
+    if (!editForm) return
+    setProofError('')
+    setUploadingProof(index)
+    try {
+      const urlRes = await fetch('/api/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: [{ name: file.name, type: file.type, size: file.size }] }),
+      })
+      if (!urlRes.ok) {
+        const { error } = await urlRes.json()
+        setProofError(error ?? 'Could not get upload URL')
+        return
+      }
+      const { uploads } = await urlRes.json()
+      const { path, signedUrl } = uploads[0]
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      if (!putRes.ok) { setProofError('Proof upload failed — please try again.'); return }
+      // Attaching a new proof resets that item's approval state back to awaiting review.
+      setEditForm(prev => {
+        if (!prev) return prev
+        const items = [...prev.items]
+        items[index] = { ...items[index], proof_url: path, approval_status: 'pending', client_note: undefined, approved_at: undefined }
+        return { ...prev, items }
+      })
+    } catch {
+      setProofError('Network error during proof upload.')
+    } finally {
+      setUploadingProof(null)
     }
   }
 
@@ -670,11 +718,18 @@ export default function AdminPage() {
                     {/* Items */}
                     <div style={{ padding: '10px 18px', borderBottom: '1px solid #f2f2f2', display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                       {job.items.map((item, i) => (
-                        <span key={i} style={{ background: '#f8f7f5', border: '1px solid #eaeaea', padding: '3px 9px', fontSize: 12, color: '#444' }}>
-                          <strong style={{ color: 'var(--coral)', marginRight: 2 }}>{item.quantity}×</strong>
-                          {item.name}
-                          {item.size     && <span style={{ color: '#999' }}> · {item.size}</span>}
-                          {item.material && <span style={{ color: '#bbb' }}> · {item.material}</span>}
+                        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#f8f7f5', border: '1px solid #eaeaea', padding: '3px 9px', fontSize: 12, color: '#444' }}>
+                          <span>
+                            <strong style={{ color: 'var(--coral)', marginRight: 2 }}>{item.quantity}×</strong>
+                            {item.name}
+                            {item.size     && <span style={{ color: '#999' }}> · {item.size}</span>}
+                            {item.material && <span style={{ color: '#bbb' }}> · {item.material}</span>}
+                          </span>
+                          {item.proof_url && (
+                            item.approval_status && item.approval_status !== 'pending'
+                              ? <ApprovalPill status={item.approval_status} />
+                              : <span title="Proof attached — awaiting client review" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#888', background: '#f0f0f0', border: '1px solid #ddd', padding: '1px 6px', textTransform: 'uppercase' }}>Proof Sent</span>
+                          )}
                         </span>
                       ))}
                     </div>
@@ -890,42 +945,70 @@ export default function AdminPage() {
                         {/* Items */}
                         <div style={{ marginBottom: 14 }}>
                           <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Items</p>
-                          {editForm.items.map((item, idx) => (
-                            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '52px 1fr 120px 140px 32px', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-                              <input
-                                type="number" min={1} value={item.quantity}
-                                onChange={e => updateEditItem(idx, 'quantity', parseInt(e.target.value) || 1)}
-                                style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', textAlign: 'center' }}
-                                placeholder="Qty"
-                              />
-                              <input
-                                type="text" value={item.name}
-                                onChange={e => updateEditItem(idx, 'name', e.target.value)}
-                                style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}
-                                placeholder="Description"
-                              />
-                              <input
-                                type="text" value={item.size}
-                                onChange={e => updateEditItem(idx, 'size', e.target.value)}
-                                style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}
-                                placeholder="Size"
-                              />
-                              <select
-                                value={item.material}
-                                onChange={e => updateEditItem(idx, 'material', e.target.value)}
-                                style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}
-                              >
-                                {['vinyl','fabric','foam-board','acrylic','other'].map(m => (
-                                  <option key={m} value={m}>{m}</option>
-                                ))}
-                              </select>
-                              <button
-                                onClick={() => removeEditItem(idx)}
-                                disabled={editForm.items.length === 1}
-                                style={{ background: 'none', border: '1px solid #fca5a5', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: '4px 6px', opacity: editForm.items.length === 1 ? 0.3 : 1 }}
-                              >×</button>
+                          {editForm.items.map((item, idx) => {
+                            const proofName = item.proof_url ? (item.proof_url.split('/').pop() ?? item.proof_url) : null
+                            return (
+                            <div key={idx} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: idx < editForm.items.length - 1 ? '1px dashed #ececec' : 'none' }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '52px 1fr 120px 140px 32px', gap: 6, alignItems: 'center' }}>
+                                <input
+                                  type="number" min={1} value={item.quantity}
+                                  onChange={e => updateEditItem(idx, 'quantity', parseInt(e.target.value) || 1)}
+                                  style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', textAlign: 'center' }}
+                                  placeholder="Qty"
+                                />
+                                <input
+                                  type="text" value={item.name}
+                                  onChange={e => updateEditItem(idx, 'name', e.target.value)}
+                                  style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}
+                                  placeholder="Description"
+                                />
+                                <input
+                                  type="text" value={item.size}
+                                  onChange={e => updateEditItem(idx, 'size', e.target.value)}
+                                  style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}
+                                  placeholder="Size"
+                                />
+                                <select
+                                  value={item.material}
+                                  onChange={e => updateEditItem(idx, 'material', e.target.value)}
+                                  style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}
+                                >
+                                  {['vinyl','fabric','foam-board','acrylic','other'].map(m => (
+                                    <option key={m} value={m}>{m}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  onClick={() => removeEditItem(idx)}
+                                  disabled={editForm.items.length === 1}
+                                  style={{ background: 'none', border: '1px solid #fca5a5', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: '4px 6px', opacity: editForm.items.length === 1 ? 0.3 : 1 }}
+                                >×</button>
+                              </div>
+                              {/* Per-item design proof */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb' }}>Proof</span>
+                                {proofName && (
+                                  <span style={{ fontSize: 11, color: '#555', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 8px', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{proofName}</span>
+                                )}
+                                {item.approval_status && item.approval_status !== 'pending' && (
+                                  <ApprovalPill status={item.approval_status} />
+                                )}
+                                <label style={{ fontSize: 11, fontWeight: 600, color: uploadingProof === idx ? '#aaa' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '3px 10px', cursor: uploadingProof === idx ? 'default' : 'pointer' }}>
+                                  <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
+                                    style={{ display: 'none' }}
+                                    disabled={uploadingProof === idx}
+                                    onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addProof(idx, f) } }}
+                                  />
+                                  {uploadingProof === idx ? 'Uploading…' : proofName ? 'Replace Proof' : '+ Attach Proof'}
+                                </label>
+                                {item.client_note && (
+                                  <span style={{ fontSize: 11, color: '#C62828', fontStyle: 'italic' }}>“{item.client_note}”</span>
+                                )}
+                              </div>
                             </div>
-                          ))}
+                          )})}
+                          {proofError && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#dc2626' }}>{proofError}</p>}
                           {editForm.items.length < 10 && (
                             <button
                               onClick={addEditItem}
