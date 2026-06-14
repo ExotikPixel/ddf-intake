@@ -133,6 +133,7 @@ export default function AdminPage() {
   const [copyingLink, setCopyingLink] = useState<number | null>(null)
   const [copiedLink, setCopiedLink] = useState<number | null>(null)
   const [approvingItem, setApprovingItem] = useState<string | null>(null)
+  const [buildingProdSheet, setBuildingProdSheet] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -711,6 +712,105 @@ export default function AdminPage() {
     win.document.close()
   }
 
+  // Cross-job production sheet: every approved design across active jobs,
+  // grouped by event (due) date, each date starting a new page.
+  async function printProductionSheet() {
+    setBuildingProdSheet(true)
+    try {
+      type Entry = { date: string; jobRef: string; event: string | null; qty: number; name: string; size: string; path: string }
+      const entries: Entry[] = []
+      for (const job of jobs) {
+        if (job.status === 'completed' || job.status === 'cancelled') continue
+        for (const it of job.items) {
+          if (it.approval_status !== 'approved') continue
+          for (const path of itemProofs(it)) {
+            entries.push({ date: job.date_required, jobRef: job.reference_number, event: job.event_name, qty: it.quantity, name: it.name, size: it.size, path })
+          }
+        }
+      }
+      if (entries.length === 0) { alert('No approved designs to print yet.'); return }
+
+      const paths = [...new Set(entries.map(e => e.path))]
+      const urlMap: Record<string, string> = {}
+      try {
+        const res = await fetch('/api/admin/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths }) })
+        if (res.ok) { const { urls } = await res.json() as { urls: { path: string; url: string }[] }; urls.forEach(u => { urlMap[u.path] = u.url }) }
+      } catch { /* images just won't render */ }
+
+      const byDate = new Map<string, Entry[]>()
+      for (const e of entries) { const a = byDate.get(e.date) ?? []; a.push(e); byDate.set(e.date, a) }
+      const dates = [...byDate.keys()].sort()  // YYYY-MM-DD sorts chronologically
+
+      const sections = dates.map((d, di) => {
+        const list = byDate.get(d)!
+        const heading = new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+        const cells = list.map(e => {
+          const u = urlMap[e.path]
+          return `
+            <div style="page-break-inside:avoid;border:1px solid #e8e8e8;">
+              ${u
+                ? `<img src="${u}" alt="${escHtml(e.name)}" style="width:100%;height:230px;object-fit:contain;display:block;background:#fafafa;border-bottom:1px solid #eee;" />`
+                : `<div style="height:230px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:12px;">Image unavailable</div>`}
+              <div style="padding:7px 10px;">
+                <div style="font-size:11px;font-weight:700;line-height:1.3;">${escHtml(e.qty + '× ' + e.name)}${e.size ? `<span style="font-weight:400;color:#888;"> · ${escHtml(e.size)}</span>` : ''}</div>
+                <div style="font-size:9px;color:#999;margin-top:2px;">${escHtml(e.jobRef)}${e.event ? ' · ' + escHtml(e.event) : ''}</div>
+              </div>
+            </div>`
+        }).join('')
+        return `
+          <section style="${di > 0 ? 'page-break-before:always;' : ''}">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #1a1a1a;padding-bottom:6px;margin:0 0 14px;">
+              <span style="font-size:18px;font-weight:800;">${escHtml(heading)}</span>
+              <span style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;">${list.length} design${list.length !== 1 ? 's' : ''}</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">${cells}</div>
+          </section>`
+      }).join('')
+
+      const CORAL = '#ff4d2d'
+      const printDate = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+      const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8" /><title>Production Sheet — Approved Designs by Date</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 32px; }
+  section { margin-bottom: 24px; }
+  @media print { body { padding: 0; } @page { margin: 14mm 16mm; size: A4 portrait; } .no-print { display: none !important; } }
+</style></head>
+<body>
+  <div class="no-print" style="margin-bottom:24px;display:flex;gap:10px;">
+    <button onclick="window.print()" style="background:#1a1a1a;color:#fff;border:none;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Print</button>
+    <button onclick="window.close()" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;padding:10px 24px;font-size:13px;cursor:pointer;">Close</button>
+  </div>
+  <div style="max-width:760px;margin:0 auto;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+      <div>
+        <div style="font-size:22px;font-weight:900;letter-spacing:1px;">DDF <span style="font-weight:400;">X</span> PIXEL</div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#999;margin-top:2px;">Production Sheet · Approved designs by date</div>
+      </div>
+      <div style="text-align:right;font-size:11px;color:#888;">
+        <div>Printed ${escHtml(printDate)}</div>
+        <div>${entries.length} design${entries.length !== 1 ? 's' : ''} · ${dates.length} date${dates.length !== 1 ? 's' : ''}</div>
+      </div>
+    </div>
+    <div style="display:flex;height:4px;margin-bottom:22px;"><div style="width:76px;background:${CORAL};"></div><div style="flex:1;background:#1a1a1a;"></div></div>
+    ${sections}
+    <div style="margin-top:24px;padding-top:12px;border-top:1px solid #e8e8e8;display:flex;justify-content:space-between;font-size:11px;color:#aaa;">
+      <span>DDF x Pixel — hello@ddfevents.ca</span>
+      <span>Approved for print</span>
+    </div>
+  </div>
+</body></html>`
+
+      const win = window.open('', '_blank', 'width=820,height=900')
+      if (!win) return
+      win.document.write(html)
+      win.document.close()
+    } finally {
+      setBuildingProdSheet(false)
+    }
+  }
+
   async function signOut() {
     const supabase = createClient()
     await supabase.auth.signOut()
@@ -769,13 +869,23 @@ export default function AdminPage() {
       <div style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 64px' }}>
 
         {/* Page title */}
-        <div style={{ marginBottom: 24 }}>
-          <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>
-            DDF x Pixel
-          </p>
-          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#1a1a1a' }}>
-            Job Dashboard
-          </h1>
+        <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div>
+            <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>
+              DDF x Pixel
+            </p>
+            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#1a1a1a' }}>
+              Job Dashboard
+            </h1>
+          </div>
+          <button
+            onClick={printProductionSheet}
+            disabled={buildingProdSheet}
+            title="Print all approved designs across jobs, grouped by event date"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, padding: '9px 16px', background: '#1a1a1a', color: '#fff', border: 'none', cursor: buildingProdSheet ? 'default' : 'pointer', opacity: buildingProdSheet ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px', textTransform: 'uppercase' }}
+          >
+            <PrintIcon /> {buildingProdSheet ? 'Building…' : 'Production Sheet'}
+          </button>
         </div>
 
         {/* ── Loading ────────────────────────────────────────────────────────── */}
