@@ -132,6 +132,7 @@ export default function AdminPage() {
   const [proofError, setProofError] = useState('')
   const [copyingLink, setCopyingLink] = useState<number | null>(null)
   const [copiedLink, setCopiedLink] = useState<number | null>(null)
+  const [approvingItem, setApprovingItem] = useState<string | null>(null)
   const router = useRouter()
 
   useEffect(() => {
@@ -549,6 +550,31 @@ export default function AdminPage() {
     win.document.close()
   }
 
+  // Admin marks an item approved (or back to pending) for print — the team's call, not the client's.
+  async function approveItem(job: Job, idx: number, approve: boolean) {
+    const key = `${job.id}:${idx}`
+    setApprovingItem(key)
+    const newItems: JobItem[] = job.items.map((it, i) => i === idx
+      ? {
+          ...it,
+          approval_status: (approve ? 'approved' : 'pending') as ApprovalStatus,
+          approved_at: approve ? new Date().toISOString() : undefined,
+          client_note: approve ? undefined : it.client_note,
+        }
+      : it)
+    try {
+      const res = await fetch(`/api/admin/jobs/${job.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: newItems }),
+      })
+      if (res.ok) setJobs(prev => prev.map(j => j.id === job.id ? { ...j, items: newItems } : j))
+      else alert('Failed to update approval — please try again.')
+    } catch {
+      alert('Network error — approval not saved.')
+    } finally {
+      setApprovingItem(null)
+    }
+  }
+
   async function printApprovedSheet(job: Job) {
     const CORAL = '#ff4d2d'
     const printDate = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -888,11 +914,51 @@ export default function AdminPage() {
                           {itemProofs(item).length > 0 && (
                             item.approval_status && item.approval_status !== 'pending'
                               ? <ApprovalPill status={item.approval_status} />
-                              : <span title="Proof attached — awaiting client review" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#888', background: '#f0f0f0', border: '1px solid #ddd', padding: '1px 6px', textTransform: 'uppercase' }}>Proof Sent</span>
+                              : <span title="Proof attached — not yet approved for print" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#888', background: '#f0f0f0', border: '1px solid #ddd', padding: '1px 6px', textTransform: 'uppercase' }}>Awaiting Approval</span>
                           )}
                         </span>
                       ))}
                     </div>
+
+                    {/* Design approval — admin marks items approved for print */}
+                    {(() => {
+                      const proofed = job.items.map((it, i) => ({ it, i })).filter(x => itemProofs(x.it).length > 0)
+                      if (proofed.length === 0) return null
+                      return (
+                        <div style={{ padding: '10px 18px', borderBottom: '1px solid #f2f2f2', background: '#fbfaf8' }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: '#bbb', marginBottom: 8 }}>Design Approval</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {proofed.map(({ it, i }) => {
+                              const key = `${job.id}:${i}`
+                              const approved = it.approval_status === 'approved'
+                              const busy = approvingItem === key
+                              return (
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 12, color: '#444' }}>
+                                    <strong style={{ color: 'var(--coral)' }}>{it.quantity}×</strong> {it.name}
+                                  </span>
+                                  {it.approval_status && it.approval_status !== 'pending' && <ApprovalPill status={it.approval_status} />}
+                                  <button
+                                    onClick={() => approveItem(job, i, !approved)}
+                                    disabled={busy}
+                                    style={{
+                                      fontSize: 11, fontWeight: 700, padding: '4px 12px',
+                                      cursor: busy ? 'default' : 'pointer', fontFamily: 'var(--font-body)',
+                                      color: approved ? '#15803d' : '#fff',
+                                      background: approved ? '#dcfce7' : '#1B7F4F',
+                                      border: approved ? '1px solid #86efac' : 'none',
+                                      opacity: busy ? 0.6 : 1,
+                                    }}
+                                  >
+                                    {busy ? '…' : approved ? '✓ Approved · Undo' : 'Approve for Print'}
+                                  </button>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })()}
 
                     {/* Notes */}
                     {job.notes && (
