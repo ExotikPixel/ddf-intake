@@ -601,22 +601,32 @@ export default function AdminPage() {
       } catch { /* images just won't render */ }
     }
 
-    const itemBlocks = approved.map(({ it }) => {
-      const imgs = itemProofs(it).map(p => urlMap[p]
-        ? `<img src="${urlMap[p]}" alt="${escHtml(it.name)}" style="width:100%;max-height:360px;object-fit:contain;border:1px solid #e8e8e8;display:block;margin-bottom:8px;" />`
-        : '').join('')
+    // Compact 2-up grid: every approved proof image as a card so a big job
+    // prints on a few pages instead of one image per page.
+    const cells = approved.flatMap(({ it }) => {
+      const proofs = itemProofs(it)
       const when = it.approved_at
         ? new Date(it.approved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
         : ''
-      return `
-        <div style="margin-bottom:26px;page-break-inside:avoid;">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
-            <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;">${escHtml(it.quantity + '× ' + it.name)}${it.size ? `<span style="font-weight:400;color:#888;text-transform:none;letter-spacing:0;"> · ${escHtml(it.size)}</span>` : ''}</div>
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#1B7F4F;white-space:nowrap;">✓ Approved${when ? ' · ' + when : ''}</div>
-          </div>
-          ${imgs || '<span style="color:#aaa;font-size:12px;">Image unavailable</span>'}
-        </div>`
+      return proofs.map((p, pi) => {
+        const u = urlMap[p]
+        const label = `${it.quantity}× ${it.name}${it.size ? ' · ' + it.size : ''}${proofs.length > 1 ? ` (${pi + 1}/${proofs.length})` : ''}`
+        return `
+          <div style="page-break-inside:avoid;border:1px solid #e8e8e8;">
+            ${u
+              ? `<img src="${u}" alt="${escHtml(it.name)}" style="width:100%;height:240px;object-fit:contain;display:block;background:#fafafa;border-bottom:1px solid #eee;" />`
+              : `<div style="height:240px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:12px;">Image unavailable</div>`}
+            <div style="padding:7px 10px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+              <span style="font-size:11px;font-weight:700;line-height:1.3;">${escHtml(label)}</span>
+              <span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#1B7F4F;white-space:nowrap;">✓${when ? ' ' + when : ''}</span>
+            </div>
+          </div>`
+      })
     }).join('')
+
+    const itemBlocks = cells
+      ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">${cells}</div>`
+      : ''
 
     const cell = (label: string, value: string, strong = false) =>
       `<td style="padding:14px 16px;border:1px solid #ececec;vertical-align:top;">
