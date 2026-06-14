@@ -655,7 +655,7 @@ export default function AdminPage() {
         : labels.map(lab => {
             const cells = allCells.filter(c => c.label === lab)
             return `
-              <div style="margin-bottom:18px;">
+              <div style="margin-bottom:18px;page-break-inside:avoid;break-inside:avoid;">
                 <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #ddd;padding-bottom:4px;margin-bottom:12px;">
                   <span style="font-size:14px;font-weight:800;">${escHtml(lab || 'Other')}</span>
                   <span style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:1px;">${cells.length} design${cells.length !== 1 ? 's' : ''}</span>
