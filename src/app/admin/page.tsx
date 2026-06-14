@@ -717,7 +717,7 @@ export default function AdminPage() {
         zIndex: 50,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img src="/logo-ddfpixel.png" alt="DDF x Pixel" style={{ height: 26, width: 'auto', filter: 'brightness(0) invert(1)' }} />
+          <img src="/logo-ddfpixel.png" alt="DDF x Pixel" style={{ height: 30, width: 'auto', filter: 'brightness(0) invert(1)' }} />
           <span style={{ fontSize: 9, background: 'var(--coral)', color: '#fff', padding: '2px 7px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase' }}>
             ADMIN
           </span>
