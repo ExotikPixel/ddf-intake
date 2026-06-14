@@ -143,6 +143,44 @@ export async function sendConfirmationEmail(job: JobEmailData) {
   })
 }
 
+export async function sendChangeRequestNotification(
+  job: { reference_number: string; client_name: string; contact_email: string },
+  item: { name: string; note?: string }
+): Promise<void> {
+  const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px">
+  <div style="background:#1a1a1a;color:#fff;padding:16px 20px;margin-bottom:24px">
+    <span style="font-weight:800;font-size:18px;letter-spacing:2px">DDF-PIXEL</span>
+    <span style="float:right;background:#ff4d2d;color:#fff;padding:4px 10px;font-size:12px;font-weight:700;border-radius:3px">${job.reference_number}</span>
+  </div>
+
+  <h2 style="margin:0 0 16px">Changes Requested on a Proof</h2>
+  <p><strong>${job.client_name}</strong> (${job.contact_email}) requested changes on:</p>
+  <div style="background:#fff2ef;border-left:3px solid #ff4d2d;padding:12px 16px;margin-bottom:16px">
+    <strong>${job.reference_number}</strong> — ${item.name}
+  </div>
+  ${item.note ? `<div style="background:#f8f6f2;padding:12px 16px;margin-bottom:20px"><strong>Client note:</strong><br>${item.note}</div>` : '<p style="color:#666">No note was provided.</p>'}
+  <hr style="border:none;border-top:1px solid #e0deda;margin:24px 0">
+  <p style="color:#666;font-size:13px">Reply to this email to contact ${job.client_name} directly.</p>
+</body>
+</html>`
+
+  // Best-effort — a transient email failure must not block the approval write.
+  try {
+    await brevo.transactionalEmails.sendTransacEmail({
+      to: [{ email: process.env.NOTIFICATION_EMAIL! }],
+      replyTo: { email: job.contact_email, name: job.client_name },
+      sender: SENDER,
+      subject: `Changes requested: ${job.reference_number} — ${item.name}`,
+      htmlContent: html,
+    })
+  } catch (err) {
+    console.error('[sendChangeRequestNotification] Brevo send failed:', err)
+  }
+}
+
 export async function sendStatusNotification(
   job: { reference_number: string; client_name: string; contact_email: string },
   status: NotificationStatus
