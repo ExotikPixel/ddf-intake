@@ -130,6 +130,8 @@ export default function AdminPage() {
   const [uploadPhotoError, setUploadPhotoError] = useState('')
   const [uploadingProof, setUploadingProof] = useState<number | null>(null)
   const [proofError, setProofError] = useState('')
+  const [copyingLink, setCopyingLink] = useState<number | null>(null)
+  const [copiedLink, setCopiedLink] = useState<number | null>(null)
   const router = useRouter()
 
   useEffect(() => {
@@ -361,6 +363,27 @@ export default function AdminPage() {
       setProofError('Network error during proof upload.')
     } finally {
       setUploadingProof(null)
+    }
+  }
+
+  async function copyApprovalLink(jobId: number) {
+    setCopyingLink(jobId)
+    try {
+      const res = await fetch(`/api/admin/jobs/${jobId}/review-link`)
+      if (!res.ok) { alert('Could not generate the approval link — please try again.'); return }
+      const { url } = await res.json()
+      try {
+        await navigator.clipboard.writeText(url)
+        setCopiedLink(jobId)
+        setTimeout(() => setCopiedLink(c => c === jobId ? null : c), 2500)
+      } catch {
+        // Clipboard blocked (e.g. insecure context) — show the link to copy manually.
+        prompt('Copy this approval link to send to your client:', url)
+      }
+    } catch {
+      alert('Network error — could not generate the link.')
+    } finally {
+      setCopyingLink(null)
     }
   }
 
@@ -799,6 +822,27 @@ export default function AdminPage() {
                       >
                         <PrintIcon /> Print
                       </button>
+
+                      {/* Copy public approval link */}
+                      {(() => {
+                        const hasProof = job.items.some(i => i.proof_url)
+                        const isCopied = copiedLink === job.id
+                        return (
+                          <button
+                            onClick={() => copyApprovalLink(job.id)}
+                            disabled={!hasProof || copyingLink === job.id}
+                            className="job-action-btn"
+                            title={hasProof ? 'Copy a no-login approval link to send to the client' : 'Attach a proof to an item first'}
+                            style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: isCopied ? '#15803d' : 'var(--coral)', background: isCopied ? '#dcfce7' : '#fff8f6', border: `1px solid ${isCopied ? '#86efac' : 'var(--coral)44'}`, padding: '5px 11px', cursor: hasProof ? 'pointer' : 'not-allowed', opacity: hasProof ? (copyingLink === job.id ? 0.6 : 1) : 0.45, fontFamily: 'var(--font-body)' }}
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+                              <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+                            </svg>
+                            {isCopied ? 'Copied!' : copyingLink === job.id ? 'Copying…' : 'Approval Link'}
+                          </button>
+                        )
+                      })()}
 
                       {/* Invoice → Command Centre */}
                       <button

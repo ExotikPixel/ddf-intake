@@ -1,0 +1,60 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase-server'
+import { verifyReviewToken } from '@/lib/review-token'
+import { ApprovalActionSchema } from '@/lib/schemas'
+import { sendChangeRequestNotification } from '@/lib/email'
+import type { JobItem } from '@/lib/job-types'
+
+export const dynamic = 'force-dynamic'
+
+// Public approve / request-changes via signed link. Same safe server-side
+// merge as the portal route — only approval fields on one item change.
+export async function POST(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params
+  const jobId = verifyReviewToken(token)
+  if (jobId === null) return NextResponse.json({ error: 'Invalid or expired link' }, { status: 404 })
+
+  let body: unknown
+  try { body = await req.json() } catch {
+    return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
+  }
+  const parsed = ApprovalActionSchema.safeParse(body)
+  if (!parsed.success) return NextResponse.json({ error: 'Invalid approval action' }, { status: 400 })
+  const { itemIndex, action, note } = parsed.data
+
+  const { data: job } = await supabaseAdmin
+    .from('jobs')
+    .select('reference_number, client_name, contact_email, items')
+    .eq('id', jobId)
+    .single()
+
+  if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const items = (job.items ?? []) as JobItem[]
+  const item = items[itemIndex]
+  if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
+  if (!item.proof_url) return NextResponse.json({ error: 'No proof to review for this item' }, { status: 409 })
+
+  if (action === 'approve') {
+    item.approval_status = 'approved'
+    item.approved_at = new Date().toISOString()
+    item.client_note = undefined
+  } else {
+    item.approval_status = 'changes_requested'
+    item.client_note = note?.trim() || undefined
+    item.approved_at = undefined
+  }
+  items[itemIndex] = item
+
+  const { error } = await supabaseAdmin.from('jobs').update({ items }).eq('id', jobId)
+  if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+
+  if (action === 'request_changes') {
+    await sendChangeRequestNotification(
+      { reference_number: job.reference_number, client_name: job.client_name, contact_email: job.contact_email },
+      { name: item.name, note: item.client_note }
+    )
+  }
+
+  return NextResponse.json({ success: true, items })
+}
