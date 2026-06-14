@@ -294,7 +294,7 @@ export default function IntakeForm() {
       <div style={{ background: 'var(--bg)', minHeight: '100vh', fontFamily: 'var(--font-body)' }}>
         {/* Header */}
         <header style={{ background: 'var(--charcoal)', height: '60px', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '2px solid var(--coral)' }}>
-          <img src="/logo-pixel.png" alt="Pixel Production" style={{ height: '30px', filter: 'brightness(0) invert(1)' }} />
+          <img src="/logo-pixel.png" alt="DDF x Pixel" style={{ height: '30px', filter: 'brightness(0) invert(1)' }} />
           <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', color: '#888', textTransform: 'uppercase' }}>Print Production Studio</span>
         </header>
 
@@ -410,10 +410,10 @@ export default function IntakeForm() {
 
       {/* Header */}
       <header style={{ background: 'var(--charcoal)', height: '60px', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 50, borderBottom: '2px solid var(--coral)' }}>
-        <img src="/logo-pixel.png" alt="Pixel Production" style={{ height: '30px', width: 'auto', filter: 'brightness(0) invert(1)' }} />
+        <img src="/logo-pixel.png" alt="DDF x Pixel" style={{ height: '30px', width: 'auto', filter: 'brightness(0) invert(1)' }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', color: '#888', textTransform: 'uppercase', fontFamily: 'var(--font-body)' }}>Print Production Studio</span>
-          <a href="mailto:jobs@ddfpixel.com" style={{ fontSize: '13px', color: 'var(--coral)', textDecoration: 'none', fontWeight: 600 }}>jobs@ddfpixel.com</a>
+          <a href="mailto:hello@ddfevents.ca" style={{ fontSize: '13px', color: 'var(--coral)', textDecoration: 'none', fontWeight: 600 }}>hello@ddfevents.ca</a>
         </div>
       </header>
 
@@ -486,7 +486,7 @@ export default function IntakeForm() {
             <div style={{ marginTop: '32px', paddingTop: '24px', borderTop: '1px solid #222' }}>
               <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: '#666', marginBottom: '12px', fontFamily: 'var(--font-body)' }}>Contact</div>
               <div style={{ fontSize: '12px', color: '#777', marginBottom: '4px', fontFamily: 'var(--font-body)' }}>Email</div>
-              <a href="mailto:jobs@ddfpixel.com" style={{ fontSize: '13px', color: 'var(--coral)', textDecoration: 'none', display: 'block', marginBottom: '16px' }}>jobs@ddfpixel.com</a>
+              <a href="mailto:hello@ddfevents.ca" style={{ fontSize: '13px', color: 'var(--coral)', textDecoration: 'none', display: 'block', marginBottom: '16px' }}>hello@ddfevents.ca</a>
               <div style={{ fontSize: '12px', color: '#777', marginBottom: '4px', fontFamily: 'var(--font-body)' }}>Portal</div>
               <a href="/portal" style={{ fontSize: '13px', color: '#888', textDecoration: 'none', display: 'block' }}>Track your jobs →</a>
             </div>
@@ -694,8 +694,8 @@ export default function IntakeForm() {
       </div>
 
       <footer style={{ background: 'var(--charcoal)', padding: '20px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid var(--coral)', flexWrap: 'wrap', gap: '8px' }}>
-        <img src="/logo-pixel.png" alt="Pixel Production" style={{ height: '24px', filter: 'brightness(0) invert(1)' }} />
-        <span style={{ fontSize: '12px', color: '#555', fontFamily: 'var(--font-body)' }}>© 2026 DDF Pixel Production · All jobs submitted here only</span>
+        <img src="/logo-pixel.png" alt="DDF x Pixel" style={{ height: '24px', filter: 'brightness(0) invert(1)' }} />
+        <span style={{ fontSize: '12px', color: '#555', fontFamily: 'var(--font-body)' }}>© 2026 DDF x Pixel · All jobs submitted here only</span>
         <a href="/portal" style={{ fontSize: '12px', color: '#666', textDecoration: 'none', fontFamily: 'var(--font-body)' }}>Track your jobs →</a>
       </footer>
     </>

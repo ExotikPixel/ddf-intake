@@ -51,7 +51,7 @@ export default function LoginPage() {
     <main style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-body)' }}>
       <div style={{ background: '#fff', padding: '48px 40px', width: '100%', maxWidth: 420, border: '1px solid var(--charcoal-border)' }}>
         <div style={{ marginBottom: 32 }}>
-          <img src="/logo-pixel.png" alt="Pixel Production" style={{ height: '36px', width: 'auto', marginBottom: 12 }} />
+          <img src="/logo-pixel.png" alt="DDF x Pixel" style={{ height: '36px', width: 'auto', marginBottom: 12 }} />
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: 'var(--charcoal)' }}>
             {isAdmin ? 'Admin' : 'Client Portal'}
           </h1>

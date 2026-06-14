@@ -20,8 +20,8 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: 'Submit a Job Brief — Pixel Production',
-  description: 'Submit your print job brief to DDF Pixel Production. All jobs submitted here only.',
+  title: 'Submit a Job Brief — DDF x Pixel',
+  description: 'Submit your print job brief to DDF x Pixel. All jobs submitted here only.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

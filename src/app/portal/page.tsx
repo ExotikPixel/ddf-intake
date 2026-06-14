@@ -260,7 +260,7 @@ export default function PortalPage() {
         zIndex: 50,
         borderBottom: '2px solid var(--coral)',
       }}>
-        <img src="/logo-pixel.png" alt="Pixel Production" style={{ height: '30px', width: 'auto', filter: 'brightness(0) invert(1)' }} />
+        <img src="/logo-pixel.png" alt="DDF x Pixel" style={{ height: '30px', width: 'auto', filter: 'brightness(0) invert(1)' }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           <span style={{ fontSize: '12px', color: '#888', display: 'none' }} className="email-label">{email}</span>
           <button
@@ -582,7 +582,7 @@ export default function PortalPage() {
             </div>
 
             <p style={{ marginTop: '20px', fontSize: '12px', color: 'var(--charcoal-60)', textAlign: 'center' }}>
-              Questions about a job? Email <a href="mailto:jobs@ddfpixel.com" style={{ color: 'var(--coral)', textDecoration: 'none', fontWeight: 600 }}>jobs@ddfpixel.com</a> with your reference number.
+              Questions about a job? Email <a href="mailto:hello@ddfevents.ca" style={{ color: 'var(--coral)', textDecoration: 'none', fontWeight: 600 }}>hello@ddfevents.ca</a> with your reference number.
             </p>
           </>
         )}
@@ -590,8 +590,8 @@ export default function PortalPage() {
 
       {/* Footer */}
       <footer style={{ background: 'var(--charcoal)', padding: '20px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid var(--coral)', flexWrap: 'wrap', gap: '8px' }}>
-        <img src="/logo-pixel.png" alt="Pixel Production" style={{ height: '24px', filter: 'brightness(0) invert(1)' }} />
-        <span style={{ fontSize: '12px', color: '#555', fontFamily: 'var(--font-body)' }}>© 2026 DDF Pixel Production</span>
+        <img src="/logo-pixel.png" alt="DDF x Pixel" style={{ height: '24px', filter: 'brightness(0) invert(1)' }} />
+        <span style={{ fontSize: '12px', color: '#555', fontFamily: 'var(--font-body)' }}>© 2026 DDF x Pixel</span>
         <a href="/" style={{ fontSize: '12px', color: '#666', textDecoration: 'none' }}>Submit a brief →</a>
       </footer>
     </div>

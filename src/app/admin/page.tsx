@@ -488,7 +488,7 @@ export default function AdminPage() {
   <div style="max-width:720px;margin:0 auto;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a1a1a;padding-bottom:20px;margin-bottom:24px;">
       <div>
-        <div style="font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#999;margin-bottom:4px;">Pixel Production</div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#999;margin-bottom:4px;">DDF x Pixel</div>
         <div style="font-size:32px;font-weight:900;color:${BRAND};letter-spacing:1px;line-height:1;">${escHtml(job.reference_number)}</div>
         <div style="margin-top:8px;display:inline-block;padding:3px 10px;background:#1a1a1a;color:#fff;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">${escHtml(statusLabel)}</div>
       </div>
@@ -536,7 +536,7 @@ export default function AdminPage() {
     ${notesSection}
     ${imageSection}
     <div style="margin-top:32px;padding-top:12px;border-top:1px solid #e8e8e8;display:flex;justify-content:space-between;font-size:11px;color:#aaa;">
-      <span>Pixel Production — Internal Job Ticket</span>
+      <span>DDF x Pixel — Internal Job Ticket</span>
       <span>Printed: ${printDate}</span>
     </div>
   </div>
@@ -663,7 +663,7 @@ export default function AdminPage() {
 
     <!-- Footer -->
     <div style="margin-top:24px;padding-top:12px;border-top:1px solid #e8e8e8;display:flex;justify-content:space-between;font-size:11px;color:#aaa;">
-      <span>DDF x Pixel — info@exotikwrapz.com</span>
+      <span>DDF x Pixel — hello@ddfevents.ca</span>
       <span>1 of 1</span>
     </div>
   </div>
@@ -717,7 +717,7 @@ export default function AdminPage() {
         zIndex: 50,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img src="/logo-pixel.png" alt="Pixel Production" style={{ height: 26, width: 'auto', filter: 'brightness(0) invert(1)' }} />
+          <img src="/logo-pixel.png" alt="DDF x Pixel" style={{ height: 26, width: 'auto', filter: 'brightness(0) invert(1)' }} />
           <span style={{ fontSize: 9, background: 'var(--coral)', color: '#fff', padding: '2px 7px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase' }}>
             ADMIN
           </span>
@@ -735,7 +735,7 @@ export default function AdminPage() {
         {/* Page title */}
         <div style={{ marginBottom: 24 }}>
           <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>
-            Pixel Production
+            DDF x Pixel
           </p>
           <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#1a1a1a' }}>
             Job Dashboard

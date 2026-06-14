@@ -6,7 +6,7 @@ const brevo = new BrevoClient({ apiKey: process.env.BREVO_API_KEY! })
 
 const SENDER = {
   email: process.env.SENDER_EMAIL!,
-  name: process.env.SENDER_NAME ?? 'DDF-Pixel',
+  name: process.env.SENDER_NAME ?? 'DDF x Pixel',
 }
 
 export interface JobEmailData {
@@ -49,7 +49,7 @@ export async function sendNotificationEmail(job: JobEmailData) {
 <html>
 <body style="font-family:sans-serif;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px">
   <div style="background:#1a1a1a;color:#fff;padding:16px 20px;margin-bottom:24px">
-    <span style="font-weight:800;font-size:18px;letter-spacing:2px">DDF-PIXEL</span>
+    <span style="font-weight:800;font-size:18px;letter-spacing:2px">DDF x Pixel</span>
     <span style="float:right;background:#ff4d2d;color:#fff;padding:4px 10px;font-size:12px;font-weight:700;border-radius:3px">${job.referenceNumber}</span>
   </div>
 
@@ -107,7 +107,7 @@ export async function sendConfirmationEmail(job: JobEmailData) {
 <html>
 <body style="font-family:sans-serif;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px">
   <div style="background:#1a1a1a;color:#fff;padding:16px 20px;margin-bottom:24px">
-    <span style="font-weight:800;font-size:18px;letter-spacing:2px">DDF-PIXEL</span>
+    <span style="font-weight:800;font-size:18px;letter-spacing:2px">DDF x Pixel</span>
   </div>
 
   <h2 style="margin:0 0 8px">Job Brief Received</h2>
@@ -130,7 +130,7 @@ export async function sendConfirmationEmail(job: JobEmailData) {
   ${job.notes ? `<p><strong>Notes:</strong> ${job.notes}</p>` : ''}
 
   <hr style="border:none;border-top:1px solid #e0deda;margin:24px 0">
-  <p>DDF-Pixel will review your brief and be in touch shortly.</p>
+  <p>DDF x Pixel will review your brief and be in touch shortly.</p>
   <p style="color:#666;font-size:13px"><strong>Please keep your reference number:</strong> ${job.referenceNumber}<br>Do not re-submit — your job has been saved.</p>
 </body>
 </html>`
@@ -152,7 +152,7 @@ export async function sendChangeRequestNotification(
 <html>
 <body style="font-family:sans-serif;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px">
   <div style="background:#1a1a1a;color:#fff;padding:16px 20px;margin-bottom:24px">
-    <span style="font-weight:800;font-size:18px;letter-spacing:2px">DDF-PIXEL</span>
+    <span style="font-weight:800;font-size:18px;letter-spacing:2px">DDF x Pixel</span>
     <span style="float:right;background:#ff4d2d;color:#fff;padding:4px 10px;font-size:12px;font-weight:700;border-radius:3px">${job.reference_number}</span>
   </div>
 
@@ -200,7 +200,7 @@ export async function sendStatusNotification(
 <html>
 <body style="font-family:sans-serif;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px">
   <div style="background:#1a1a1a;color:#fff;padding:16px 20px;margin-bottom:24px">
-    <span style="font-weight:800;font-size:18px;letter-spacing:2px">DDF-PIXEL</span>
+    <span style="font-weight:800;font-size:18px;letter-spacing:2px">DDF x Pixel</span>
     <span style="float:right;background:#ff4d2d;color:#fff;padding:4px 10px;font-size:12px;font-weight:700;border-radius:3px">${job.reference_number}</span>
   </div>
 
