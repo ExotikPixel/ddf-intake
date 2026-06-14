@@ -236,7 +236,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', fontFamily: 'var(--font-body)' }}>
       <header style={{ background: 'var(--charcoal)', height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '2px solid var(--coral)' }}>
-        <img src="/logo-pixel.png" alt="DDF x Pixel" style={{ height: 28, width: 'auto', filter: 'brightness(0) invert(1)' }} />
+        <img src="/logo-ddfpixel.png" alt="DDF x Pixel" style={{ height: 28, width: 'auto', filter: 'brightness(0) invert(1)' }} />
       </header>
       <div style={{ maxWidth: 640, margin: '0 auto', padding: '28px 18px 64px' }}>
         {children}
