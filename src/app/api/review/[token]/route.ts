@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 import { verifyReviewToken } from '@/lib/review-token'
+import { itemProofs } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 
 export const dynamic = 'force-dynamic'
@@ -22,7 +23,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const items = (job.items ?? []) as JobItem[]
-  const paths = items.map(i => i.proof_url).filter((p): p is string => !!p)
+  const paths = items.flatMap(itemProofs)
 
   const proofUrls: Record<string, string> = {}
   if (paths.length > 0) {

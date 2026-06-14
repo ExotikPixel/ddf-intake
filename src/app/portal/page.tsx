@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-import { STATUS_CONFIG, APPROVAL_CONFIG } from '@/lib/job-types'
+import { STATUS_CONFIG, APPROVAL_CONFIG, itemProofs } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 
 interface Job {
@@ -91,7 +91,7 @@ export default function PortalPage() {
           setLoading(false)
           // Lazily sign proof URLs for any job that has design proofs attached.
           list
-            .filter(j => j.items?.some(i => i.proof_url))
+            .filter(j => j.items?.some(i => itemProofs(i).length > 0))
             .forEach(j => loadProofs(j.id))
         })
     })
@@ -335,7 +335,7 @@ export default function PortalPage() {
                 const canEdit = job.status === 'pending' || job.status === 'received'
                 const proofItems = job.items
                   .map((it, idx) => ({ it, idx }))
-                  .filter(x => !!x.it.proof_url)
+                  .filter(x => itemProofs(x.it).length > 0)
                 const approvedCount = proofItems.filter(x => x.it.approval_status === 'approved').length
                 return (
                 <div key={job.id} style={{ background: '#fff', border: '1px solid var(--charcoal-border)', borderLeft: `3px solid ${STATUS_CONFIG[job.status]?.color ?? '#888'}` }}>
@@ -393,19 +393,26 @@ export default function PortalPage() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                           {proofItems.map(({ it, idx }) => {
                             const key = `${job.id}:${idx}`
-                            const url = it.proof_url ? proofUrls[job.id]?.[it.proof_url] : undefined
+                            const proofs = itemProofs(it)
                             const status: ApprovalStatus = it.approval_status ?? 'pending'
                             const busy = actioning === key
                             const err = approvalError[key]
                             return (
                               <div key={idx} style={{ border: '1px solid var(--charcoal-border)', background: '#fff', display: 'flex', flexWrap: 'wrap', gap: 12, padding: 12, alignItems: 'flex-start' }}>
-                                {/* Thumbnail */}
-                                <a href={url ?? undefined} target="_blank" rel="noopener noreferrer"
-                                   style={{ display: 'block', width: 84, height: 84, flexShrink: 0, background: '#f4f3f1', border: '1px solid var(--charcoal-border)', overflow: 'hidden' }}>
-                                  {url
-                                    ? <img src={url} alt={`Proof for ${it.name}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                    : <span style={{ fontSize: 10, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>Loading…</span>}
-                                </a>
+                                {/* Thumbnails (one or more proofs) */}
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flexShrink: 0 }}>
+                                  {proofs.map(p => {
+                                    const u = proofUrls[job.id]?.[p]
+                                    return (
+                                      <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer"
+                                         style={{ display: 'block', width: 84, height: 84, background: '#f4f3f1', border: '1px solid var(--charcoal-border)', overflow: 'hidden' }}>
+                                        {u
+                                          ? <img src={u} alt={`Proof for ${it.name}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                          : <span style={{ fontSize: 10, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>Loading…</span>}
+                                      </a>
+                                    )
+                                  })}
+                                </div>
                                 {/* Body */}
                                 <div style={{ flex: 1, minWidth: 200 }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>

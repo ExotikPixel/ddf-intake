@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG } from '@/lib/job-types'
+import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 
 interface Job {
@@ -352,11 +352,12 @@ export default function AdminPage() {
       const { path, signedUrl } = uploads[0]
       const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
       if (!putRes.ok) { setProofError('Proof upload failed — please try again.'); return }
-      // Attaching a new proof resets that item's approval state back to awaiting review.
+      // Adding a proof resets that item's approval — the proof set the client saw has changed.
       setEditForm(prev => {
         if (!prev) return prev
         const items = [...prev.items]
-        items[index] = { ...items[index], proof_url: path, approval_status: 'pending', client_note: undefined, approved_at: undefined }
+        const cur = itemProofs(items[index])
+        items[index] = { ...items[index], proof_urls: [...cur, path], proof_url: undefined, approval_status: 'pending', client_note: undefined, approved_at: undefined }
         return { ...prev, items }
       })
     } catch {
@@ -364,6 +365,16 @@ export default function AdminPage() {
     } finally {
       setUploadingProof(null)
     }
+  }
+
+  function removeProof(index: number, path: string) {
+    setEditForm(prev => {
+      if (!prev) return prev
+      const items = [...prev.items]
+      const cur = itemProofs(items[index]).filter(p => p !== path)
+      items[index] = { ...items[index], proof_urls: cur, proof_url: undefined, approval_status: 'pending', client_note: undefined, approved_at: undefined }
+      return { ...prev, items }
+    })
   }
 
   async function copyApprovalLink(jobId: number) {
@@ -531,6 +542,83 @@ export default function AdminPage() {
   </div>
 </body>
 </html>`
+
+    const win = window.open('', '_blank', 'width=800,height=900')
+    if (!win) return
+    win.document.write(html)
+    win.document.close()
+  }
+
+  async function printApprovedSheet(job: Job) {
+    const BRAND = '#b8955a'
+    const printDate = new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+    const approved = job.items
+      .map((it, i) => ({ it, i }))
+      .filter(x => itemProofs(x.it).length > 0 && x.it.approval_status === 'approved')
+
+    const paths = approved.flatMap(x => itemProofs(x.it))
+    const urlMap: Record<string, string> = {}
+    if (paths.length) {
+      try {
+        const res = await fetch('/api/admin/files', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths }),
+        })
+        if (res.ok) {
+          const { urls } = await res.json() as { urls: { path: string; url: string }[] }
+          urls.forEach(u => { urlMap[u.path] = u.url })
+        }
+      } catch { /* images just won't render */ }
+    }
+
+    const itemBlocks = approved.map(({ it }) => {
+      const imgs = itemProofs(it).map(p => urlMap[p]
+        ? `<img src="${urlMap[p]}" alt="${escHtml(it.name)}" style="max-width:320px;max-height:300px;object-fit:contain;border:1px solid #e8e8e8;" />`
+        : '').join('')
+      const when = it.approved_at
+        ? new Date(it.approved_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })
+        : ''
+      return `
+        <div style="margin-bottom:28px;page-break-inside:avoid;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #1a1a1a;padding-bottom:6px;margin-bottom:12px;">
+            <div style="font-size:16px;font-weight:800;">${escHtml(it.quantity + '× ' + it.name)}${it.size ? `<span style="font-weight:400;color:#777;font-size:13px;"> · ${escHtml(it.size)}</span>` : ''}</div>
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#1B7F4F;">✓ Approved${when ? ' · ' + when : ''}</div>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;">${imgs || '<span style="color:#aaa;font-size:12px;">Image unavailable</span>'}</div>
+        </div>`
+    }).join('')
+
+    const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8" /><title>Approved Designs — ${escHtml(job.reference_number)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 32px; }
+  @media print { body { padding: 0; } @page { margin: 16mm 18mm; size: A4 portrait; } .no-print { display: none !important; } }
+</style></head>
+<body>
+  <div class="no-print" style="margin-bottom:24px;display:flex;gap:10px;">
+    <button onclick="window.print()" style="background:#1a1a1a;color:#fff;border:none;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Print</button>
+    <button onclick="window.close()" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;padding:10px 24px;font-size:13px;cursor:pointer;">Close</button>
+  </div>
+  <div style="max-width:720px;margin:0 auto;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a1a1a;padding-bottom:20px;margin-bottom:24px;">
+      <div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#999;margin-bottom:4px;">Pixel Production</div>
+        <div style="font-size:30px;font-weight:900;color:${BRAND};letter-spacing:1px;line-height:1;">${escHtml(job.reference_number)}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:20px;font-weight:900;letter-spacing:2px;text-transform:uppercase;">Approved Designs</div>
+        <div style="font-size:12px;color:#666;margin-top:4px;">${escHtml(job.client_name)}${job.company_name ? ' — ' + escHtml(job.company_name) : ''}</div>
+        <div style="font-size:12px;color:#666;">Due: ${escHtml(job.date_required)}</div>
+      </div>
+    </div>
+    ${itemBlocks || '<p style="color:#aaa;">No approved designs yet.</p>'}
+    <div style="margin-top:24px;padding-top:12px;border-top:1px solid #e8e8e8;display:flex;justify-content:space-between;font-size:11px;color:#aaa;">
+      <span>Pixel Production — Approved for print</span>
+      <span>Printed: ${printDate}</span>
+    </div>
+  </div>
+</body></html>`
 
     const win = window.open('', '_blank', 'width=800,height=900')
     if (!win) return
@@ -748,7 +836,7 @@ export default function AdminPage() {
                             {item.size     && <span style={{ color: '#999' }}> · {item.size}</span>}
                             {item.material && <span style={{ color: '#bbb' }}> · {item.material}</span>}
                           </span>
-                          {item.proof_url && (
+                          {itemProofs(item).length > 0 && (
                             item.approval_status && item.approval_status !== 'pending'
                               ? <ApprovalPill status={item.approval_status} />
                               : <span title="Proof attached — awaiting client review" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#888', background: '#f0f0f0', border: '1px solid #ddd', padding: '1px 6px', textTransform: 'uppercase' }}>Proof Sent</span>
@@ -825,7 +913,7 @@ export default function AdminPage() {
 
                       {/* Copy public approval link */}
                       {(() => {
-                        const hasProof = job.items.some(i => i.proof_url)
+                        const hasProof = job.items.some(i => itemProofs(i).length > 0)
                         const isCopied = copiedLink === job.id
                         return (
                           <button
@@ -840,6 +928,23 @@ export default function AdminPage() {
                               <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
                             </svg>
                             {isCopied ? 'Copied!' : copyingLink === job.id ? 'Copying…' : 'Approval Link'}
+                          </button>
+                        )
+                      })()}
+
+                      {/* Approved designs sheet — appears once every proofed item is approved */}
+                      {(() => {
+                        const proofItems = job.items.filter(i => itemProofs(i).length > 0)
+                        const allApproved = proofItems.length > 0 && proofItems.every(i => i.approval_status === 'approved')
+                        if (!allApproved) return null
+                        return (
+                          <button
+                            onClick={() => printApprovedSheet(job)}
+                            className="job-action-btn"
+                            title="Print a one-page sheet of all approved designs"
+                            style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: '#15803d', background: '#dcfce7', border: '1px solid #86efac', padding: '5px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}
+                          >
+                            <CheckIcon /> Approved Sheet
                           </button>
                         )
                       })()}
@@ -990,7 +1095,7 @@ export default function AdminPage() {
                         <div style={{ marginBottom: 14 }}>
                           <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Items</p>
                           {editForm.items.map((item, idx) => {
-                            const proofName = item.proof_url ? (item.proof_url.split('/').pop() ?? item.proof_url) : null
+                            const proofs = itemProofs(item)
                             return (
                             <div key={idx} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: idx < editForm.items.length - 1 ? '1px dashed #ececec' : 'none' }}>
                               <div style={{ display: 'grid', gridTemplateColumns: '52px 1fr 120px 140px 32px', gap: 6, alignItems: 'center' }}>
@@ -1027,25 +1132,39 @@ export default function AdminPage() {
                                   style={{ background: 'none', border: '1px solid #fca5a5', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: '4px 6px', opacity: editForm.items.length === 1 ? 0.3 : 1 }}
                                 >×</button>
                               </div>
-                              {/* Per-item design proof */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb' }}>Proof</span>
-                                {proofName && (
-                                  <span style={{ fontSize: 11, color: '#555', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 8px', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{proofName}</span>
+                              {/* Per-item design proofs (multiple) */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb' }}>
+                                  Proofs{proofs.length > 0 ? ` (${proofs.length})` : ''}
+                                </span>
+                                {proofs.map(p => {
+                                  const nm = p.split('/').pop() ?? p
+                                  return (
+                                    <span key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#555', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 6px 2px 8px', maxWidth: 220 }}>
+                                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nm}</span>
+                                      <button
+                                        onClick={() => removeProof(idx, p)}
+                                        title="Remove this proof"
+                                        style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, padding: 0, flexShrink: 0 }}
+                                      >×</button>
+                                    </span>
+                                  )
+                                })}
+                                {proofs.length < 6 && (
+                                  <label style={{ fontSize: 11, fontWeight: 600, color: uploadingProof === idx ? '#aaa' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '3px 10px', cursor: uploadingProof === idx ? 'default' : 'pointer' }}>
+                                    <input
+                                      type="file"
+                                      accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
+                                      style={{ display: 'none' }}
+                                      disabled={uploadingProof === idx}
+                                      onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addProof(idx, f) } }}
+                                    />
+                                    {uploadingProof === idx ? 'Uploading…' : proofs.length > 0 ? '+ Add Proof' : '+ Attach Proof'}
+                                  </label>
                                 )}
                                 {item.approval_status && item.approval_status !== 'pending' && (
                                   <ApprovalPill status={item.approval_status} />
                                 )}
-                                <label style={{ fontSize: 11, fontWeight: 600, color: uploadingProof === idx ? '#aaa' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '3px 10px', cursor: uploadingProof === idx ? 'default' : 'pointer' }}>
-                                  <input
-                                    type="file"
-                                    accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
-                                    style={{ display: 'none' }}
-                                    disabled={uploadingProof === idx}
-                                    onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addProof(idx, f) } }}
-                                  />
-                                  {uploadingProof === idx ? 'Uploading…' : proofName ? 'Replace Proof' : '+ Attach Proof'}
-                                </label>
                                 {item.client_note && (
                                   <span style={{ fontSize: 11, color: '#C62828', fontStyle: 'italic' }}>“{item.client_note}”</span>
                                 )}

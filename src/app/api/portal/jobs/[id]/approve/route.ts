@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { ApprovalActionSchema } from '@/lib/schemas'
 import { sendChangeRequestNotification } from '@/lib/email'
+import { itemProofs } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 
 export const dynamic = 'force-dynamic'
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const items = (job.items ?? []) as JobItem[]
   const item = items[itemIndex]
   if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
-  if (!item.proof_url) {
+  if (itemProofs(item).length === 0) {
     return NextResponse.json({ error: 'No proof to review for this item' }, { status: 409 })
   }
 

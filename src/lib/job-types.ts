@@ -4,10 +4,18 @@ export interface JobItem {
   size: string
   material: string
   // ── Client design-approval fields (optional; items is JSONB, no migration) ──
-  proof_url?: string                                  // job-files path to the design proof
+  proof_urls?: string[]                               // job-files paths to design proofs (one item can have several)
+  proof_url?: string                                  // LEGACY single proof — read via itemProofs(); kept for old rows
   approval_status?: 'pending' | 'approved' | 'changes_requested'
   client_note?: string                                // client's change-request text
   approved_at?: string                                // ISO timestamp when approved
+}
+
+/** All proof paths for an item, preferring the multi-proof array, falling back to the legacy single field. */
+export function itemProofs(item: JobItem): string[] {
+  if (item.proof_urls && item.proof_urls.length) return item.proof_urls
+  if (item.proof_url) return [item.proof_url]
+  return []
 }
 
 export const APPROVAL_STATUSES = ['pending', 'approved', 'changes_requested'] as const

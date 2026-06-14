@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { APPROVAL_CONFIG } from '@/lib/job-types'
+import { APPROVAL_CONFIG, itemProofs } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 
 interface ReviewData {
@@ -99,7 +99,7 @@ export default function ReviewClient({ token }: { token: string }) {
 
   const reviewable = data.items
     .map((it, idx) => ({ it, idx }))
-    .filter(x => !!x.it.proof_url)
+    .filter(x => itemProofs(x.it).length > 0)
   const approved = reviewable.filter(x => x.it.approval_status === 'approved').length
   const allDone = reviewable.length > 0 && approved === reviewable.length
 
@@ -137,7 +137,7 @@ export default function ReviewClient({ token }: { token: string }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {reviewable.map(({ it, idx }) => {
               const status: ApprovalStatus = it.approval_status ?? 'pending'
-              const url = it.proof_url ? data.proofUrls[it.proof_url] : undefined
+              const proofs = itemProofs(it)
               const isOpen = openIdx === idx
               const busy = actioning === idx
               const e = err[idx]
@@ -161,13 +161,22 @@ export default function ReviewClient({ token }: { token: string }) {
                   {/* Expanded review */}
                   {isOpen && (
                     <div style={{ padding: '0 18px 18px', borderTop: '1px solid var(--charcoal-border)' }}>
-                      <a href={url ?? undefined} target="_blank" rel="noopener noreferrer"
-                         style={{ display: 'block', margin: '16px 0', background: '#f4f3f1', border: '1px solid var(--charcoal-border)' }}>
-                        {url
-                          ? <img src={url} alt={`Proof for ${it.name}`} style={{ width: '100%', maxHeight: 480, objectFit: 'contain', display: 'block' }} />
-                          : <div style={{ padding: '48px 0', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading proof…</div>}
-                      </a>
-                      <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--charcoal-60)' }}>Tap the image to open it full size.</p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '16px 0' }}>
+                        {proofs.map((p, pi) => {
+                          const u = data.proofUrls[p]
+                          return (
+                            <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer"
+                               style={{ display: 'block', background: '#f4f3f1', border: '1px solid var(--charcoal-border)' }}>
+                              {u
+                                ? <img src={u} alt={`Proof ${pi + 1} for ${it.name}`} style={{ width: '100%', maxHeight: 480, objectFit: 'contain', display: 'block' }} />
+                                : <div style={{ padding: '48px 0', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading proof…</div>}
+                            </a>
+                          )
+                        })}
+                      </div>
+                      <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--charcoal-60)' }}>
+                        {proofs.length > 1 ? `${proofs.length} proofs for this item — ` : ''}Tap an image to open it full size.
+                      </p>
 
                       {status === 'changes_requested' && it.client_note && (
                         <p style={{ margin: '0 0 12px', fontSize: 13, color: '#C62828', background: '#fff0f0', border: '1px solid #f6caca', padding: '8px 11px' }}>

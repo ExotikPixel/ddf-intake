@@ -6,6 +6,7 @@ export const ItemSchema = z.object({
   size: z.string().min(1, 'Size is required'),
   material: z.enum(['vinyl', 'fabric', 'foam-board', 'acrylic', 'other']),
   // Optional approval fields — preserved on edit, set by admin (proof) and client (status)
+  proof_urls: z.array(z.string()).optional(),
   proof_url: z.string().optional(),
   approval_status: z.enum(['pending', 'approved', 'changes_requested']).optional(),
   client_note: z.string().optional(),
