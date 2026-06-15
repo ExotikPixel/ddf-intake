@@ -131,6 +131,8 @@ export default function AdminPage() {
   const [loading, setLoading]           = useState(true)
   const [loadError, setLoadError]       = useState('')
   const [filter, setFilter]             = useState('all')
+  const [search, setSearch]             = useState('')
+  const [openOverride, setOpenOverride] = useState<Record<number, boolean>>({})
   const [updating, setUpdating]         = useState<number | null>(null)
   const [togglingNotify, setTogglingNotify] = useState<number | null>(null)
   const [fileUrls, setFileUrls]         = useState<Record<number, { path: string; name: string; url: string }[]>>({})
@@ -853,10 +855,15 @@ export default function AdminPage() {
     router.push('/login')
   }
 
-  const filtered = useMemo(
-    () => filter === 'all' ? jobs : jobs.filter(j => j.status === filter),
-    [jobs, filter]
-  )
+  const filtered = useMemo(() => {
+    const byStatus = filter === 'all' ? jobs : jobs.filter(j => j.status === filter)
+    const q = search.trim().toLowerCase()
+    if (!q) return byStatus
+    return byStatus.filter(j =>
+      [j.client_name, j.company_name, j.reference_number, j.event_name, j.contact_email]
+        .some(v => v && String(v).toLowerCase().includes(q))
+    )
+  }, [jobs, filter, search])
 
   const statCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -873,6 +880,15 @@ export default function AdminPage() {
         .job-action-btn:hover:not(:disabled) { filter: brightness(0.95); }
         .invoice-btn:hover:not(:disabled) { background: #dcfce7 !important; }
         .file-link:hover { opacity: 0.8; }
+        .job-head:hover { background: #fcfbf9; }
+        .job-search:focus { outline: none; border-color: var(--coral); box-shadow: 0 0 0 3px var(--coral)22; }
+        @media (max-width: 640px) {
+          .admin-wrap { padding: 18px 14px 56px !important; }
+          .stats-grid { grid-template-columns: repeat(5, 1fr) !important; gap: 4px !important; }
+          .stats-grid .stat-num { font-size: 20px !important; }
+          .stats-grid .stat-lbl { font-size: 8px !important; letter-spacing: 1px !important; }
+          .filter-row { justify-content: flex-start !important; }
+        }
       `}</style>
 
       {/* Header */}
@@ -902,7 +918,7 @@ export default function AdminPage() {
         </button>
       </header>
 
-      <div style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 64px' }}>
+      <div className="admin-wrap" style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 64px' }}>
 
         {/* Page title */}
         <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
@@ -939,7 +955,7 @@ export default function AdminPage() {
         ) : (
           <>
             {/* ── Stats bar ───────────────────────────────────────────────────── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginBottom: 24 }}>
+            <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginBottom: 24 }}>
               {STATUSES.map(s => (
                 <button
                   key={s}
@@ -956,24 +972,49 @@ export default function AdminPage() {
                     transition: 'opacity 0.15s',
                   }}
                 >
-                  <div style={{ fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-heading)', color: STATUS_CONFIG[s].color, lineHeight: 1, letterSpacing: '-0.5px' }}>
+                  <div className="stat-num" style={{ fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-heading)', color: STATUS_CONFIG[s].color, lineHeight: 1, letterSpacing: '-0.5px' }}>
                     {statCounts[s] ?? 0}
                   </div>
-                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: '#999', marginTop: 5 }}>
+                  <div className="stat-lbl" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: '#999', marginTop: 5 }}>
                     {STATUS_LABELS[s]}
                   </div>
                 </button>
               ))}
             </div>
 
+            {/* ── Search ──────────────────────────────────────────────────────── */}
+            <div style={{ position: 'relative', marginBottom: 12 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+              </svg>
+              <input
+                type="search"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search client, company, ref or event…"
+                aria-label="Search jobs"
+                className="job-search"
+                style={{ width: '100%', boxSizing: 'border-box', height: 44, padding: '0 14px 0 38px', fontSize: 14, border: '1px solid #ddd', background: '#fff', fontFamily: 'var(--font-body)', color: '#1a1a1a' }}
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch('')}
+                  aria-label="Clear search"
+                  style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#999', fontSize: 18, lineHeight: 1, cursor: 'pointer', padding: 6 }}
+                >×</button>
+              )}
+            </div>
+
             {/* ── Toolbar ─────────────────────────────────────────────────────── */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
               <p style={{ margin: 0, fontSize: 12, color: '#999' }}>
-                {filter === 'all'
-                  ? `${jobs.length} job${jobs.length !== 1 ? 's' : ''} total`
-                  : `${filtered.length} ${STATUS_LABELS[filter]?.toLowerCase()}`}
+                {search
+                  ? `${filtered.length} match${filtered.length !== 1 ? 'es' : ''}`
+                  : filter === 'all'
+                    ? `${jobs.length} job${jobs.length !== 1 ? 's' : ''} total`
+                    : `${filtered.length} ${STATUS_LABELS[filter]?.toLowerCase()}`}
               </p>
-              <div style={{ display: 'flex', gap: 3 }}>
+              <div className="filter-row" style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                 {(['all', ...STATUSES] as string[]).map(s => (
                   <button
                     key={s}
@@ -1000,13 +1041,25 @@ export default function AdminPage() {
             {/* ── Empty state ──────────────────────────────────────────────────── */}
             {filtered.length === 0 ? (
               <div style={{ background: '#fff', border: '1px solid #e0e0e0', padding: '48px 32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>
-                No {filter !== 'all' ? STATUS_LABELS[filter]?.toLowerCase() + ' ' : ''}jobs.
+                {search
+                  ? `No jobs match “${search}”.`
+                  : `No ${filter !== 'all' ? STATUS_LABELS[filter]?.toLowerCase() + ' ' : ''}jobs.`}
               </div>
             ) : (
 
               /* ── Job list ──────────────────────────────────────────────────── */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {filtered.map(job => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {filtered.map(job => {
+                  const proofed = job.items.filter(it => itemProofs(it).length > 0)
+                  const approvedCount = proofed.filter(it => it.approval_status === 'approved').length
+                  // "Needs attention": a proof is attached but not yet approved, or the client asked for changes.
+                  const needsAttention = proofed.some(it =>
+                    it.approval_status === 'changes_requested' ||
+                    !it.approval_status || it.approval_status === 'pending'
+                  )
+                  const baseOpen = job.id in openOverride ? openOverride[job.id] : needsAttention
+                  const open = baseOpen || editingJob === job.id
+                  return (
                   <div
                     key={job.id}
                     style={{
@@ -1015,8 +1068,12 @@ export default function AdminPage() {
                       borderLeft: `4px solid ${STATUS_COLORS[job.status] ?? '#ccc'}`,
                     }}
                   >
-                    {/* Card top: identity + date */}
-                    <div style={{ padding: '15px 18px 13px', borderBottom: '1px solid #f2f2f2' }}>
+                    {/* Card top: identity + date — click to expand/collapse */}
+                    <div
+                      className="job-head"
+                      onClick={() => setOpenOverride(prev => ({ ...prev, [job.id]: !open }))}
+                      style={{ padding: '15px 18px 13px', borderBottom: open ? '1px solid #f2f2f2' : 'none', cursor: 'pointer' }}
+                    >
                       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           {/* Ref + status + file badge */}
@@ -1030,6 +1087,11 @@ export default function AdminPage() {
                                 {job.file_paths.length} FILE{job.file_paths.length !== 1 ? 'S' : ''}
                               </span>
                             )}
+                            {proofed.length > 0 && (
+                              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', padding: '1px 7px', border: '1px solid', color: approvedCount === proofed.length ? '#15803d' : '#9a6a00', background: approvedCount === proofed.length ? '#dcfce7' : '#fff7e6', borderColor: approvedCount === proofed.length ? '#86efac' : '#f0d28a' }}>
+                                {approvedCount}/{proofed.length} approved
+                              </span>
+                            )}
                           </div>
                           {/* Client name + company */}
                           <p style={{ margin: '0 0 3px', fontWeight: 700, fontSize: 14, color: '#1a1a1a' }}>
@@ -1040,7 +1102,7 @@ export default function AdminPage() {
                           </p>
                           {/* Meta row */}
                           <div style={{ fontSize: 12, color: '#999', display: 'flex', flexWrap: 'wrap', columnGap: 14, rowGap: 2, marginTop: 1 }}>
-                            <a href={`mailto:${job.contact_email}`} style={{ color: '#999', textDecoration: 'none' }}>
+                            <a href={`mailto:${job.contact_email}`} onClick={e => e.stopPropagation()} style={{ color: '#999', textDecoration: 'none' }}>
                               {job.contact_email}
                             </a>
                             <span>
@@ -1050,12 +1112,29 @@ export default function AdminPage() {
                             {job.event_name && <span>{job.event_name}</span>}
                           </div>
                         </div>
-                        {/* Submitted date */}
-                        <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap', flexShrink: 0, paddingTop: 2 }}>
-                          {new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}
-                        </span>
+                        {/* Submitted date + expand chevron */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, paddingTop: 1 }}>
+                          {!open && needsAttention && (
+                            <span title="Needs attention" aria-label="Needs attention" style={{ width: 7, height: 7, borderRadius: '50%', background: '#C8702A', display: 'inline-block' }} />
+                          )}
+                          <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
+                            {new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </span>
+                          <button
+                            onClick={e => { e.stopPropagation(); setOpenOverride(prev => ({ ...prev, [job.id]: !open })) }}
+                            aria-label={open ? 'Collapse job' : 'Expand job'}
+                            aria-expanded={open}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, background: 'none', border: 'none', cursor: 'pointer', color: '#999', flexShrink: 0 }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.18s' }}>
+                              <path d="m6 9 6 6 6-6" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
                     </div>
+                    {open && (<>
+
 
                     {/* Items */}
                     <div style={{ padding: '10px 18px', borderBottom: '1px solid #f2f2f2', display: 'flex', flexWrap: 'wrap', gap: 5 }}>
@@ -1160,7 +1239,7 @@ export default function AdminPage() {
                     )}
 
                     {/* Actions footer */}
-                    <div style={{ padding: '10px 18px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, background: '#fafafa' }}>
+                    <div style={{ padding: '10px 18px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, background: '#fafafa', flexWrap: 'wrap' }}>
 
                       {/* Edit */}
                       <button
@@ -1469,9 +1548,11 @@ export default function AdminPage() {
                         </div>
                       </div>
                     )}
+                    </>)}
 
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </>
