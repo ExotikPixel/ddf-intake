@@ -150,6 +150,7 @@ export default function AdminPage() {
   const [copyingLink, setCopyingLink] = useState<number | null>(null)
   const [copiedLink, setCopiedLink] = useState<number | null>(null)
   const [approvingItem, setApprovingItem] = useState<string | null>(null)
+  const [dragProof, setDragProof] = useState<number | null>(null)
   const [buildingProdSheet, setBuildingProdSheet] = useState(false)
   const router = useRouter()
 
@@ -160,6 +161,17 @@ export default function AdminPage() {
       fetchJobs()
     })
   }, [router])
+
+  // Stop the browser from opening a file if it's dropped outside a drop zone.
+  useEffect(() => {
+    const prevent = (e: DragEvent) => e.preventDefault()
+    window.addEventListener('dragover', prevent)
+    window.addEventListener('drop', prevent)
+    return () => {
+      window.removeEventListener('dragover', prevent)
+      window.removeEventListener('drop', prevent)
+    }
+  }, [])
 
   async function fetchJobs() {
     try {
@@ -216,21 +228,26 @@ export default function AdminPage() {
   }
 
   async function loadFiles(jobId: number, paths: string[]) {
-    if (fileUrls[jobId] || paths.length === 0) return
+    const have = fileUrls[jobId] ?? []
+    const haveSet = new Set(have.map(f => f.path))
+    const missing = paths.filter(p => !haveSet.has(p))
+    if (missing.length === 0) return have
     setLoadingFiles(jobId)
     setFileError(null)
     try {
       const res = await fetch('/api/admin/files', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paths }),
+        body: JSON.stringify({ paths: missing }),
       })
-      if (!res.ok) { setFileError(jobId); return }
+      if (!res.ok) { setFileError(jobId); return have }
       const { urls } = await res.json()
-      setFileUrls(prev => ({ ...prev, [jobId]: urls }))
-      return urls as { path: string; name: string; url: string }[]
+      const merged = [...have, ...(urls as { path: string; name: string; url: string }[])]
+      setFileUrls(prev => ({ ...prev, [jobId]: merged }))
+      return merged
     } catch {
       setFileError(jobId)
+      return have
     } finally {
       setLoadingFiles(null)
     }
@@ -245,6 +262,11 @@ export default function AdminPage() {
       items: job.items.map(i => ({ ...i })),
       file_paths: [...job.file_paths],
     })
+    // Sign reference photos + every item's proofs so the edit panel can show
+    // thumbnails (the stored filenames are random — a preview tells them apart).
+    const proofPaths = job.items.flatMap(it => itemProofs(it))
+    const all = [...job.file_paths, ...proofPaths]
+    if (all.length > 0) void loadFiles(job.id, all)
   }
 
   function cancelEdit() {
@@ -1490,19 +1512,43 @@ export default function AdminPage() {
                                 </span>
                                 {proofs.map(p => {
                                   const nm = p.split('/').pop() ?? p
+                                  const signed = fileUrls[job.id]?.find(f => f.path === p)
                                   return (
-                                    <span key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#555', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 6px 2px 8px', maxWidth: 220 }}>
-                                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nm}</span>
+                                    <span key={p} title={nm} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#555', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '3px 6px 3px 4px' }}>
+                                      {signed ? (
+                                        <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Click to view full image" style={{ display: 'flex', flexShrink: 0 }}>
+                                          <img src={signed.url} alt={nm} style={{ width: 30, height: 30, objectFit: 'cover', border: '1px solid #d6f0dd', display: 'block', cursor: 'zoom-in' }} />
+                                        </a>
+                                      ) : (
+                                        <span style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#e9f7ee', color: '#9ccdb0', fontSize: 8, fontWeight: 700, flexShrink: 0 }}>IMG</span>
+                                      )}
+                                      {signed && (
+                                        <a href={signed.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 600, color: 'var(--coral)', textDecoration: 'none' }}>View</a>
+                                      )}
                                       <button
                                         onClick={() => removeProof(idx, p)}
-                                        title="Remove this proof"
-                                        style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, padding: 0, flexShrink: 0 }}
+                                        title={`Remove ${nm}`}
+                                        style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 14, fontWeight: 700, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
                                       >×</button>
                                     </span>
                                   )
                                 })}
                                 {proofs.length < 6 && (
-                                  <label style={{ fontSize: 11, fontWeight: 600, color: uploadingProof === idx ? '#aaa' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '3px 10px', cursor: uploadingProof === idx ? 'default' : 'pointer' }}>
+                                  <label
+                                    onDragOver={e => { e.preventDefault(); if (uploadingProof !== idx) setDragProof(idx) }}
+                                    onDragLeave={() => setDragProof(prev => prev === idx ? null : prev)}
+                                    onDrop={e => { e.preventDefault(); setDragProof(null); const f = e.dataTransfer.files?.[0]; if (f && uploadingProof !== idx) addProof(idx, f) }}
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                                      fontSize: 11, fontWeight: 600,
+                                      color: uploadingProof === idx ? '#aaa' : dragProof === idx ? '#15803d' : 'var(--coral)',
+                                      border: `1px dashed ${dragProof === idx ? '#15803d' : 'var(--coral)66'}`,
+                                      background: dragProof === idx ? '#f0fdf4' : 'transparent',
+                                      padding: dragProof === idx ? '8px 18px' : '3px 10px',
+                                      cursor: uploadingProof === idx ? 'default' : 'pointer',
+                                      transition: 'background 0.12s, padding 0.12s',
+                                    }}
+                                  >
                                     <input
                                       type="file"
                                       accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
@@ -1510,7 +1556,11 @@ export default function AdminPage() {
                                       disabled={uploadingProof === idx}
                                       onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addProof(idx, f) } }}
                                     />
-                                    {uploadingProof === idx ? 'Uploading…' : proofs.length > 0 ? '+ Add Proof' : '+ Attach Proof'}
+                                    {uploadingProof === idx
+                                      ? 'Uploading…'
+                                      : dragProof === idx
+                                        ? 'Drop mockup to upload'
+                                        : proofs.length > 0 ? '+ Add Proof' : '+ Drop or click to attach proof'}
                                   </label>
                                 )}
                                 {item.approval_status && item.approval_status !== 'pending' && (
