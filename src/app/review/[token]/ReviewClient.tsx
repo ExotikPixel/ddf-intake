@@ -64,6 +64,15 @@ export default function ReviewClient({ token }: { token: string }) {
       .finally(() => setLoading(false))
   }, [token])
 
+  // Pull the latest designs/messages — used to self-heal a stale page after a
+  // failed action (e.g. the shop added another design since this page loaded).
+  async function refresh() {
+    try {
+      const res = await fetch(`/api/review/${token}`)
+      if (res.ok) setData(await res.json())
+    } catch { /* keep showing what we have */ }
+  }
+
   async function submit(idx: number, action: 'approve' | 'request_changes', proofs: string[]) {
     if (action === 'request_changes' && !(noteDraft[idx]?.trim())) {
       setErr(prev => ({ ...prev, [idx]: 'Please describe what needs to change.' }))
@@ -82,7 +91,16 @@ export default function ReviewClient({ token }: { token: string }) {
         body: JSON.stringify({ itemIndex: idx, action, note: noteDraft[idx], selectedProof: selected[idx] }),
       })
       if (res.status === 429) { setErr(prev => ({ ...prev, [idx]: 'Too many requests — please wait a moment and try again.' })); return }
-      if (!res.ok) { setErr(prev => ({ ...prev, [idx]: 'Could not save — please try again.' })); return }
+      if (!res.ok) {
+        // Show the server's actual reason (e.g. "Please choose which design to
+        // approve") and pull the latest designs in case this page was stale.
+        let msg = 'Could not save — please try again.'
+        try { const j = await res.json(); if (j?.error) msg = j.error } catch { /* keep default */ }
+        setErr(prev => ({ ...prev, [idx]: msg }))
+        setSelected(prev => ({ ...prev, [idx]: '' }))
+        await refresh()
+        return
+      }
       const { items } = await res.json()
       setData(prev => prev ? { ...prev, items } : prev)
       setNoteDraft(prev => ({ ...prev, [idx]: '' }))
@@ -310,6 +328,11 @@ export default function ReviewClient({ token }: { token: string }) {
                           )
                         })()}
                       </div>
+                      {err[idx] && (
+                        <p style={{ margin: '10px 0 0', fontSize: 13, fontWeight: 600, color: '#C62828', background: '#fff0f0', border: '1px solid #f6caca', padding: '9px 11px' }}>
+                          {err[idx]}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
