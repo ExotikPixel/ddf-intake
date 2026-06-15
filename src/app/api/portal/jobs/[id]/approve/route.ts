@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { ApprovalActionSchema } from '@/lib/schemas'
 import { sendChangeRequestNotification } from '@/lib/email'
+import { getTenantBranding } from '@/lib/tenant-settings'
 import { sendNtfy } from '@/lib/ntfy'
 import { itemProofs } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { data: job } = await supabaseAdmin
     .from('jobs')
-    .select('contact_email, reference_number, client_name, items')
+    .select('contact_email, reference_number, client_name, items, tenant_id')
     .eq('id', jobId)
     .single()
 
@@ -74,7 +75,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (action === 'request_changes') {
     await sendChangeRequestNotification(
       { reference_number: job.reference_number, client_name: job.client_name, contact_email: job.contact_email },
-      { name: item.name, note: item.client_note }
+      { name: item.name, note: item.client_note },
+      await getTenantBranding(job.tenant_id)
     )
   } else {
     const proofed = items.filter(it => itemProofs(it).length > 0)

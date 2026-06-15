@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
     .from('jobs')
     .select('reference_number, client_name, contact_email, date_required, event_name, notes, items')
     .eq('id', jobId)
+    .eq('tenant_id', auth.tenantId)
     .single()
 
   if (error || !job) {

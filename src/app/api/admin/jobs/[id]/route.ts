@@ -5,6 +5,7 @@ import { STATUSES, NOTIFICATION_STATUSES, NotificationStatus, itemProofs } from 
 import type { JobItem } from '@/lib/job-types'
 import { JobPatchNotifySchema } from '@/lib/schemas'
 import { sendStatusNotification } from '@/lib/email'
+import { getTenantBranding } from '@/lib/tenant-settings'
 import { sendNtfy } from '@/lib/ntfy'
 
 export const dynamic = 'force-dynamic'
@@ -37,7 +38,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const { error } = await supabaseAdmin
       .from('jobs')
       .update({ notify_client: parsed.data.notify_client })
-      .eq('id', jobId)
+      .eq('id', jobId).eq('tenant_id', auth.tenantId)
     if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
     return NextResponse.json({ success: true })
   }
@@ -50,7 +51,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const { error } = await supabaseAdmin
       .from('jobs')
       .update({ status: body.status })
-      .eq('id', jobId)
+      .eq('id', jobId).eq('tenant_id', auth.tenantId)
     if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
 
     // Notification: re-fetch job and send if conditions met
@@ -59,7 +60,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       const { data: job } = await supabaseAdmin
         .from('jobs')
         .select('reference_number, client_name, contact_email, notify_client')
-        .eq('id', jobId)
+        .eq('id', jobId).eq('tenant_id', auth.tenantId)
         .single()
 
       if (!job) {
@@ -73,7 +74,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             client_name: job.client_name,
             contact_email: job.contact_email,
           },
-          newStatus as NotificationStatus
+          newStatus as NotificationStatus,
+          await getTenantBranding(auth.tenantId)
         )
       } else if (job.notify_client && !job.contact_email) {
         console.warn(`[notify] Job ${jobId} has notify_client=true but no contact_email — skipping send`)
@@ -96,7 +98,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       patch.items = body.items
       const newItems = (body.items ?? []) as JobItem[]
       const { data: cur } = await supabaseAdmin
-        .from('jobs').select('items, reference_number, company_name').eq('id', jobId).single()
+        .from('jobs').select('items, reference_number, company_name').eq('id', jobId).eq('tenant_id', auth.tenantId).single()
       const oldItems = (cur?.items ?? []) as JobItem[]
       const newlyApproved = newItems.filter((it, i) =>
         it.approval_status === 'approved' && oldItems[i]?.approval_status !== 'approved')
@@ -118,7 +120,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       const newPaths = body.file_paths as string[]
       // delete removed files from storage
       const { data: current } = await supabaseAdmin
-        .from('jobs').select('file_paths').eq('id', jobId).single()
+        .from('jobs').select('file_paths').eq('id', jobId).eq('tenant_id', auth.tenantId).single()
       const removed = (current?.file_paths as string[] ?? []).filter(p => !newPaths.includes(p))
       if (removed.length > 0) {
         await supabaseAdmin.storage.from('job-files').remove(removed)
@@ -128,7 +130,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const { error } = await supabaseAdmin
       .from('jobs')
       .update(patch)
-      .eq('id', jobId)
+      .eq('id', jobId).eq('tenant_id', auth.tenantId)
     if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
 
     if (approvalPush) {

@@ -6,6 +6,8 @@ import { sendNtfy } from '@/lib/ntfy'
 export const dynamic = 'force-dynamic'
 import { SubmitSchema } from '@/lib/schemas'
 import { generateReferenceNumber } from '@/lib/reference'
+import { getDefaultTenantId } from '@/lib/tenant'
+import { getTenantBranding } from '@/lib/tenant-settings'
 
 export async function POST(req: NextRequest) {
   let body: unknown
@@ -41,8 +43,13 @@ export async function POST(req: NextRequest) {
   const referenceNumber = generateReferenceNumber()
   const submittedAt = new Date().toISOString()
 
+  // Which workspace this intake belongs to. Until per-tenant intake URLs exist,
+  // public submissions go to the default (DDF) workspace.
+  const tenantId = await getDefaultTenantId()
+
   // INSERT with status=pending — DB is source of truth before emails send
   const { error: insertError } = await supabaseAdmin.from('jobs').insert({
+    tenant_id: tenantId,
     reference_number: referenceNumber,
     client_name: data.clientName,
     company_name: data.companyName,
@@ -94,9 +101,10 @@ export async function POST(req: NextRequest) {
   }
 
   // Emails + phone push are best-effort — a failure does not fail the submission
+  const brand = await getTenantBranding(tenantId)
   await Promise.allSettled([
-    sendNotificationEmail(emailData).catch((e) => console.error('[email] notification failed:', e)),
-    sendConfirmationEmail(emailData).catch((e) => console.error('[email] confirmation failed:', e)),
+    sendNotificationEmail(emailData, brand).catch((e) => console.error('[email] notification failed:', e)),
+    sendConfirmationEmail(emailData, brand).catch((e) => console.error('[email] confirmation failed:', e)),
     sendNtfy({
       title: 'New job submitted',
       message: `${data.companyName} — ${data.clientName}\n${data.items.length} item${data.items.length !== 1 ? 's' : ''}, due ${data.dateRequired}\nRef ${referenceNumber}`,
