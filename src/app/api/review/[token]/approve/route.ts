@@ -7,6 +7,7 @@ import { getTenantBranding } from '@/lib/tenant-settings'
 import { sendNtfy } from '@/lib/ntfy'
 import { itemProofs, designsMode } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
+import { syncApprovedItemsToKanban } from '@/lib/kanban-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -74,6 +75,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
       await getTenantBranding(job.tenant_id)
     )
   } else {
+    // Push the newly-approved item into Command Centre's Kanban as a job ticket.
+    await syncApprovedItemsToKanban(jobId)
+
     const proofed = items.filter(it => itemProofs(it).length > 0)
     const full = proofed.length > 0 && proofed.every(it => it.approval_status === 'approved')
     await sendNtfy({

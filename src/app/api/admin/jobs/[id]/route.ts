@@ -7,6 +7,7 @@ import { JobPatchNotifySchema } from '@/lib/schemas'
 import { sendStatusNotification } from '@/lib/email'
 import { getTenantBranding } from '@/lib/tenant-settings'
 import { sendNtfy } from '@/lib/ntfy'
+import { syncApprovedItemsToKanban } from '@/lib/kanban-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -132,6 +133,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       .update(patch)
       .eq('id', jobId).eq('tenant_id', auth.tenantId)
     if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+
+    // Keep the Kanban in sync whenever items change (approvals, revised proofs).
+    // No-op when nothing is approved; updates existing tickets in place.
+    if ('items' in body) await syncApprovedItemsToKanban(jobId)
 
     if (approvalPush) {
       await sendNtfy({
