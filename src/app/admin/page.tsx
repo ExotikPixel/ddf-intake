@@ -1737,7 +1737,6 @@ export default function AdminPage() {
         const approved = it.approval_status === 'approved'
         const sending = sendingReply === key
         const uploading = uploadingRevision === key
-        const clientFirst = job.client_name?.split(' ')[0] || 'Client'
         return (
           <>
             <div className="chat-backdrop" onClick={() => setChatItem(null)} />
@@ -1745,20 +1744,20 @@ export default function AdminPage() {
               <div className="chat-head">
                 <div style={{ minWidth: 0 }}>
                   <div className="chat-head-title">{it.quantity}× {it.name}</div>
-                  <div className="chat-head-sub">{job.reference_number} · {clientFirst}</div>
+                  <div className="chat-head-sub">{job.reference_number}</div>
                 </div>
                 <button className="chat-close" onClick={() => setChatItem(null)} aria-label="Close conversation">✕</button>
               </div>
 
               <div className="chat-body" ref={chatBodyRef}>
                 {thread.length === 0 ? (
-                  <div className="chat-empty">No messages yet.<br />Write to {clientFirst} below, or upload a revised version.</div>
+                  <div className="chat-empty">No messages yet.<br />Write to the client below, or upload a revised version.</div>
                 ) : thread.map((m, mi) => {
                   const mine = m.from === 'shop'
                   return (
                     <div key={mi} className={`chat-row ${mine ? 'me' : 'them'}`}>
                       <div className="chat-bubble">{m.text}</div>
-                      <div className="chat-meta">{mine ? 'You' : clientFirst}{m.at ? ` · ${new Date(m.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</div>
+                      <div className="chat-meta">{mine ? 'DDF x Pixel team reply' : 'Client reply'}{m.at ? ` · ${new Date(m.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</div>
                     </div>
                   )
                 })}
@@ -1772,7 +1771,7 @@ export default function AdminPage() {
                     value={draft}
                     onChange={ev => setReplyDraft(prev => ({ ...prev, [key]: ev.target.value }))}
                     onKeyDown={ev => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); if (draft.trim() && !sending) sendReply(job, idx) } }}
-                    placeholder={`Write back to ${clientFirst}…`}
+                    placeholder="Write back to the client…"
                     className="chat-input"
                   />
                   <button className="chat-send" onClick={() => sendReply(job, idx)} disabled={sending || !draft.trim()}>

@@ -348,7 +348,7 @@ export default function ReviewClient({ token }: { token: string }) {
                   return (
                     <div key={mi} className={`chat-row ${mine ? 'me' : 'them'}`}>
                       <div className="chat-bubble">{m.text}</div>
-                      <div className="chat-meta">{mine ? data.clientName : data.shopName}{m.at ? ` · ${fmtWhen(m.at)}` : ''}</div>
+                      <div className="chat-meta">{mine ? 'Client reply' : `${data.shopName} team reply`}{m.at ? ` · ${fmtWhen(m.at)}` : ''}</div>
                     </div>
                   )
                 })}
