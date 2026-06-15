@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { APPROVAL_CONFIG, itemProofs } from '@/lib/job-types'
+import { APPROVAL_CONFIG, itemProofs, itemThread } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 
 interface ReviewData {
@@ -10,6 +10,16 @@ interface ReviewData {
   date_required: string
   items: JobItem[]
   proofUrls: Record<string, string>
+  clientName: string
+  shopName: string
+}
+
+function fmtWhen(at: string): string {
+  if (!at) return ''
+  const d = new Date(at)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' }) + ', ' +
+    d.toLocaleTimeString('en-ZA', { hour: 'numeric', minute: '2-digit' })
 }
 
 function ApprovalPill({ status }: { status: ApprovalStatus }) {
@@ -223,11 +233,52 @@ export default function ReviewClient({ token }: { token: string }) {
                           : 'Tap the image to open it full size.'}
                       </p>
 
-                      {status === 'changes_requested' && it.client_note && (
-                        <p style={{ margin: '0 0 12px', fontSize: 13, color: '#C62828', background: '#fff0f0', border: '1px solid #f6caca', padding: '8px 11px' }}>
-                          You requested: “{it.client_note}”
-                        </p>
+                      {/* Earlier versions of this design, kept for reference */}
+                      {(it.proof_history?.length ?? 0) > 0 && (
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--charcoal-60)', marginBottom: 6 }}>Earlier versions</div>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            {it.proof_history!.map((p, vi) => {
+                              const u = data.proofUrls[p]
+                              return (
+                                <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer"
+                                   title={`Version ${vi + 1}`}
+                                   style={{ display: 'block', width: 56, height: 56, border: '1px solid var(--charcoal-border)', background: '#f4f3f1', flexShrink: 0 }}>
+                                  {u && <img src={u} alt={`Version ${vi + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.7 }} />}
+                                </a>
+                              )
+                            })}
+                          </div>
+                        </div>
                       )}
+
+                      {/* Conversation thread */}
+                      {(() => {
+                        const thread = itemThread(it)
+                        if (thread.length === 0) return null
+                        return (
+                          <div style={{ margin: '0 0 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--charcoal-60)' }}>Conversation</div>
+                            {thread.map((m, mi) => {
+                              const mine = m.from === 'client'
+                              const who = mine ? data.clientName : data.shopName
+                              return (
+                                <div key={mi} style={{
+                                  alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '85%',
+                                  background: mine ? '#eef2f7' : '#fff7ed',
+                                  border: `1px solid ${mine ? '#d6e0ec' : '#f0d6a8'}`,
+                                  padding: '8px 11px', borderRadius: 4,
+                                }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: mine ? '#3a5a82' : '#9a6a00', marginBottom: 2 }}>
+                                    {who}{m.at ? <span style={{ fontWeight: 400, color: 'var(--charcoal-60)' }}> · {fmtWhen(m.at)}</span> : null}
+                                  </div>
+                                  <div style={{ fontSize: 13.5, color: 'var(--charcoal)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{m.text}</div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )
+                      })()}
 
                       {noteOpen[idx] ? (
                         <div>

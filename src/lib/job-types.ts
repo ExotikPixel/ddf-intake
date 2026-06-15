@@ -1,3 +1,10 @@
+/** One message in an item's review conversation. */
+export interface ItemMessage {
+  from: 'client' | 'shop'
+  text: string
+  at: string                                          // ISO timestamp
+}
+
 export interface JobItem {
   name: string
   quantity: number
@@ -6,10 +13,23 @@ export interface JobItem {
   // ── Client design-approval fields (optional; items is JSONB, no migration) ──
   proof_urls?: string[]                               // job-files paths to design proofs (one item can have several)
   proof_url?: string                                  // LEGACY single proof — read via itemProofs(); kept for old rows
+  proof_history?: string[]                            // superseded proof versions (view-only history), oldest→newest
   approval_status?: 'pending' | 'approved' | 'changes_requested'
   approved_proof_url?: string                         // when several proofs are offered, the ONE design the client picked
-  client_note?: string                                // client's change-request text
+  messages?: ItemMessage[]                            // per-item conversation between client and shop
+  client_note?: string                                // LEGACY latest change-request text — read the thread via itemThread()
   approved_at?: string                                // ISO timestamp when approved
+}
+
+/**
+ * The review conversation for an item, newest-last. Falls back to synthesising
+ * a single client message from the legacy client_note for rows saved before
+ * threaded messages existed.
+ */
+export function itemThread(item: JobItem): ItemMessage[] {
+  if (item.messages && item.messages.length) return item.messages
+  if (item.client_note) return [{ from: 'client', text: item.client_note, at: '' }]
+  return []
 }
 
 /** All proof paths for an item, preferring the multi-proof array, falling back to the legacy single field. */

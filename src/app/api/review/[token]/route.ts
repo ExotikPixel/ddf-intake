@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 import { verifyReviewToken } from '@/lib/review-token'
 import { itemProofs } from '@/lib/job-types'
+import { getTenantBranding } from '@/lib/tenant-settings'
 import type { JobItem } from '@/lib/job-types'
 
 export const dynamic = 'force-dynamic'
@@ -16,14 +17,15 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
 
   const { data: job } = await supabaseAdmin
     .from('jobs')
-    .select('reference_number, event_name, date_required, items')
+    .select('reference_number, event_name, date_required, items, client_name, tenant_id')
     .eq('id', jobId)
     .single()
 
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const items = (job.items ?? []) as JobItem[]
-  const paths = items.flatMap(itemProofs)
+  // Sign current proofs AND archived previous versions so the thread can show history.
+  const paths = items.flatMap(it => [...itemProofs(it), ...(it.proof_history ?? [])])
 
   const proofUrls: Record<string, string> = {}
   if (paths.length > 0) {
@@ -33,11 +35,15 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
     results.forEach((r, i) => { if (r.data?.signedUrl) proofUrls[paths[i]] = r.data.signedUrl })
   }
 
+  const branding = await getTenantBranding(job.tenant_id)
+
   return NextResponse.json({
     reference_number: job.reference_number,
     event_name: job.event_name,
     date_required: job.date_required,
     items,
     proofUrls,
+    clientName: (job.client_name ?? '').split(' ')[0] || 'You',   // first name for thread attribution
+    shopName: branding.businessName,
   })
 }

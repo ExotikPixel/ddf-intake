@@ -53,8 +53,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     item.approved_at = new Date().toISOString()
     item.client_note = undefined
   } else {
+    const text = note?.trim() || 'Requested changes.'
     item.approval_status = 'changes_requested'
-    item.client_note = note?.trim() || undefined
+    item.client_note = text                                   // legacy mirror of the latest request
+    item.messages = [...(item.messages ?? []), { from: 'client', text, at: new Date().toISOString() }]
     item.approved_at = undefined
     item.approved_proof_url = undefined
   }

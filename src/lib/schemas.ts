@@ -8,8 +8,14 @@ export const ItemSchema = z.object({
   // Optional approval fields — preserved on edit, set by admin (proof) and client (status)
   proof_urls: z.array(z.string()).optional(),
   proof_url: z.string().optional(),
+  proof_history: z.array(z.string()).optional(),
   approval_status: z.enum(['pending', 'approved', 'changes_requested']).optional(),
   approved_proof_url: z.string().optional(),
+  messages: z.array(z.object({
+    from: z.enum(['client', 'shop']),
+    text: z.string().max(2000),
+    at: z.string(),
+  })).optional(),
   client_note: z.string().optional(),
   approved_at: z.string().optional(),
 })

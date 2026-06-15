@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, approvedProofs } from '@/lib/job-types'
-import type { JobItem, ApprovalStatus } from '@/lib/job-types'
+import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, approvedProofs, itemThread } from '@/lib/job-types'
+import type { JobItem, ApprovalStatus, ItemMessage } from '@/lib/job-types'
 
 interface Job {
   id: number
@@ -150,6 +150,10 @@ export default function AdminPage() {
   const [copyingLink, setCopyingLink] = useState<number | null>(null)
   const [copiedLink, setCopiedLink] = useState<number | null>(null)
   const [approvingItem, setApprovingItem] = useState<string | null>(null)
+  const [replyDraft, setReplyDraft] = useState<Record<string, string>>({})   // `${jobId}:${idx}` → draft reply
+  const [sendingReply, setSendingReply] = useState<string | null>(null)
+  const [uploadingRevision, setUploadingRevision] = useState<string | null>(null)
+  const [revisionError, setRevisionError] = useState<Record<string, string>>({})
   const [dragProof, setDragProof] = useState<number | null>(null)
   const [buildingProdSheet, setBuildingProdSheet] = useState(false)
   const router = useRouter()
@@ -612,6 +616,73 @@ export default function AdminPage() {
       alert('Network error — approval not saved.')
     } finally {
       setApprovingItem(null)
+    }
+  }
+
+  // Post a reply from the shop into an item's conversation thread.
+  async function sendReply(job: Job, idx: number) {
+    const key = `${job.id}:${idx}`
+    const text = (replyDraft[key] ?? '').trim()
+    if (!text) return
+    setSendingReply(key)
+    const msg: ItemMessage = { from: 'shop', text, at: new Date().toISOString() }
+    const newItems: JobItem[] = job.items.map((it, i) => i === idx
+      ? { ...it, messages: [...(it.messages ?? itemThread(it)), msg] }
+      : it)
+    try {
+      const res = await fetch(`/api/admin/jobs/${job.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: newItems }),
+      })
+      if (res.ok) {
+        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, items: newItems } : j))
+        setReplyDraft(prev => ({ ...prev, [key]: '' }))
+      } else alert('Failed to send reply — please try again.')
+    } catch {
+      alert('Network error — reply not sent.')
+    } finally {
+      setSendingReply(null)
+    }
+  }
+
+  // Upload a corrected design as the NEW version: the current proof(s) move to
+  // history, the new one becomes what the client reviews, approval resets.
+  async function uploadRevision(job: Job, idx: number, file: File) {
+    const key = `${job.id}:${idx}`
+    setRevisionError(prev => ({ ...prev, [key]: '' }))
+    setUploadingRevision(key)
+    try {
+      const urlRes = await fetch('/api/upload-url', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: [{ name: file.name, type: file.type, size: file.size }] }),
+      })
+      if (!urlRes.ok) { setRevisionError(prev => ({ ...prev, [key]: 'Could not get upload URL' })); return }
+      const { uploads } = await urlRes.json()
+      const { path, signedUrl } = uploads[0]
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      if (!putRes.ok) { setRevisionError(prev => ({ ...prev, [key]: 'Upload failed — please try again.' })); return }
+
+      const sys: ItemMessage = { from: 'shop', text: 'Uploaded a revised design — please review.', at: new Date().toISOString() }
+      const newItems: JobItem[] = job.items.map((it, i) => {
+        if (i !== idx) return it
+        const archived = [...(it.proof_history ?? []), ...itemProofs(it)]   // old version(s) → history
+        return {
+          ...it,
+          proof_history: archived,
+          proof_urls: [path], proof_url: undefined,
+          approval_status: 'pending' as ApprovalStatus, approved_proof_url: undefined,
+          approved_at: undefined, client_note: undefined,
+          messages: [...(it.messages ?? itemThread(it)), sys],
+        }
+      })
+      const res = await fetch(`/api/admin/jobs/${job.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: newItems }),
+      })
+      if (res.ok) setJobs(prev => prev.map(j => j.id === job.id ? { ...j, items: newItems } : j))
+      else setRevisionError(prev => ({ ...prev, [key]: 'Could not save the new version.' }))
+    } catch {
+      setRevisionError(prev => ({ ...prev, [key]: 'Network error during upload.' }))
+    } finally {
+      setUploadingRevision(null)
     }
   }
 
@@ -1189,31 +1260,79 @@ export default function AdminPage() {
                               const key = `${job.id}:${i}`
                               const approved = it.approval_status === 'approved'
                               const busy = approvingItem === key
+                              const thread = itemThread(it)
+                              const changes = it.approval_status === 'changes_requested'
+                              const draft = replyDraft[key] ?? ''
                               return (
-                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: 12, color: '#444' }}>
-                                    <strong style={{ color: 'var(--coral)' }}>{it.quantity}×</strong> {it.name}
-                                  </span>
-                                  {it.approval_status && it.approval_status !== 'pending' && <ApprovalPill status={it.approval_status} />}
-                                  {approved && it.approved_proof_url && itemProofs(it).length > 1 && (
-                                    <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', background: '#dcfce7', border: '1px solid #86efac', padding: '2px 8px' }}>
-                                      Client picked design {itemProofs(it).indexOf(it.approved_proof_url) + 1} of {itemProofs(it).length}
+                                <div key={i} style={{ borderTop: i > 0 ? '1px solid #f0efed' : 'none', paddingTop: i > 0 ? 8 : 0 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 12, color: '#444' }}>
+                                      <strong style={{ color: 'var(--coral)' }}>{it.quantity}×</strong> {it.name}
                                     </span>
+                                    {it.approval_status && it.approval_status !== 'pending' && <ApprovalPill status={it.approval_status} />}
+                                    {approved && it.approved_proof_url && itemProofs(it).length > 1 && (
+                                      <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', background: '#dcfce7', border: '1px solid #86efac', padding: '2px 8px' }}>
+                                        Client picked design {itemProofs(it).indexOf(it.approved_proof_url) + 1} of {itemProofs(it).length}
+                                      </span>
+                                    )}
+                                    <button
+                                      onClick={() => approveItem(job, i, !approved)}
+                                      disabled={busy}
+                                      style={{
+                                        fontSize: 11, fontWeight: 700, padding: '4px 12px',
+                                        cursor: busy ? 'default' : 'pointer', fontFamily: 'var(--font-body)',
+                                        color: approved ? '#15803d' : '#fff',
+                                        background: approved ? '#dcfce7' : '#1B7F4F',
+                                        border: approved ? '1px solid #86efac' : 'none',
+                                        opacity: busy ? 0.6 : 1,
+                                      }}
+                                    >
+                                      {busy ? '…' : approved ? '✓ Approved · Undo' : 'Approve for Print'}
+                                    </button>
+                                  </div>
+
+                                  {/* Conversation thread */}
+                                  {thread.length > 0 && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, margin: '8px 0 0' }}>
+                                      {thread.map((m, mi) => {
+                                        const fromClient = m.from === 'client'
+                                        return (
+                                          <div key={mi} style={{ alignSelf: fromClient ? 'flex-start' : 'flex-end', maxWidth: '90%', background: fromClient ? '#fff7ed' : '#eef2f7', border: `1px solid ${fromClient ? '#f0d6a8' : '#d6e0ec'}`, padding: '6px 9px', borderRadius: 4 }}>
+                                            <div style={{ fontSize: 10, fontWeight: 700, color: fromClient ? '#9a6a00' : '#3a5a82', marginBottom: 2 }}>
+                                              {fromClient ? (job.client_name?.split(' ')[0] || 'Client') : 'You'}
+                                              {m.at ? <span style={{ fontWeight: 400, color: '#999' }}> · {new Date(m.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span> : null}
+                                            </div>
+                                            <div style={{ fontSize: 12.5, color: '#333', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{m.text}</div>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
                                   )}
-                                  <button
-                                    onClick={() => approveItem(job, i, !approved)}
-                                    disabled={busy}
-                                    style={{
-                                      fontSize: 11, fontWeight: 700, padding: '4px 12px',
-                                      cursor: busy ? 'default' : 'pointer', fontFamily: 'var(--font-body)',
-                                      color: approved ? '#15803d' : '#fff',
-                                      background: approved ? '#dcfce7' : '#1B7F4F',
-                                      border: approved ? '1px solid #86efac' : 'none',
-                                      opacity: busy ? 0.6 : 1,
-                                    }}
-                                  >
-                                    {busy ? '…' : approved ? '✓ Approved · Undo' : 'Approve for Print'}
-                                  </button>
+
+                                  {/* Reply + upload revised version */}
+                                  {(changes || thread.length > 0) && !approved && (
+                                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                      <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                                        <textarea
+                                          rows={2}
+                                          value={draft}
+                                          onChange={ev => setReplyDraft(prev => ({ ...prev, [key]: ev.target.value }))}
+                                          placeholder="Write back to the client…"
+                                          style={{ flex: 1, padding: '7px 9px', border: '1px solid #ddd', fontSize: 12.5, fontFamily: 'var(--font-body)', resize: 'vertical', boxSizing: 'border-box' }}
+                                        />
+                                        <button onClick={() => sendReply(job, i)} disabled={sendingReply === key || !draft.trim()}
+                                          style={{ fontSize: 11, fontWeight: 700, padding: '7px 14px', background: '#131313', color: '#fff', border: 'none', cursor: (sendingReply === key || !draft.trim()) ? 'default' : 'pointer', opacity: (sendingReply === key || !draft.trim()) ? 0.5 : 1, whiteSpace: 'nowrap', fontFamily: 'var(--font-body)' }}>
+                                          {sendingReply === key ? 'Sending…' : 'Reply'}
+                                        </button>
+                                      </div>
+                                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#b06a00', cursor: uploadingRevision === key ? 'default' : 'pointer' }}>
+                                        <input type="file" accept="image/*" disabled={uploadingRevision === key} style={{ display: 'none' }}
+                                          onChange={e => { const f = e.target.files?.[0]; if (f) uploadRevision(job, i, f); e.currentTarget.value = '' }} />
+                                        {uploadingRevision === key ? '⏳ Uploading new version…' : '⬆ Upload revised version'}
+                                      </label>
+                                      {revisionError[key] && <span style={{ fontSize: 11, color: '#dc2626' }}>{revisionError[key]}</span>}
+                                    </div>
+                                  )}
                                 </div>
                               )
                             })}
