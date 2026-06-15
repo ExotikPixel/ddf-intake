@@ -33,6 +33,7 @@ export default function ReviewClient({ token }: { token: string }) {
   const [actioning, setActioning] = useState<number | null>(null)
   const [noteOpen, setNoteOpen] = useState<Record<number, boolean>>({})
   const [noteDraft, setNoteDraft] = useState<Record<number, string>>({})
+  const [selected, setSelected] = useState<Record<number, string>>({}) // item index → chosen proof path
   const [err, setErr] = useState<Record<number, string>>({})
 
   useEffect(() => {
@@ -45,9 +46,13 @@ export default function ReviewClient({ token }: { token: string }) {
       .finally(() => setLoading(false))
   }, [token])
 
-  async function submit(idx: number, action: 'approve' | 'request_changes') {
+  async function submit(idx: number, action: 'approve' | 'request_changes', proofs: string[]) {
     if (action === 'request_changes' && !(noteDraft[idx]?.trim())) {
       setErr(prev => ({ ...prev, [idx]: 'Please describe what needs to change.' }))
+      return
+    }
+    if (action === 'approve' && proofs.length > 1 && !selected[idx]) {
+      setErr(prev => ({ ...prev, [idx]: 'Please choose which design you want to approve.' }))
       return
     }
     setActioning(idx)
@@ -56,7 +61,7 @@ export default function ReviewClient({ token }: { token: string }) {
       const res = await fetch(`/api/review/${token}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemIndex: idx, action, note: noteDraft[idx] }),
+        body: JSON.stringify({ itemIndex: idx, action, note: noteDraft[idx], selectedProof: selected[idx] }),
       })
       if (res.status === 429) { setErr(prev => ({ ...prev, [idx]: 'Too many requests — please wait a moment and try again.' })); return }
       if (!res.ok) { setErr(prev => ({ ...prev, [idx]: 'Could not save — please try again.' })); return }
@@ -161,21 +166,61 @@ export default function ReviewClient({ token }: { token: string }) {
                   {/* Expanded review */}
                   {isOpen && (
                     <div style={{ padding: '0 18px 18px', borderTop: '1px solid var(--charcoal-border)' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '16px 0' }}>
-                        {proofs.map((p, pi) => {
-                          const u = data.proofUrls[p]
-                          return (
-                            <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer"
-                               style={{ display: 'block', background: '#f4f3f1', border: '1px solid var(--charcoal-border)' }}>
-                              {u
-                                ? <img src={u} alt={`Proof ${pi + 1} for ${it.name}`} style={{ width: '100%', maxHeight: 480, objectFit: 'contain', display: 'block' }} />
-                                : <div style={{ padding: '48px 0', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading proof…</div>}
-                            </a>
-                          )
-                        })}
-                      </div>
+                      {(() => {
+                        const multi = proofs.length > 1
+                        const isApproved = status === 'approved'
+                        // After approval the chosen design is fixed; before, it follows local selection.
+                        const chosen = isApproved ? it.approved_proof_url : selected[idx]
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, margin: '16px 0' }}>
+                            {proofs.map((p, pi) => {
+                              const u = data.proofUrls[p]
+                              const isChosen = chosen === p
+                              const dimmed = isApproved && !isChosen // non-selected designs fade out once approved
+                              const selectable = multi && !isApproved
+                              return (
+                                <div key={p} style={{
+                                  border: `2px solid ${isChosen ? '#1B7F4F' : 'var(--charcoal-border)'}`,
+                                  background: '#fff', opacity: dimmed ? 0.5 : 1,
+                                }}>
+                                  {multi && (
+                                    <button
+                                      onClick={selectable ? () => { setSelected(prev => ({ ...prev, [idx]: p })); setErr(prev => ({ ...prev, [idx]: '' })) } : undefined}
+                                      disabled={!selectable}
+                                      style={{
+                                        width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                                        background: isChosen ? '#eef7f3' : '#faf9f7', border: 'none',
+                                        borderBottom: '1px solid var(--charcoal-border)', cursor: selectable ? 'pointer' : 'default',
+                                        textAlign: 'left', fontFamily: 'var(--font-body)',
+                                      }}>
+                                      <span style={{
+                                        width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                                        border: `2px solid ${isChosen ? '#1B7F4F' : '#bbb'}`, background: isChosen ? '#1B7F4F' : '#fff',
+                                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700,
+                                      }}>{isChosen ? '✓' : ''}</span>
+                                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--charcoal)' }}>
+                                        Design {pi + 1}
+                                        {isApproved && isChosen && <span style={{ color: '#1B7F4F' }}> · Approved</span>}
+                                        {isApproved && !isChosen && <span style={{ color: 'var(--charcoal-60)', fontWeight: 400 }}> · Not selected</span>}
+                                        {selectable && <span style={{ color: 'var(--charcoal-60)', fontWeight: 400 }}>{isChosen ? ' · Selected' : ' · Tap to choose'}</span>}
+                                      </span>
+                                    </button>
+                                  )}
+                                  <a href={u ?? undefined} target="_blank" rel="noopener noreferrer" style={{ display: 'block', background: '#f4f3f1' }}>
+                                    {u
+                                      ? <img src={u} alt={`Design ${pi + 1} for ${it.name}`} style={{ width: '100%', maxHeight: 480, objectFit: 'contain', display: 'block' }} />
+                                      : <div style={{ padding: '48px 0', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading proof…</div>}
+                                  </a>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )
+                      })()}
                       <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--charcoal-60)' }}>
-                        {proofs.length > 1 ? `${proofs.length} proofs for this item — ` : ''}Tap an image to open it full size.
+                        {proofs.length > 1
+                          ? `${proofs.length} designs — choose the one you'd like, then approve. Tap an image to open it full size.`
+                          : 'Tap the image to open it full size.'}
                       </p>
 
                       {status === 'changes_requested' && it.client_note && (
@@ -195,7 +240,7 @@ export default function ReviewClient({ token }: { token: string }) {
                           />
                           {e && <p style={{ margin: '6px 0 0', fontSize: 12, color: '#dc2626' }}>{e}</p>}
                           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                            <button onClick={() => submit(idx, 'request_changes')} disabled={busy}
+                            <button onClick={() => submit(idx, 'request_changes', proofs)} disabled={busy}
                               style={{ flex: '1 1 140px', fontSize: 14, fontWeight: 700, padding: '12px', background: '#C62828', color: '#fff', border: 'none', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1, fontFamily: 'var(--font-body)' }}>
                               {busy ? 'Sending…' : 'Send Change Request'}
                             </button>
@@ -207,12 +252,15 @@ export default function ReviewClient({ token }: { token: string }) {
                         </div>
                       ) : (
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          {status !== 'approved' && (
-                            <button onClick={() => submit(idx, 'approve')} disabled={busy}
-                              style={{ flex: '1 1 160px', fontSize: 14, fontWeight: 700, padding: '13px', background: '#1B7F4F', color: '#fff', border: 'none', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}>
-                              {busy ? 'Saving…' : '✓ Approve for Print'}
-                            </button>
-                          )}
+                          {status !== 'approved' && (() => {
+                            const needsPick = proofs.length > 1 && !selected[idx]
+                            return (
+                              <button onClick={() => submit(idx, 'approve', proofs)} disabled={busy || needsPick}
+                                style={{ flex: '1 1 160px', fontSize: 14, fontWeight: 700, padding: '13px', background: '#1B7F4F', color: '#fff', border: 'none', cursor: (busy || needsPick) ? 'default' : 'pointer', opacity: (busy || needsPick) ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}>
+                                {busy ? 'Saving…' : needsPick ? 'Choose a design above' : proofs.length > 1 ? '✓ Approve selected design' : '✓ Approve for Print'}
+                              </button>
+                            )
+                          })()}
                           <button onClick={() => { setNoteOpen(prev => ({ ...prev, [idx]: true })); setNoteDraft(prev => ({ ...prev, [idx]: prev[idx] ?? '' })) }} disabled={busy}
                             style={{ flex: status === 'approved' ? '1 1 160px' : '0 1 150px', fontSize: 14, fontWeight: 600, padding: '13px', background: '#fff', color: status === 'approved' ? 'var(--charcoal-60)' : '#C62828', border: `1px solid ${status === 'approved' ? 'var(--charcoal-border)' : '#f6caca'}`, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
                             {status === 'approved' ? 'Request changes instead' : 'Request Changes'}

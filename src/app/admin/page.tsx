@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs } from '@/lib/job-types'
+import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, approvedProofs } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 
 interface Job {
@@ -398,7 +398,7 @@ export default function AdminPage() {
         if (!prev) return prev
         const items = [...prev.items]
         const cur = itemProofs(items[index])
-        items[index] = { ...items[index], proof_urls: [...cur, path], proof_url: undefined, approval_status: 'pending', client_note: undefined, approved_at: undefined }
+        items[index] = { ...items[index], proof_urls: [...cur, path], proof_url: undefined, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
         return { ...prev, items }
       })
     } catch {
@@ -413,7 +413,7 @@ export default function AdminPage() {
       if (!prev) return prev
       const items = [...prev.items]
       const cur = itemProofs(items[index]).filter(p => p !== path)
-      items[index] = { ...items[index], proof_urls: cur, proof_url: undefined, approval_status: 'pending', client_note: undefined, approved_at: undefined }
+      items[index] = { ...items[index], proof_urls: cur, proof_url: undefined, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
       return { ...prev, items }
     })
   }
@@ -627,7 +627,7 @@ export default function AdminPage() {
     const total = proofItems.length
     const isFull = approved.length === total
 
-    const paths = approved.flatMap(x => itemProofs(x.it))
+    const paths = approved.flatMap(x => approvedProofs(x.it))
     const urlMap: Record<string, string> = {}
     if (paths.length) {
       try {
@@ -646,7 +646,7 @@ export default function AdminPage() {
     type Cell = { label: string; short: string; size: string; qty: number; path: string; pi: number; total: number; when: string }
     const allCells: Cell[] = []
     approved.forEach(({ it }) => {
-      const proofs = itemProofs(it)
+      const proofs = approvedProofs(it)
       const { label, short } = parseItemDate(it.name)
       const when = it.approved_at
         ? new Date(it.approved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -784,7 +784,7 @@ export default function AdminPage() {
           if (it.approval_status !== 'approved') continue
           const { label, short } = parseItemDate(it.name)
           const group = label || new Date(job.date_required + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-          for (const path of itemProofs(it)) {
+          for (const path of approvedProofs(it)) {
             entries.push({ group, jobRef: job.reference_number, event: job.event_name, qty: it.quantity, short, size: it.size, path })
           }
         }
@@ -1195,6 +1195,11 @@ export default function AdminPage() {
                                     <strong style={{ color: 'var(--coral)' }}>{it.quantity}×</strong> {it.name}
                                   </span>
                                   {it.approval_status && it.approval_status !== 'pending' && <ApprovalPill status={it.approval_status} />}
+                                  {approved && it.approved_proof_url && itemProofs(it).length > 1 && (
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', background: '#dcfce7', border: '1px solid #86efac', padding: '2px 8px' }}>
+                                      Client picked design {itemProofs(it).indexOf(it.approved_proof_url) + 1} of {itemProofs(it).length}
+                                    </span>
+                                  )}
                                   <button
                                     onClick={() => approveItem(job, i, !approved)}
                                     disabled={busy}

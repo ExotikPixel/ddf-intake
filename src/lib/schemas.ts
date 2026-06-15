@@ -9,6 +9,7 @@ export const ItemSchema = z.object({
   proof_urls: z.array(z.string()).optional(),
   proof_url: z.string().optional(),
   approval_status: z.enum(['pending', 'approved', 'changes_requested']).optional(),
+  approved_proof_url: z.string().optional(),
   client_note: z.string().optional(),
   approved_at: z.string().optional(),
 })
@@ -44,6 +45,8 @@ export const ApprovalActionSchema = z.object({
   itemIndex: z.number().int().min(0),
   action: z.enum(['approve', 'request_changes']),
   note: z.string().max(2000).optional(),
+  // When the item has several proofs, the path of the one design the client chose.
+  selectedProof: z.string().optional(),
 })
 
 export type ApprovalActionInput = z.infer<typeof ApprovalActionSchema>

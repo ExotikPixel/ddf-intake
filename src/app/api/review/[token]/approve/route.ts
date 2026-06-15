@@ -23,7 +23,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   }
   const parsed = ApprovalActionSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Invalid approval action' }, { status: 400 })
-  const { itemIndex, action, note } = parsed.data
+  const { itemIndex, action, note, selectedProof } = parsed.data
 
   const { data: job } = await supabaseAdmin
     .from('jobs')
@@ -38,7 +38,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
   if (itemProofs(item).length === 0) return NextResponse.json({ error: 'No proof to review for this item' }, { status: 409 })
 
+  const proofs = itemProofs(item)
   if (action === 'approve') {
+    // When several designs are offered, the client must pick exactly one.
+    if (proofs.length > 1) {
+      if (!selectedProof || !proofs.includes(selectedProof)) {
+        return NextResponse.json({ error: 'Please choose which design to approve' }, { status: 400 })
+      }
+      item.approved_proof_url = selectedProof
+    } else {
+      item.approved_proof_url = proofs[0]
+    }
     item.approval_status = 'approved'
     item.approved_at = new Date().toISOString()
     item.client_note = undefined
@@ -46,6 +56,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     item.approval_status = 'changes_requested'
     item.client_note = note?.trim() || undefined
     item.approved_at = undefined
+    item.approved_proof_url = undefined
   }
   items[itemIndex] = item
 

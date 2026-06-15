@@ -7,6 +7,7 @@ export interface JobItem {
   proof_urls?: string[]                               // job-files paths to design proofs (one item can have several)
   proof_url?: string                                  // LEGACY single proof — read via itemProofs(); kept for old rows
   approval_status?: 'pending' | 'approved' | 'changes_requested'
+  approved_proof_url?: string                         // when several proofs are offered, the ONE design the client picked
   client_note?: string                                // client's change-request text
   approved_at?: string                                // ISO timestamp when approved
 }
@@ -16,6 +17,17 @@ export function itemProofs(item: JobItem): string[] {
   if (item.proof_urls && item.proof_urls.length) return item.proof_urls
   if (item.proof_url) return [item.proof_url]
   return []
+}
+
+/**
+ * The proof(s) that should actually go to print for an item. When the client
+ * picked one design out of several (approved_proof_url), that's the only one.
+ * Falls back to all proofs for single-proof items and older approved rows.
+ */
+export function approvedProofs(item: JobItem): string[] {
+  const all = itemProofs(item)
+  if (item.approved_proof_url && all.includes(item.approved_proof_url)) return [item.approved_proof_url]
+  return all
 }
 
 export const APPROVAL_STATUSES = ['pending', 'approved', 'changes_requested'] as const
