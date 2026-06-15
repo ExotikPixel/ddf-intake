@@ -791,9 +791,10 @@ export default function AdminPage() {
   @media print { body { padding: 0; } @page { margin: 14mm 16mm; size: A4 portrait; } .no-print { display: none !important; } }
 </style></head>
 <body>
-  <div class="no-print" style="margin-bottom:24px;display:flex;gap:10px;">
-    <button onclick="window.print()" style="background:#1a1a1a;color:#fff;border:none;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Print</button>
+  <div class="no-print" style="margin-bottom:24px;display:flex;gap:10px;align-items:center;">
+    <button id="printBtn" onclick="printWhenReady()" style="background:#1a1a1a;color:#fff;border:none;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Print</button>
     <button onclick="window.close()" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;padding:10px 24px;font-size:13px;cursor:pointer;">Close</button>
+    <span id="loadNote" style="font-size:12px;color:#999;"></span>
   </div>
   <div style="max-width:760px;margin:0 auto;">
 
@@ -847,6 +848,19 @@ export default function AdminPage() {
       <span>1 of 1</span>
     </div>
   </div>
+  <script>
+    function printWhenReady(){
+      var imgs = Array.prototype.slice.call(document.images);
+      var pending = imgs.filter(function(i){ return !i.complete; });
+      if(pending.length===0){ window.print(); return; }
+      var btn=document.getElementById('printBtn'), note=document.getElementById('loadNote');
+      if(btn) btn.disabled=true;
+      var left=pending.length;
+      if(note) note.textContent='Loading designs… ('+left+' left)';
+      function done(){ left--; if(note) note.textContent = left>0 ? ('Loading designs… ('+left+' left)') : ''; if(left<=0){ if(btn) btn.disabled=false; window.print(); } }
+      pending.forEach(function(i){ i.addEventListener('load',done); i.addEventListener('error',done); });
+    }
+  </script>
 </body></html>`
 
     const win = window.open('', '_blank', 'width=820,height=900')
@@ -922,9 +936,10 @@ export default function AdminPage() {
   @media print { body { padding: 0; } @page { margin: 14mm 16mm; size: A4 portrait; } .no-print { display: none !important; } }
 </style></head>
 <body>
-  <div class="no-print" style="margin-bottom:24px;display:flex;gap:10px;">
-    <button onclick="window.print()" style="background:#1a1a1a;color:#fff;border:none;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Print</button>
+  <div class="no-print" style="margin-bottom:24px;display:flex;gap:10px;align-items:center;">
+    <button id="printBtn" onclick="printWhenReady()" style="background:#1a1a1a;color:#fff;border:none;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Print</button>
     <button onclick="window.close()" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;padding:10px 24px;font-size:13px;cursor:pointer;">Close</button>
+    <span id="loadNote" style="font-size:12px;color:#999;"></span>
   </div>
   <div style="max-width:760px;margin:0 auto;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
@@ -944,6 +959,19 @@ export default function AdminPage() {
       <span>Approved for print</span>
     </div>
   </div>
+  <script>
+    function printWhenReady(){
+      var imgs = Array.prototype.slice.call(document.images);
+      var pending = imgs.filter(function(i){ return !i.complete; });
+      if(pending.length===0){ window.print(); return; }
+      var btn=document.getElementById('printBtn'), note=document.getElementById('loadNote');
+      if(btn) btn.disabled=true;
+      var left=pending.length;
+      if(note) note.textContent='Loading designs… ('+left+' left)';
+      function done(){ left--; if(note) note.textContent = left>0 ? ('Loading designs… ('+left+' left)') : ''; if(left<=0){ if(btn) btn.disabled=false; window.print(); } }
+      pending.forEach(function(i){ i.addEventListener('load',done); i.addEventListener('error',done); });
+    }
+  </script>
 </body></html>`
 
       const win = window.open('', '_blank', 'width=820,height=900')
