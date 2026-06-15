@@ -1222,7 +1222,8 @@ export default function AdminPage() {
                     it.approval_status === 'changes_requested' ||
                     !it.approval_status || it.approval_status === 'pending'
                   )
-                  const baseOpen = job.id in openOverride ? openOverride[job.id] : needsAttention
+                  // Always start collapsed — the amber dot still flags jobs that need attention.
+                  const baseOpen = job.id in openOverride ? openOverride[job.id] : false
                   const open = baseOpen || editingJob === job.id
                   return (
                   <div
