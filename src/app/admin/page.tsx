@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, approvedProofs, itemThread } from '@/lib/job-types'
+import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, approvedProofs, itemThread, designsMode } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus, ItemMessage } from '@/lib/job-types'
 
 interface Job {
@@ -1354,8 +1354,9 @@ export default function AdminPage() {
                                   <button
                                     onClick={() => {
                                       if (approved) { approveItem(job, i, false); return }
-                                      // Multiple designs → make the team choose which one (records approved_proof_url).
-                                      if (itemProofs(it).length > 1 && !it.approved_proof_url) {
+                                      // Alternatives (pick-one) → make the team choose which design. All-needed
+                                      // items (the default for multiple designs) approve the whole set directly.
+                                      if (designsMode(it) === 'pick' && itemProofs(it).length > 1 && !it.approved_proof_url) {
                                         setPickerChoice(null)
                                         setApprovePicker({ jobId: job.id, idx: i })
                                         void loadFiles(job.id, itemProofs(it))
@@ -1373,7 +1374,7 @@ export default function AdminPage() {
                                       opacity: busy ? 0.6 : 1,
                                     }}
                                   >
-                                    {busy ? '…' : approved ? '✓ Approved' : itemProofs(it).length > 1 && !it.approved_proof_url ? 'Approve…' : 'Approve'}
+                                    {busy ? '…' : approved ? '✓ Approved' : designsMode(it) === 'pick' && itemProofs(it).length > 1 && !it.approved_proof_url ? 'Approve…' : 'Approve'}
                                   </button>
                                 </div>
                               )
@@ -1736,6 +1737,29 @@ export default function AdminPage() {
                                   <span style={{ fontSize: 11, color: '#C62828', fontStyle: 'italic' }}>“{item.client_note}”</span>
                                 )}
                               </div>
+                              {/* When an item has several designs: are they all needed, or alternatives? */}
+                              {proofs.length > 1 && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb' }}>Multiple designs</span>
+                                  {(['all', 'pick'] as const).map(m => {
+                                    const on = designsMode(item) === m
+                                    return (
+                                      <button key={m}
+                                        onClick={() => setEditForm(prev => {
+                                          if (!prev) return prev
+                                          const items = [...prev.items]
+                                          // Switching to "print all" drops any recorded single pick so every design prints.
+                                          items[idx] = { ...items[idx], designs_mode: m, ...(m === 'all' ? { approved_proof_url: undefined } : {}) }
+                                          return { ...prev, items }
+                                        })}
+                                        style={{ fontSize: 11, fontWeight: 700, padding: '4px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)', background: on ? '#131313' : '#fff', color: on ? '#fff' : '#666', border: `1px solid ${on ? '#131313' : '#ddd'}` }}>
+                                        {m === 'all' ? 'Print all' : 'Client picks one'}
+                                      </button>
+                                    )
+                                  })}
+                                  <span style={{ fontSize: 10, color: '#999' }}>{designsMode(item) === 'all' ? 'every design is printed' : 'they are alternatives'}</span>
+                                </div>
+                              )}
                             </div>
                           )})}
                           {proofError && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#dc2626' }}>{proofError}</p>}

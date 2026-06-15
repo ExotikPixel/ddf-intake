@@ -5,7 +5,7 @@ import { ApprovalActionSchema } from '@/lib/schemas'
 import { sendChangeRequestNotification } from '@/lib/email'
 import { getTenantBranding } from '@/lib/tenant-settings'
 import { sendNtfy } from '@/lib/ntfy'
-import { itemProofs } from '@/lib/job-types'
+import { itemProofs, designsMode } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 
 export const dynamic = 'force-dynamic'
@@ -39,15 +39,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   if (itemProofs(item).length === 0) return NextResponse.json({ error: 'No proof to review for this item' }, { status: 409 })
 
   const proofs = itemProofs(item)
+  const pickMode = proofs.length > 1 && designsMode(item) === 'pick'
   if (action === 'approve') {
-    // When several designs are offered, the client must pick exactly one.
-    if (proofs.length > 1) {
+    if (pickMode) {
+      // Alternatives — the client must pick exactly one.
       if (!selectedProof || !proofs.includes(selectedProof)) {
         return NextResponse.json({ error: 'Please choose which design to approve' }, { status: 400 })
       }
       item.approved_proof_url = selectedProof
     } else {
-      item.approved_proof_url = proofs[0]
+      // Single design, or several that are all needed — approve the whole set.
+      item.approved_proof_url = proofs.length === 1 ? proofs[0] : undefined
     }
     item.approval_status = 'approved'
     item.approved_at = new Date().toISOString()

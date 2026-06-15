@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { APPROVAL_CONFIG, itemProofs, itemThread } from '@/lib/job-types'
+import { APPROVAL_CONFIG, itemProofs, itemThread, designsMode } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 
 interface ReviewData {
@@ -78,7 +78,9 @@ export default function ReviewClient({ token }: { token: string }) {
       setErr(prev => ({ ...prev, [idx]: 'Please describe what needs to change.' }))
       return
     }
-    if (action === 'approve' && proofs.length > 1 && !selected[idx]) {
+    const itForMode = data?.items[idx]
+    const pickMode = !!itForMode && proofs.length > 1 && designsMode(itForMode) === 'pick'
+    if (action === 'approve' && pickMode && !selected[idx]) {
       setErr(prev => ({ ...prev, [idx]: 'Please choose which design you want to approve.' }))
       return
     }
@@ -231,18 +233,19 @@ export default function ReviewClient({ token }: { token: string }) {
                     <div style={{ padding: '0 18px 18px', borderTop: '1px solid var(--charcoal-border)' }}>
                       {(() => {
                         const multi = proofs.length > 1
+                        const pickMode = multi && designsMode(it) === 'pick'   // alternatives → choose one; else all needed
                         const isApproved = status === 'approved'
                         // Only treat designs as picked/not-picked when an actual choice was recorded.
-                        const hasPick = isApproved && !!it.approved_proof_url
+                        const hasPick = pickMode && isApproved && !!it.approved_proof_url
                         // After approval the chosen design is fixed; before, it follows local selection.
                         const chosen = isApproved ? it.approved_proof_url : selected[idx]
                         return (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, margin: '16px 0' }}>
                             {proofs.map((p, pi) => {
                               const u = data.proofUrls[p]
-                              const isChosen = chosen === p
+                              const isChosen = pickMode && chosen === p
                               const dimmed = hasPick && !isChosen // non-selected designs fade out once a pick is recorded
-                              const selectable = multi && !isApproved
+                              const selectable = pickMode && !isApproved
                               return (
                                 <div key={p} style={{
                                   border: `2px solid ${isChosen ? '#1B7F4F' : 'var(--charcoal-border)'}`,
@@ -258,13 +261,16 @@ export default function ReviewClient({ token }: { token: string }) {
                                         borderBottom: '1px solid var(--charcoal-border)', cursor: selectable ? 'pointer' : 'default',
                                         textAlign: 'left', fontFamily: 'var(--font-body)',
                                       }}>
-                                      <span style={{
-                                        width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
-                                        border: `2px solid ${isChosen ? '#1B7F4F' : '#bbb'}`, background: isChosen ? '#1B7F4F' : '#fff',
-                                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700,
-                                      }}>{isChosen ? '✓' : ''}</span>
+                                      {pickMode && (
+                                        <span style={{
+                                          width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                                          border: `2px solid ${isChosen ? '#1B7F4F' : '#bbb'}`, background: isChosen ? '#1B7F4F' : '#fff',
+                                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700,
+                                        }}>{isChosen ? '✓' : ''}</span>
+                                      )}
                                       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--charcoal)' }}>
                                         Design {pi + 1}
+                                        {!pickMode && <span style={{ color: 'var(--charcoal-60)', fontWeight: 400 }}> · will be printed</span>}
                                         {hasPick && isChosen && <span style={{ color: '#1B7F4F' }}> · Approved</span>}
                                         {hasPick && !isChosen && <span style={{ color: 'var(--charcoal-60)', fontWeight: 400 }}> · Not selected</span>}
                                         {selectable && <span style={{ color: 'var(--charcoal-60)', fontWeight: 400 }}>{isChosen ? ' · Selected' : ' · Tap to choose'}</span>}
@@ -284,7 +290,9 @@ export default function ReviewClient({ token }: { token: string }) {
                       })()}
                       <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--charcoal-60)' }}>
                         {proofs.length > 1
-                          ? `${proofs.length} designs — choose the one you'd like, then approve. Tap an image to open it full size.`
+                          ? (designsMode(it) === 'pick'
+                              ? `${proofs.length} designs — choose the one you'd like, then approve. Tap an image to open it full size.`
+                              : `${proofs.length} designs — all will be printed. Tap an image to open it full size.`)
                           : 'Tap the image to open it full size.'}
                       </p>
 
@@ -309,11 +317,12 @@ export default function ReviewClient({ token }: { token: string }) {
 
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {status !== 'approved' && (() => {
-                          const needsPick = proofs.length > 1 && !selected[idx]
+                          const pick = designsMode(it) === 'pick' && proofs.length > 1
+                          const needsPick = pick && !selected[idx]
                           return (
                             <button onClick={() => submit(idx, 'approve', proofs)} disabled={busy || needsPick}
                               style={{ flex: '1 1 160px', fontSize: 14, fontWeight: 700, padding: '13px', background: '#1B7F4F', color: '#fff', border: 'none', cursor: (busy || needsPick) ? 'default' : 'pointer', opacity: (busy || needsPick) ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}>
-                              {busy ? 'Saving…' : needsPick ? 'Choose a design above' : proofs.length > 1 ? '✓ Approve selected design' : '✓ Approve for Print'}
+                              {busy ? 'Saving…' : needsPick ? 'Choose a design above' : pick ? '✓ Approve selected design' : '✓ Approve for Print'}
                             </button>
                           )
                         })()}

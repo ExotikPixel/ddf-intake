@@ -15,10 +15,20 @@ export interface JobItem {
   proof_url?: string                                  // LEGACY single proof — read via itemProofs(); kept for old rows
   proof_history?: string[]                            // superseded proof versions (view-only history), oldest→newest
   approval_status?: 'pending' | 'approved' | 'changes_requested'
-  approved_proof_url?: string                         // when several proofs are offered, the ONE design the client picked
+  approved_proof_url?: string                         // PICK mode: the ONE design chosen out of several
+  designs_mode?: 'all' | 'pick'                       // multiple designs are all-needed (default) or pick-one
   messages?: ItemMessage[]                            // per-item conversation between client and shop
   client_note?: string                                // LEGACY latest change-request text — read the thread via itemThread()
   approved_at?: string                                // ISO timestamp when approved
+}
+
+/**
+ * How multiple designs on an item behave. 'all' (default) = every design is
+ * needed and prints; 'pick' = they're alternatives and one is chosen. Only
+ * meaningful when an item has more than one proof.
+ */
+export function designsMode(item: JobItem): 'all' | 'pick' {
+  return item.designs_mode === 'pick' ? 'pick' : 'all'
 }
 
 /**
