@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { APPROVAL_CONFIG, itemProofs, itemThread } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 
@@ -41,10 +41,18 @@ export default function ReviewClient({ token }: { token: string }) {
   const [invalid, setInvalid] = useState(false)
   const [openIdx, setOpenIdx] = useState<number | null>(null)
   const [actioning, setActioning] = useState<number | null>(null)
-  const [noteOpen, setNoteOpen] = useState<Record<number, boolean>>({})
   const [noteDraft, setNoteDraft] = useState<Record<number, string>>({})
   const [selected, setSelected] = useState<Record<number, string>>({}) // item index → chosen proof path
   const [err, setErr] = useState<Record<number, string>>({})
+  const [chatOpen, setChatOpen] = useState<number | null>(null) // item index whose chat drawer is open
+  const chatBodyRef = useRef<HTMLDivElement>(null)
+
+  // Keep the chat scrolled to the newest message when it opens or updates.
+  useEffect(() => {
+    if (chatOpen !== null && chatBodyRef.current) {
+      chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight
+    }
+  }, [chatOpen, data])
 
   useEffect(() => {
     fetch(`/api/review/${token}`)
@@ -77,7 +85,6 @@ export default function ReviewClient({ token }: { token: string }) {
       if (!res.ok) { setErr(prev => ({ ...prev, [idx]: 'Could not save — please try again.' })); return }
       const { items } = await res.json()
       setData(prev => prev ? { ...prev, items } : prev)
-      setNoteOpen(prev => ({ ...prev, [idx]: false }))
       setNoteDraft(prev => ({ ...prev, [idx]: '' }))
     } catch {
       setErr(prev => ({ ...prev, [idx]: 'Network error — not saved.' }))
@@ -120,7 +127,35 @@ export default function ReviewClient({ token }: { token: string }) {
 
   return (
     <Shell>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes chatIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .chat-backdrop { position: fixed; inset: 0; background: rgba(20,18,16,0.45); z-index: 60; animation: fadeIn 0.2s ease; }
+        .chat-drawer { position: fixed; top: 0; right: 0; height: 100%; height: 100dvh; width: 400px; max-width: 100%; background: var(--bg); z-index: 61; display: flex; flex-direction: column; box-shadow: -10px 0 30px rgba(0,0,0,0.18); animation: chatIn 0.22s ease; }
+        .chat-head { background: var(--charcoal); color: #fff; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 2px solid var(--coral); flex-shrink: 0; }
+        .chat-head-title { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chat-head-sub { font-size: 11px; color: #b9b4ad; margin-top: 2px; }
+        .chat-close { background: rgba(255,255,255,0.14); color: #fff; border: none; width: 32px; height: 32px; border-radius: 50%; font-size: 14px; cursor: pointer; flex-shrink: 0; line-height: 1; }
+        .chat-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; -webkit-overflow-scrolling: touch; }
+        .chat-empty { text-align: center; color: var(--charcoal-60); font-size: 13.5px; line-height: 1.6; margin: auto 0; padding: 24px; }
+        .chat-row { display: flex; flex-direction: column; max-width: 82%; }
+        .chat-row.me { align-self: flex-end; align-items: flex-end; }
+        .chat-row.them { align-self: flex-start; align-items: flex-start; }
+        .chat-bubble { padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+        .chat-row.me .chat-bubble { background: var(--coral); color: #fff; border-bottom-right-radius: 4px; }
+        .chat-row.them .chat-bubble { background: #fff; color: var(--charcoal); border: 1px solid var(--charcoal-border); border-bottom-left-radius: 4px; }
+        .chat-meta { font-size: 10.5px; color: var(--charcoal-60); margin-top: 4px; padding: 0 4px; }
+        .chat-foot { border-top: 1px solid var(--charcoal-border); padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); background: #fff; flex-shrink: 0; }
+        .chat-err { font-size: 12px; color: #dc2626; margin-bottom: 6px; }
+        .chat-compose { display: flex; gap: 8px; align-items: flex-end; }
+        .chat-input { flex: 1; padding: 10px 14px; border: 1px solid var(--charcoal-border); border-radius: 20px; font-size: 16px; font-family: var(--font-body); resize: none; max-height: 120px; box-sizing: border-box; outline: none; }
+        .chat-input:focus { border-color: var(--coral); }
+        .chat-send { background: var(--coral); color: #fff; border: none; border-radius: 20px; padding: 11px 18px; font-weight: 700; font-size: 14px; cursor: pointer; font-family: var(--font-body); flex-shrink: 0; }
+        .chat-send:disabled { opacity: 0.5; cursor: default; }
+        .chat-hint { font-size: 11px; color: var(--charcoal-60); margin-top: 7px; text-align: center; }
+        @media (max-width: 560px) { .chat-drawer { width: 100%; } }
+      `}</style>
       {/* Job header */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)', marginBottom: 6 }}>Design Approval</div>
@@ -252,73 +287,29 @@ export default function ReviewClient({ token }: { token: string }) {
                         </div>
                       )}
 
-                      {/* Conversation thread */}
-                      {(() => {
-                        const thread = itemThread(it)
-                        if (thread.length === 0) return null
-                        return (
-                          <div style={{ margin: '0 0 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--charcoal-60)' }}>Conversation</div>
-                            {thread.map((m, mi) => {
-                              const mine = m.from === 'client'
-                              const who = mine ? data.clientName : data.shopName
-                              return (
-                                <div key={mi} style={{
-                                  alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '85%',
-                                  background: mine ? '#eef2f7' : '#fff7ed',
-                                  border: `1px solid ${mine ? '#d6e0ec' : '#f0d6a8'}`,
-                                  padding: '8px 11px', borderRadius: 4,
-                                }}>
-                                  <div style={{ fontSize: 11, fontWeight: 700, color: mine ? '#3a5a82' : '#9a6a00', marginBottom: 2 }}>
-                                    {who}{m.at ? <span style={{ fontWeight: 400, color: 'var(--charcoal-60)' }}> · {fmtWhen(m.at)}</span> : null}
-                                  </div>
-                                  <div style={{ fontSize: 13.5, color: 'var(--charcoal)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{m.text}</div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )
-                      })()}
-
-                      {noteOpen[idx] ? (
-                        <div>
-                          <textarea
-                            rows={3}
-                            value={noteDraft[idx] ?? ''}
-                            onChange={ev => setNoteDraft(prev => ({ ...prev, [idx]: ev.target.value }))}
-                            placeholder="What would you like changed?"
-                            style={{ width: '100%', padding: '10px', border: '1px solid #ddd', fontSize: 14, fontFamily: 'var(--font-body)', resize: 'vertical', boxSizing: 'border-box' }}
-                          />
-                          {e && <p style={{ margin: '6px 0 0', fontSize: 12, color: '#dc2626' }}>{e}</p>}
-                          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                            <button onClick={() => submit(idx, 'request_changes', proofs)} disabled={busy}
-                              style={{ flex: '1 1 140px', fontSize: 14, fontWeight: 700, padding: '12px', background: '#C62828', color: '#fff', border: 'none', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1, fontFamily: 'var(--font-body)' }}>
-                              {busy ? 'Sending…' : 'Send Change Request'}
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {status !== 'approved' && (() => {
+                          const needsPick = proofs.length > 1 && !selected[idx]
+                          return (
+                            <button onClick={() => submit(idx, 'approve', proofs)} disabled={busy || needsPick}
+                              style={{ flex: '1 1 160px', fontSize: 14, fontWeight: 700, padding: '13px', background: '#1B7F4F', color: '#fff', border: 'none', cursor: (busy || needsPick) ? 'default' : 'pointer', opacity: (busy || needsPick) ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}>
+                              {busy ? 'Saving…' : needsPick ? 'Choose a design above' : proofs.length > 1 ? '✓ Approve selected design' : '✓ Approve for Print'}
                             </button>
-                            <button onClick={() => { setNoteOpen(prev => ({ ...prev, [idx]: false })); setErr(prev => ({ ...prev, [idx]: '' })) }} disabled={busy}
-                              style={{ flex: '0 1 100px', fontSize: 14, padding: '12px', background: '#fff', border: '1px solid #ddd', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
-                              Cancel
+                          )
+                        })()}
+                        {(() => {
+                          const count = itemThread(it).length
+                          const label = count > 0
+                            ? `💬 Messages (${count})`
+                            : status === 'approved' ? '💬 Message us' : 'Request Changes'
+                          return (
+                            <button onClick={() => setChatOpen(idx)}
+                              style={{ flex: status === 'approved' ? '1 1 160px' : '0 1 160px', fontSize: 14, fontWeight: 600, padding: '13px', background: '#fff', color: count > 0 ? 'var(--charcoal)' : status === 'approved' ? 'var(--charcoal-60)' : '#C62828', border: `1px solid ${count > 0 ? 'var(--charcoal-border)' : status === 'approved' ? 'var(--charcoal-border)' : '#f6caca'}`, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
+                              {label}
                             </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          {status !== 'approved' && (() => {
-                            const needsPick = proofs.length > 1 && !selected[idx]
-                            return (
-                              <button onClick={() => submit(idx, 'approve', proofs)} disabled={busy || needsPick}
-                                style={{ flex: '1 1 160px', fontSize: 14, fontWeight: 700, padding: '13px', background: '#1B7F4F', color: '#fff', border: 'none', cursor: (busy || needsPick) ? 'default' : 'pointer', opacity: (busy || needsPick) ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}>
-                                {busy ? 'Saving…' : needsPick ? 'Choose a design above' : proofs.length > 1 ? '✓ Approve selected design' : '✓ Approve for Print'}
-                              </button>
-                            )
-                          })()}
-                          <button onClick={() => { setNoteOpen(prev => ({ ...prev, [idx]: true })); setNoteDraft(prev => ({ ...prev, [idx]: prev[idx] ?? '' })) }} disabled={busy}
-                            style={{ flex: status === 'approved' ? '1 1 160px' : '0 1 150px', fontSize: 14, fontWeight: 600, padding: '13px', background: '#fff', color: status === 'approved' ? 'var(--charcoal-60)' : '#C62828', border: `1px solid ${status === 'approved' ? 'var(--charcoal-border)' : '#f6caca'}`, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
-                            {status === 'approved' ? 'Request changes instead' : 'Request Changes'}
-                          </button>
-                        </div>
-                      )}
-                      {e && !noteOpen[idx] && <p style={{ margin: '8px 0 0', fontSize: 12, color: '#dc2626' }}>{e}</p>}
+                          )
+                        })()}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -327,6 +318,63 @@ export default function ReviewClient({ token }: { token: string }) {
           </div>
         </>
       )}
+
+      {/* Chat drawer — right-side panel on desktop, full-screen on mobile */}
+      {chatOpen !== null && data.items[chatOpen] && (() => {
+        const idx = chatOpen
+        const it = data.items[idx]
+        const thread = itemThread(it)
+        const proofs = itemProofs(it)
+        const busy = actioning === idx
+        const e = err[idx]
+        const draft = noteDraft[idx] ?? ''
+        return (
+          <>
+            <div className="chat-backdrop" onClick={() => setChatOpen(null)} />
+            <aside className="chat-drawer" role="dialog" aria-label={`Conversation about ${it.name}`}>
+              <div className="chat-head">
+                <div style={{ minWidth: 0 }}>
+                  <div className="chat-head-title">{it.quantity}× {it.name}</div>
+                  <div className="chat-head-sub">Chat with {data.shopName}</div>
+                </div>
+                <button className="chat-close" onClick={() => setChatOpen(null)} aria-label="Close conversation">✕</button>
+              </div>
+
+              <div className="chat-body" ref={chatBodyRef}>
+                {thread.length === 0 ? (
+                  <div className="chat-empty">No messages yet.<br />Type below to ask for a tweak or change — we&apos;ll reply right here.</div>
+                ) : thread.map((m, mi) => {
+                  const mine = m.from === 'client'
+                  return (
+                    <div key={mi} className={`chat-row ${mine ? 'me' : 'them'}`}>
+                      <div className="chat-bubble">{m.text}</div>
+                      <div className="chat-meta">{mine ? data.clientName : data.shopName}{m.at ? ` · ${fmtWhen(m.at)}` : ''}</div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="chat-foot">
+                {e && <div className="chat-err">{e}</div>}
+                <div className="chat-compose">
+                  <textarea
+                    rows={1}
+                    value={draft}
+                    onChange={ev => setNoteDraft(prev => ({ ...prev, [idx]: ev.target.value }))}
+                    onKeyDown={ev => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); if (draft.trim() && !busy) submit(idx, 'request_changes', proofs) } }}
+                    placeholder="Message…"
+                    className="chat-input"
+                  />
+                  <button className="chat-send" onClick={() => submit(idx, 'request_changes', proofs)} disabled={busy || !draft.trim()}>
+                    {busy ? '…' : 'Send'}
+                  </button>
+                </div>
+                <div className="chat-hint">Sending a message requests changes on this design.</div>
+              </div>
+            </aside>
+          </>
+        )
+      })()}
     </Shell>
   )
 }
