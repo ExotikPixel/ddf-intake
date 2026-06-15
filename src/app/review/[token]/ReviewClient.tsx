@@ -232,6 +232,8 @@ export default function ReviewClient({ token }: { token: string }) {
                       {(() => {
                         const multi = proofs.length > 1
                         const isApproved = status === 'approved'
+                        // Only treat designs as picked/not-picked when an actual choice was recorded.
+                        const hasPick = isApproved && !!it.approved_proof_url
                         // After approval the chosen design is fixed; before, it follows local selection.
                         const chosen = isApproved ? it.approved_proof_url : selected[idx]
                         return (
@@ -239,7 +241,7 @@ export default function ReviewClient({ token }: { token: string }) {
                             {proofs.map((p, pi) => {
                               const u = data.proofUrls[p]
                               const isChosen = chosen === p
-                              const dimmed = isApproved && !isChosen // non-selected designs fade out once approved
+                              const dimmed = hasPick && !isChosen // non-selected designs fade out once a pick is recorded
                               const selectable = multi && !isApproved
                               return (
                                 <div key={p} style={{
@@ -263,8 +265,8 @@ export default function ReviewClient({ token }: { token: string }) {
                                       }}>{isChosen ? '✓' : ''}</span>
                                       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--charcoal)' }}>
                                         Design {pi + 1}
-                                        {isApproved && isChosen && <span style={{ color: '#1B7F4F' }}> · Approved</span>}
-                                        {isApproved && !isChosen && <span style={{ color: 'var(--charcoal-60)', fontWeight: 400 }}> · Not selected</span>}
+                                        {hasPick && isChosen && <span style={{ color: '#1B7F4F' }}> · Approved</span>}
+                                        {hasPick && !isChosen && <span style={{ color: 'var(--charcoal-60)', fontWeight: 400 }}> · Not selected</span>}
                                         {selectable && <span style={{ color: 'var(--charcoal-60)', fontWeight: 400 }}>{isChosen ? ' · Selected' : ' · Tap to choose'}</span>}
                                       </span>
                                     </button>

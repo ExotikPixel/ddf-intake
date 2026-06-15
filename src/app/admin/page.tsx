@@ -152,6 +152,8 @@ export default function AdminPage() {
   const [approvingItem, setApprovingItem] = useState<string | null>(null)
   const [replyDraft, setReplyDraft] = useState<Record<string, string>>({})   // `${jobId}:${idx}` → draft reply
   const [chatItem, setChatItem] = useState<{ jobId: number; idx: number } | null>(null) // open conversation drawer
+  const [approvePicker, setApprovePicker] = useState<{ jobId: number; idx: number } | null>(null) // pick-a-design before approving
+  const [pickerChoice, setPickerChoice] = useState<string | null>(null)
   const chatBodyRef = useRef<HTMLDivElement>(null)
   const [sendingReply, setSendingReply] = useState<string | null>(null)
   const [uploadingRevision, setUploadingRevision] = useState<string | null>(null)
@@ -597,17 +599,26 @@ export default function AdminPage() {
   }
 
   // Admin marks an item approved (or back to pending) for print — the team's call, not the client's.
-  async function approveItem(job: Job, idx: number, approve: boolean) {
+  // For multi-design items the approved design is recorded (chosenProof), same as the client flow,
+  // so admin- and client-approval write identical data.
+  async function approveItem(job: Job, idx: number, approve: boolean, chosenProof?: string) {
     const key = `${job.id}:${idx}`
     setApprovingItem(key)
-    const newItems: JobItem[] = job.items.map((it, i) => i === idx
-      ? {
-          ...it,
-          approval_status: (approve ? 'approved' : 'pending') as ApprovalStatus,
-          approved_at: approve ? new Date().toISOString() : undefined,
-          client_note: approve ? undefined : it.client_note,
-        }
-      : it)
+    const newItems: JobItem[] = job.items.map((it, i) => {
+      if (i !== idx) return it
+      if (!approve) {
+        return { ...it, approval_status: 'pending' as ApprovalStatus, approved_at: undefined }
+      }
+      const proofs = itemProofs(it)
+      const picked = chosenProof ?? (proofs.length === 1 ? proofs[0] : it.approved_proof_url)
+      return {
+        ...it,
+        approval_status: 'approved' as ApprovalStatus,
+        approved_at: new Date().toISOString(),
+        approved_proof_url: picked,
+        client_note: undefined,
+      }
+    })
     try {
       const res = await fetch(`/api/admin/jobs/${job.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: newItems }),
@@ -1312,7 +1323,17 @@ export default function AdminPage() {
                                     💬 {thread.length > 0 ? thread.length : 'Reply'}
                                   </button>
                                   <button
-                                    onClick={() => approveItem(job, i, !approved)}
+                                    onClick={() => {
+                                      if (approved) { approveItem(job, i, false); return }
+                                      // Multiple designs → make the team choose which one (records approved_proof_url).
+                                      if (itemProofs(it).length > 1 && !it.approved_proof_url) {
+                                        setPickerChoice(null)
+                                        setApprovePicker({ jobId: job.id, idx: i })
+                                        void loadFiles(job.id, itemProofs(it))
+                                      } else {
+                                        approveItem(job, i, true)
+                                      }
+                                    }}
                                     disabled={busy}
                                     style={{
                                       fontSize: 11, fontWeight: 700, padding: '6px 12px', borderRadius: 4,
@@ -1323,7 +1344,7 @@ export default function AdminPage() {
                                       opacity: busy ? 0.6 : 1,
                                     }}
                                   >
-                                    {busy ? '…' : approved ? '✓ Approved' : 'Approve'}
+                                    {busy ? '…' : approved ? '✓ Approved' : itemProofs(it).length > 1 && !it.approved_proof_url ? 'Approve…' : 'Approve'}
                                   </button>
                                 </div>
                               )
@@ -1788,6 +1809,53 @@ export default function AdminPage() {
               </div>
             </aside>
           </>
+        )
+      })()}
+
+      {/* Approve picker — choose which design before approving a multi-design item */}
+      {approvePicker && (() => {
+        const job = jobs.find(j => j.id === approvePicker.jobId)
+        const it = job?.items[approvePicker.idx]
+        if (!job || !it) return null
+        const proofs = itemProofs(it)
+        const key = `${job.id}:${approvePicker.idx}`
+        const busy = approvingItem === key
+        return (
+          <div onClick={() => setApprovePicker(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(20,18,16,0.5)', zIndex: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: '#fff', width: 460, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', borderRadius: 8, boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
+              <div style={{ padding: '16px 18px', borderBottom: '1px solid #eee' }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#131313' }}>Which design is approved?</div>
+                <div style={{ fontSize: 12.5, color: '#777', marginTop: 3 }}>{it.quantity}× {it.name} — only the chosen design goes to print.</div>
+              </div>
+              <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {proofs.map((p, pi) => {
+                  const u = fileUrls[job.id]?.find(f => f.path === p)?.url
+                  const chosen = pickerChoice === p
+                  return (
+                    <button key={p} onClick={() => setPickerChoice(p)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, textAlign: 'left', background: chosen ? '#eef7f3' : '#fafafa', border: `2px solid ${chosen ? '#1B7F4F' : '#e6e3dc'}`, borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
+                      <span style={{ width: 18, height: 18, borderRadius: '50%', flexShrink: 0, border: `2px solid ${chosen ? '#1B7F4F' : '#bbb'}`, background: chosen ? '#1B7F4F' : '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700 }}>{chosen ? '✓' : ''}</span>
+                      <span style={{ width: 64, height: 64, flexShrink: 0, background: '#f0eee9', border: '1px solid #e6e3dc', overflow: 'hidden' }}>
+                        {u && <img src={u} alt={`Design ${pi + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                      </span>
+                      <span style={{ fontSize: 13.5, fontWeight: 700, color: '#333' }}>Design {pi + 1}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <div style={{ padding: '12px 14px', borderTop: '1px solid #eee', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button onClick={() => setApprovePicker(null)}
+                  style={{ fontSize: 13, padding: '9px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 5, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Cancel</button>
+                <button disabled={!pickerChoice || busy}
+                  onClick={async () => { await approveItem(job, approvePicker.idx, true, pickerChoice!); setApprovePicker(null) }}
+                  style={{ fontSize: 13, fontWeight: 700, padding: '9px 16px', background: '#1B7F4F', color: '#fff', border: 'none', borderRadius: 5, cursor: (!pickerChoice || busy) ? 'default' : 'pointer', opacity: (!pickerChoice || busy) ? 0.5 : 1, fontFamily: 'var(--font-body)' }}>
+                  {busy ? 'Approving…' : '✓ Approve this design'}
+                </button>
+              </div>
+            </div>
+          </div>
         )
       })()}
     </main>
