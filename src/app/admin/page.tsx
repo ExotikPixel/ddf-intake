@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
 import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, approvedProofs, itemThread } from '@/lib/job-types'
@@ -151,6 +151,8 @@ export default function AdminPage() {
   const [copiedLink, setCopiedLink] = useState<number | null>(null)
   const [approvingItem, setApprovingItem] = useState<string | null>(null)
   const [replyDraft, setReplyDraft] = useState<Record<string, string>>({})   // `${jobId}:${idx}` → draft reply
+  const [chatItem, setChatItem] = useState<{ jobId: number; idx: number } | null>(null) // open conversation drawer
+  const chatBodyRef = useRef<HTMLDivElement>(null)
   const [sendingReply, setSendingReply] = useState<string | null>(null)
   const [uploadingRevision, setUploadingRevision] = useState<string | null>(null)
   const [revisionError, setRevisionError] = useState<Record<string, string>>({})
@@ -964,6 +966,11 @@ export default function AdminPage() {
     return counts
   }, [jobs])
 
+  // Keep the conversation drawer scrolled to the newest message.
+  useEffect(() => {
+    if (chatItem && chatBodyRef.current) chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight
+  }, [chatItem, jobs])
+
   return (
     <main style={{ minHeight: '100vh', background: '#f2f1ef', fontFamily: 'var(--font-body)' }}>
       <style>{`
@@ -982,6 +989,32 @@ export default function AdminPage() {
           .stats-grid .stat-lbl { font-size: 8px !important; letter-spacing: 1px !important; }
           .filter-row { justify-content: flex-start !important; }
         }
+        @keyframes chatIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .chat-backdrop { position: fixed; inset: 0; background: rgba(20,18,16,0.45); z-index: 200; animation: fadeIn 0.2s ease; }
+        .chat-drawer { position: fixed; top: 0; right: 0; height: 100dvh; width: 420px; max-width: 100%; background: #faf9f7; z-index: 201; display: flex; flex-direction: column; box-shadow: -10px 0 30px rgba(0,0,0,0.18); animation: chatIn 0.22s ease; }
+        .chat-head { background: #131313; color: #fff; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 2px solid var(--coral); flex-shrink: 0; }
+        .chat-head-title { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chat-head-sub { font-size: 11px; color: #b9b4ad; margin-top: 2px; }
+        .chat-close { background: rgba(255,255,255,0.14); color: #fff; border: none; width: 32px; height: 32px; border-radius: 50%; font-size: 14px; cursor: pointer; flex-shrink: 0; }
+        .chat-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+        .chat-empty { text-align: center; color: #888; font-size: 13.5px; line-height: 1.6; margin: auto 0; padding: 24px; }
+        .chat-row { display: flex; flex-direction: column; max-width: 84%; }
+        .chat-row.me { align-self: flex-end; align-items: flex-end; }
+        .chat-row.them { align-self: flex-start; align-items: flex-start; }
+        .chat-bubble { padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+        .chat-row.me .chat-bubble { background: #131313; color: #fff; border-bottom-right-radius: 4px; }
+        .chat-row.them .chat-bubble { background: #fff; color: #2a2a2a; border: 1px solid #e6e3dc; border-bottom-left-radius: 4px; }
+        .chat-meta { font-size: 10.5px; color: #999; margin-top: 4px; padding: 0 4px; }
+        .chat-foot { border-top: 1px solid #e6e3dc; padding: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom)); background: #fff; flex-shrink: 0; }
+        .chat-compose { display: flex; gap: 8px; align-items: flex-end; }
+        .chat-input { flex: 1; padding: 10px 14px; border: 1px solid #d8d5cd; border-radius: 20px; font-size: 15px; font-family: var(--font-body); resize: none; max-height: 120px; box-sizing: border-box; outline: none; }
+        .chat-input:focus { border-color: var(--coral); }
+        .chat-send { background: var(--coral); color: #fff; border: none; border-radius: 20px; padding: 11px 18px; font-weight: 700; font-size: 14px; cursor: pointer; font-family: var(--font-body); flex-shrink: 0; }
+        .chat-send:disabled { opacity: 0.5; cursor: default; }
+        .chat-revise { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; margin-top: 10px; padding: 11px; border: 1px dashed #d6a85e; border-radius: 6px; background: #fff8ef; color: #9a6a00; font-size: 13px; font-weight: 700; cursor: pointer; font-family: var(--font-body); }
+        .chat-err { font-size: 12px; color: #dc2626; margin-bottom: 6px; }
+        @media (max-width: 560px) { .chat-drawer { width: 100%; } }
       `}</style>
 
       {/* Header */}
@@ -1261,78 +1294,37 @@ export default function AdminPage() {
                               const approved = it.approval_status === 'approved'
                               const busy = approvingItem === key
                               const thread = itemThread(it)
-                              const changes = it.approval_status === 'changes_requested'
-                              const draft = replyDraft[key] ?? ''
+                              const lastFromClient = thread.length > 0 && thread[thread.length - 1].from === 'client'
+                              const needsAction = !approved && (it.approval_status === 'changes_requested' || lastFromClient)
                               return (
-                                <div key={i} style={{ borderTop: i > 0 ? '1px solid #f0efed' : 'none', paddingTop: i > 0 ? 8 : 0 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                    <span style={{ fontSize: 12, color: '#444' }}>
-                                      <strong style={{ color: 'var(--coral)' }}>{it.quantity}×</strong> {it.name}
-                                    </span>
-                                    {it.approval_status && it.approval_status !== 'pending' && <ApprovalPill status={it.approval_status} />}
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: needsAction ? '#fff8ef' : '#fff', border: '1px solid #efeee9', borderLeft: `3px solid ${needsAction ? '#e0922a' : approved ? '#1B7F4F' : '#e0ded7'}`, borderRadius: 4 }}>
+                                  <span style={{ fontSize: 12.5, color: '#333', flex: 1, minWidth: 0, lineHeight: 1.3 }}>
+                                    <strong style={{ color: 'var(--coral)' }}>{it.quantity}×</strong> {it.name}
                                     {approved && it.approved_proof_url && itemProofs(it).length > 1 && (
-                                      <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', background: '#dcfce7', border: '1px solid #86efac', padding: '2px 8px' }}>
-                                        Client picked design {itemProofs(it).indexOf(it.approved_proof_url) + 1} of {itemProofs(it).length}
-                                      </span>
+                                      <span style={{ display: 'inline-block', marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#15803d' }}>· picked {itemProofs(it).indexOf(it.approved_proof_url) + 1}/{itemProofs(it).length}</span>
                                     )}
-                                    <button
-                                      onClick={() => approveItem(job, i, !approved)}
-                                      disabled={busy}
-                                      style={{
-                                        fontSize: 11, fontWeight: 700, padding: '4px 12px',
-                                        cursor: busy ? 'default' : 'pointer', fontFamily: 'var(--font-body)',
-                                        color: approved ? '#15803d' : '#fff',
-                                        background: approved ? '#dcfce7' : '#1B7F4F',
-                                        border: approved ? '1px solid #86efac' : 'none',
-                                        opacity: busy ? 0.6 : 1,
-                                      }}
-                                    >
-                                      {busy ? '…' : approved ? '✓ Approved · Undo' : 'Approve for Print'}
-                                    </button>
-                                  </div>
-
-                                  {/* Conversation thread */}
-                                  {thread.length > 0 && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, margin: '8px 0 0' }}>
-                                      {thread.map((m, mi) => {
-                                        const fromClient = m.from === 'client'
-                                        return (
-                                          <div key={mi} style={{ alignSelf: fromClient ? 'flex-start' : 'flex-end', maxWidth: '90%', background: fromClient ? '#fff7ed' : '#eef2f7', border: `1px solid ${fromClient ? '#f0d6a8' : '#d6e0ec'}`, padding: '6px 9px', borderRadius: 4 }}>
-                                            <div style={{ fontSize: 10, fontWeight: 700, color: fromClient ? '#9a6a00' : '#3a5a82', marginBottom: 2 }}>
-                                              {fromClient ? (job.client_name?.split(' ')[0] || 'Client') : 'You'}
-                                              {m.at ? <span style={{ fontWeight: 400, color: '#999' }}> · {new Date(m.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span> : null}
-                                            </div>
-                                            <div style={{ fontSize: 12.5, color: '#333', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{m.text}</div>
-                                          </div>
-                                        )
-                                      })}
-                                    </div>
-                                  )}
-
-                                  {/* Reply + upload revised version */}
-                                  {(changes || thread.length > 0) && !approved && (
-                                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                      <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                                        <textarea
-                                          rows={2}
-                                          value={draft}
-                                          onChange={ev => setReplyDraft(prev => ({ ...prev, [key]: ev.target.value }))}
-                                          placeholder="Write back to the client…"
-                                          style={{ flex: 1, padding: '7px 9px', border: '1px solid #ddd', fontSize: 12.5, fontFamily: 'var(--font-body)', resize: 'vertical', boxSizing: 'border-box' }}
-                                        />
-                                        <button onClick={() => sendReply(job, i)} disabled={sendingReply === key || !draft.trim()}
-                                          style={{ fontSize: 11, fontWeight: 700, padding: '7px 14px', background: '#131313', color: '#fff', border: 'none', cursor: (sendingReply === key || !draft.trim()) ? 'default' : 'pointer', opacity: (sendingReply === key || !draft.trim()) ? 0.5 : 1, whiteSpace: 'nowrap', fontFamily: 'var(--font-body)' }}>
-                                          {sendingReply === key ? 'Sending…' : 'Reply'}
-                                        </button>
-                                      </div>
-                                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#b06a00', cursor: uploadingRevision === key ? 'default' : 'pointer' }}>
-                                        <input type="file" accept="image/*" disabled={uploadingRevision === key} style={{ display: 'none' }}
-                                          onChange={e => { const f = e.target.files?.[0]; if (f) uploadRevision(job, i, f); e.currentTarget.value = '' }} />
-                                        {uploadingRevision === key ? '⏳ Uploading new version…' : '⬆ Upload revised version'}
-                                      </label>
-                                      {revisionError[key] && <span style={{ fontSize: 11, color: '#dc2626' }}>{revisionError[key]}</span>}
-                                    </div>
-                                  )}
+                                  </span>
+                                  {it.approval_status && it.approval_status !== 'pending' && <ApprovalPill status={it.approval_status} />}
+                                  <button
+                                    onClick={() => setChatItem({ jobId: job.id, idx: i })}
+                                    title={thread.length > 0 ? `${thread.length} message${thread.length > 1 ? 's' : ''}` : 'Open conversation'}
+                                    style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '6px 11px', background: needsAction ? '#e0922a' : '#fff', color: needsAction ? '#fff' : '#555', border: `1px solid ${needsAction ? '#e0922a' : '#dcdad3'}`, borderRadius: 4, cursor: 'pointer', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap' }}>
+                                    💬 {thread.length > 0 ? thread.length : 'Reply'}
+                                  </button>
+                                  <button
+                                    onClick={() => approveItem(job, i, !approved)}
+                                    disabled={busy}
+                                    style={{
+                                      fontSize: 11, fontWeight: 700, padding: '6px 12px', borderRadius: 4,
+                                      cursor: busy ? 'default' : 'pointer', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap',
+                                      color: approved ? '#15803d' : '#fff',
+                                      background: approved ? '#dcfce7' : '#1B7F4F',
+                                      border: approved ? '1px solid #86efac' : 'none',
+                                      opacity: busy ? 0.6 : 1,
+                                    }}
+                                  >
+                                    {busy ? '…' : approved ? '✓ Approved' : 'Approve'}
+                                  </button>
                                 </div>
                               )
                             })}
@@ -1732,6 +1724,73 @@ export default function AdminPage() {
           </>
         )}
       </div>
+
+      {/* Conversation drawer — reply to the client + upload a revised version */}
+      {chatItem && (() => {
+        const job = jobs.find(j => j.id === chatItem.jobId)
+        const it = job?.items[chatItem.idx]
+        if (!job || !it) return null
+        const idx = chatItem.idx
+        const key = `${job.id}:${idx}`
+        const thread = itemThread(it)
+        const draft = replyDraft[key] ?? ''
+        const approved = it.approval_status === 'approved'
+        const sending = sendingReply === key
+        const uploading = uploadingRevision === key
+        const clientFirst = job.client_name?.split(' ')[0] || 'Client'
+        return (
+          <>
+            <div className="chat-backdrop" onClick={() => setChatItem(null)} />
+            <aside className="chat-drawer" role="dialog" aria-label={`Conversation about ${it.name}`}>
+              <div className="chat-head">
+                <div style={{ minWidth: 0 }}>
+                  <div className="chat-head-title">{it.quantity}× {it.name}</div>
+                  <div className="chat-head-sub">{job.reference_number} · {clientFirst}</div>
+                </div>
+                <button className="chat-close" onClick={() => setChatItem(null)} aria-label="Close conversation">✕</button>
+              </div>
+
+              <div className="chat-body" ref={chatBodyRef}>
+                {thread.length === 0 ? (
+                  <div className="chat-empty">No messages yet.<br />Write to {clientFirst} below, or upload a revised version.</div>
+                ) : thread.map((m, mi) => {
+                  const mine = m.from === 'shop'
+                  return (
+                    <div key={mi} className={`chat-row ${mine ? 'me' : 'them'}`}>
+                      <div className="chat-bubble">{m.text}</div>
+                      <div className="chat-meta">{mine ? 'You' : clientFirst}{m.at ? ` · ${new Date(m.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="chat-foot">
+                {revisionError[key] && <div className="chat-err">{revisionError[key]}</div>}
+                <div className="chat-compose">
+                  <textarea
+                    rows={1}
+                    value={draft}
+                    onChange={ev => setReplyDraft(prev => ({ ...prev, [key]: ev.target.value }))}
+                    onKeyDown={ev => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); if (draft.trim() && !sending) sendReply(job, idx) } }}
+                    placeholder={`Write back to ${clientFirst}…`}
+                    className="chat-input"
+                  />
+                  <button className="chat-send" onClick={() => sendReply(job, idx)} disabled={sending || !draft.trim()}>
+                    {sending ? '…' : 'Send'}
+                  </button>
+                </div>
+                {!approved && (
+                  <label className="chat-revise" style={{ cursor: uploading ? 'default' : 'pointer' }}>
+                    <input type="file" accept="image/*" disabled={uploading} style={{ display: 'none' }}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadRevision(job, idx, f); e.currentTarget.value = '' }} />
+                    {uploading ? '⏳ Uploading new version…' : '⬆ Upload revised version'}
+                  </label>
+                )}
+              </div>
+            </aside>
+          </>
+        )
+      })()}
     </main>
   )
 }
