@@ -6,7 +6,7 @@ import { sendNtfy } from '@/lib/ntfy'
 export const dynamic = 'force-dynamic'
 import { SubmitSchema } from '@/lib/schemas'
 import { generateReferenceNumber } from '@/lib/reference'
-import { getDefaultTenantId } from '@/lib/tenant'
+import { getDefaultTenantId, getTenantIdBySlug } from '@/lib/tenant'
 import { getTenantBranding } from '@/lib/tenant-settings'
 
 export async function POST(req: NextRequest) {
@@ -43,9 +43,11 @@ export async function POST(req: NextRequest) {
   const referenceNumber = generateReferenceNumber()
   const submittedAt = new Date().toISOString()
 
-  // Which workspace this intake belongs to. Until per-tenant intake URLs exist,
-  // public submissions go to the default (DDF) workspace.
-  const tenantId = await getDefaultTenantId()
+  // Which workspace this intake belongs to: resolved from the /s/{slug} URL,
+  // falling back to the default (DDF) workspace for the root form or a bad slug.
+  const tenantId =
+    (data.tenantSlug ? await getTenantIdBySlug(data.tenantSlug) : null)
+    ?? await getDefaultTenantId()
 
   // INSERT with status=pending — DB is source of truth before emails send
   const { error: insertError } = await supabaseAdmin.from('jobs').insert({

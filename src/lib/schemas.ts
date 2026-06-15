@@ -24,6 +24,9 @@ export const SubmitSchema = z.object({
   items: z.array(ItemSchema).min(1, 'At least one item is required').max(10),
   filePaths: z.array(z.string()).max(3),
   submissionId: z.string().uuid('Invalid submission ID'),
+  // Which workspace this intake belongs to (from the /s/{slug} URL). Optional —
+  // the root form omits it and the server falls back to the default tenant.
+  tenantSlug: z.string().max(64).optional(),
   _hp: z.string().optional(),
 })
 
