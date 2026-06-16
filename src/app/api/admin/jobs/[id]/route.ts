@@ -139,11 +139,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   // Brief edit update
-  if ('date_required' in body || 'event_name' in body || 'notes' in body || 'items' in body || 'file_paths' in body) {
+  if ('date_required' in body || 'event_name' in body || 'notes' in body || 'items' in body || 'file_paths' in body
+      || 'setup_location' in body || 'setup_time' in body || 'removal_location' in body || 'removal_time' in body) {
     const patch: Record<string, unknown> = {}
-    if ('date_required' in body) patch.date_required = body.date_required
-    if ('event_name' in body)   patch.event_name   = body.event_name ?? null
-    if ('notes' in body)        patch.notes        = body.notes ?? null
+    if ('date_required' in body)    patch.date_required    = body.date_required
+    if ('event_name' in body)       patch.event_name       = body.event_name ?? null
+    if ('notes' in body)            patch.notes            = body.notes ?? null
+    if ('setup_location' in body)   patch.setup_location   = body.setup_location ?? null
+    if ('setup_time' in body)       patch.setup_time       = body.setup_time ?? null
+    if ('removal_location' in body) patch.removal_location = body.removal_location ?? null
+    if ('removal_time' in body)     patch.removal_time     = body.removal_time ?? null
 
     // When items change, diff approval state for a phone push (admin/staff approval + full approval).
     let approvalPush: { names: string[]; becameFull: boolean; ref: string; company: string } | null = null

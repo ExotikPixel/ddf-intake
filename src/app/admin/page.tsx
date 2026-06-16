@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, approvedProofs, itemThread, designsMode } from '@/lib/job-types'
+import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemRefPhotos, approvedProofs, itemThread, designsMode } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus, ItemMessage } from '@/lib/job-types'
 
 interface Job {
@@ -15,6 +15,10 @@ interface Job {
   event_name: string | null
   date_required: string
   notes: string | null
+  setup_location: string | null
+  setup_time: string | null
+  removal_location: string | null
+  removal_time: string | null
   status: string
   submitted_at: string
   items: JobItem[]
@@ -26,6 +30,10 @@ interface EditForm {
   date_required: string
   event_name: string
   notes: string
+  setup_location: string
+  setup_time: string
+  removal_location: string
+  removal_time: string
   items: JobItem[]
   file_paths: string[]
 }
@@ -267,12 +275,16 @@ export default function AdminPage() {
       date_required: job.date_required,
       event_name: job.event_name ?? '',
       notes: job.notes ?? '',
+      setup_location: job.setup_location ?? '',
+      setup_time: job.setup_time ?? '',
+      removal_location: job.removal_location ?? '',
+      removal_time: job.removal_time ?? '',
       items: job.items.map(i => ({ ...i })),
       file_paths: [...job.file_paths],
     })
     // Sign reference photos + every item's proofs so the edit panel can show
     // thumbnails (the stored filenames are random — a preview tells them apart).
-    const proofPaths = job.items.flatMap(it => itemProofs(it))
+    const proofPaths = job.items.flatMap(it => [...itemProofs(it), ...itemRefPhotos(it)])
     const all = [...job.file_paths, ...proofPaths]
     if (all.length > 0) void loadFiles(job.id, all)
   }
@@ -293,6 +305,10 @@ export default function AdminPage() {
           date_required: editForm.date_required,
           event_name: editForm.event_name || null,
           notes: editForm.notes || null,
+          setup_location: editForm.setup_location || null,
+          setup_time: editForm.setup_time || null,
+          removal_location: editForm.removal_location || null,
+          removal_time: editForm.removal_time || null,
           items: editForm.items,
           file_paths: editForm.file_paths,
         }),
@@ -303,6 +319,10 @@ export default function AdminPage() {
           date_required: editForm.date_required,
           event_name: editForm.event_name || null,
           notes: editForm.notes || null,
+          setup_location: editForm.setup_location || null,
+          setup_time: editForm.setup_time || null,
+          removal_location: editForm.removal_location || null,
+          removal_time: editForm.removal_time || null,
           items: editForm.items,
           file_paths: editForm.file_paths,
         } : j))
@@ -476,11 +496,25 @@ export default function AdminPage() {
     const itemRows = job.items.map(item => `
       <tr>
         <td style="width:52px;text-align:center;font-size:22px;font-weight:900;color:${BRAND};border-bottom:1px solid #e8e8e8;padding:10px 8px;">${item.quantity}</td>
-        <td style="font-weight:600;border-bottom:1px solid #e8e8e8;padding:10px 12px;">${escHtml(item.name)}</td>
+        <td style="font-weight:600;border-bottom:1px solid #e8e8e8;padding:10px 12px;">${escHtml(item.name)}${item.description ? `<div style="font-weight:400;font-size:11px;color:#777;margin-top:3px;line-height:1.5;">${escHtml(item.description)}</div>` : ''}</td>
         <td style="border-bottom:1px solid #e8e8e8;padding:10px 12px;color:#555;">${escHtml(item.size || '—')}</td>
         <td style="border-bottom:1px solid #e8e8e8;padding:10px 12px;color:#555;">${escHtml(item.material || '—')}</td>
       </tr>
     `).join('')
+
+    const logRow = (label: string, loc?: string | null, time?: string | null) => (loc || time) ? `
+        <div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:2px;">${label}</div>
+          <div style="font-size:14px;font-weight:600;">${escHtml([loc, time].filter(Boolean).join(' — '))}</div>
+        </div>` : ''
+    const logisticsSection = (job.setup_location || job.setup_time || job.removal_location || job.removal_time) ? `
+      <div style="margin-bottom:24px;">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#999;border-bottom:1px solid #e8e8e8;padding-bottom:6px;margin-bottom:12px;">Setup &amp; Removal</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          ${logRow('Setup', job.setup_location, job.setup_time)}
+          ${logRow('Removal', job.removal_location, job.removal_time)}
+        </div>
+      </div>` : ''
 
     const notesSection = job.notes ? `
       <div style="margin-bottom:24px;">
@@ -582,6 +616,7 @@ export default function AdminPage() {
         <tbody>${itemRows}</tbody>
       </table>
     </div>
+    ${logisticsSection}
     ${notesSection}
     ${imageSection}
     <div style="margin-top:32px;padding-top:12px;border-top:1px solid #e8e8e8;display:flex;justify-content:space-between;font-size:11px;color:#aaa;">
@@ -841,6 +876,16 @@ export default function AdminPage() {
         ${cell('Approved', `${approved.length} of ${total} items`, true)}
       </tr>
     </table>
+
+    ${(job.setup_location || job.setup_time || job.removal_location || job.removal_time) ? `
+    <!-- Setup & removal -->
+    <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#999;margin-bottom:8px;">Setup &amp; Removal</div>
+    <table style="margin-bottom:26px;">
+      <tr>
+        ${cell('Setup', escHtml([job.setup_location, job.setup_time].filter(Boolean).join(' — ') || '—'), true)}
+        ${cell('Removal', escHtml([job.removal_location, job.removal_time].filter(Boolean).join(' — ') || '—'), true)}
+      </tr>
+    </table>` : ''}
 
     <!-- Approved designs -->
     <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#999;border-bottom:1px solid #e8e8e8;padding-bottom:6px;margin-bottom:16px;">
@@ -1309,23 +1354,50 @@ export default function AdminPage() {
 
 
                     {/* Items */}
-                    <div style={{ padding: '10px 18px', borderBottom: '1px solid #f2f2f2', display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                      {job.items.map((item, i) => (
-                        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#f8f7f5', border: '1px solid #eaeaea', padding: '3px 9px', fontSize: 12, color: '#444' }}>
-                          <span>
-                            <strong style={{ color: 'var(--coral)', marginRight: 2 }}>{item.quantity}×</strong>
-                            {item.name}
-                            {item.size     && <span style={{ color: '#999' }}> · {item.size}</span>}
-                            {item.material && <span style={{ color: '#bbb' }}> · {item.material}</span>}
+                    <div style={{ padding: '10px 18px', borderBottom: '1px solid #f2f2f2', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {job.items.map((item, i) => {
+                        const refs = itemRefPhotos(item)
+                        return (
+                        <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12, color: '#444' }}>
+                            <span style={{ background: '#f8f7f5', border: '1px solid #eaeaea', padding: '3px 9px' }}>
+                              <strong style={{ color: 'var(--coral)', marginRight: 2 }}>{item.quantity}×</strong>
+                              {item.name}
+                              {item.size     && <span style={{ color: '#999' }}> · {item.size}</span>}
+                              {item.material && <span style={{ color: '#bbb' }}> · {item.material}</span>}
+                            </span>
+                            {refs.length > 0 && (
+                              <span title={`${refs.length} client reference photo${refs.length > 1 ? 's' : ''} — open Edit Brief to view`} style={{ fontSize: 10, fontWeight: 700, color: '#7a6', background: '#f0fbf4', border: '1px solid #cfe9d8', padding: '1px 6px' }}>📎 {refs.length}</span>
+                            )}
+                            {itemProofs(item).length > 0 && (
+                              item.approval_status && item.approval_status !== 'pending'
+                                ? <ApprovalPill status={item.approval_status} />
+                                : <span title="Proof attached — not yet approved for print" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#888', background: '#f0f0f0', border: '1px solid #ddd', padding: '1px 6px', textTransform: 'uppercase' }}>Awaiting Approval</span>
+                            )}
                           </span>
-                          {itemProofs(item).length > 0 && (
-                            item.approval_status && item.approval_status !== 'pending'
-                              ? <ApprovalPill status={item.approval_status} />
-                              : <span title="Proof attached — not yet approved for print" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#888', background: '#f0f0f0', border: '1px solid #ddd', padding: '1px 6px', textTransform: 'uppercase' }}>Awaiting Approval</span>
-                          )}
-                        </span>
-                      ))}
+                          {item.description && <span style={{ fontSize: 11.5, color: '#777', lineHeight: 1.4, paddingLeft: 2 }}>{item.description}</span>}
+                        </div>
+                        )
+                      })}
                     </div>
+
+                    {/* Setup / removal logistics */}
+                    {(job.setup_location || job.setup_time || job.removal_location || job.removal_time) && (
+                      <div style={{ padding: '10px 18px', borderBottom: '1px solid #f2f2f2', display: 'flex', flexWrap: 'wrap', gap: '4px 28px' }}>
+                        {(job.setup_location || job.setup_time) && (
+                          <div style={{ fontSize: 12, color: '#555' }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb', marginRight: 6 }}>Setup</span>
+                            {[job.setup_location, job.setup_time].filter(Boolean).join(' · ')}
+                          </div>
+                        )}
+                        {(job.removal_location || job.removal_time) && (
+                          <div style={{ fontSize: 12, color: '#555' }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb', marginRight: 6 }}>Removal</span>
+                            {[job.removal_location, job.removal_time].filter(Boolean).join(' · ')}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Design approval — admin marks items approved for print */}
                     {(() => {
@@ -1599,6 +1671,28 @@ export default function AdminPage() {
                           />
                         </label>
 
+                        {/* Setup & Removal logistics */}
+                        <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Setup &amp; Removal</p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+                          {([
+                            ['Setup location', 'setup_location', 'Venue / address'],
+                            ['Setup time', 'setup_time', 'e.g. Fri 8:00 AM'],
+                            ['Removal location', 'removal_location', 'Same as setup, or other'],
+                            ['Removal time', 'removal_time', 'e.g. Sun 11:00 PM'],
+                          ] as const).map(([label, key, ph]) => (
+                            <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+                              {label}
+                              <input
+                                type="text"
+                                value={editForm[key]}
+                                onChange={e => setEditForm(prev => prev ? { ...prev, [key]: e.target.value } : prev)}
+                                placeholder={ph}
+                                style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', color: '#1a1a1a' }}
+                              />
+                            </label>
+                          ))}
+                        </div>
+
                         {/* Reference Photos */}
                         <div style={{ marginBottom: 14 }}>
                           <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Reference Photos</p>
@@ -1678,6 +1772,28 @@ export default function AdminPage() {
                                   style={{ background: 'none', border: '1px solid #fca5a5', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: '4px 6px', opacity: editForm.items.length === 1 ? 0.3 : 1 }}
                                 >×</button>
                               </div>
+                              {/* Per-item client brief */}
+                              <textarea
+                                value={item.description ?? ''}
+                                onChange={e => updateEditItem(idx, 'description', e.target.value)}
+                                rows={2}
+                                placeholder="Description / client brief for this item"
+                                style={{ width: '100%', marginTop: 6, padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', color: '#1a1a1a', resize: 'vertical', boxSizing: 'border-box' }}
+                              />
+                              {/* Per-item reference photos (read-only thumbnails) */}
+                              {itemRefPhotos(item).length > 0 && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb' }}>Refs ({itemRefPhotos(item).length})</span>
+                                  {itemRefPhotos(item).map(p => {
+                                    const signed = fileUrls[job.id]?.find(f => f.path === p)
+                                    return signed ? (
+                                      <a key={p} href={signed.url} target="_blank" rel="noopener noreferrer" title="Reference photo" style={{ display: 'flex' }}>
+                                        <img src={signed.url} alt="" style={{ width: 36, height: 36, objectFit: 'cover', border: '1px solid #e0e0e0' }} />
+                                      </a>
+                                    ) : <span key={p} style={{ fontSize: 10, color: '#bbb' }}>·</span>
+                                  })}
+                                </div>
+                              )}
                               {/* Per-item design proofs (multiple) */}
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb' }}>

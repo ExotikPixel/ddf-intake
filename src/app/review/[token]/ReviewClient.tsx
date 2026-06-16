@@ -231,6 +231,11 @@ export default function ReviewClient({ token }: { token: string }) {
                   {/* Expanded review */}
                   {isOpen && (
                     <div style={{ padding: '0 18px 18px', borderTop: '1px solid var(--charcoal-border)' }}>
+                      {it.description && (
+                        <p style={{ margin: '14px 0 0', fontSize: 13, lineHeight: 1.5, color: 'var(--charcoal-60)', whiteSpace: 'pre-wrap' }}>
+                          <span style={{ fontWeight: 700, color: 'var(--charcoal)' }}>Your brief: </span>{it.description}
+                        </p>
+                      )}
                       {(() => {
                         const multi = proofs.length > 1
                         const pickMode = multi && designsMode(it) === 'pick'   // alternatives → choose one; else all needed

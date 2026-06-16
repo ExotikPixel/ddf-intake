@@ -10,6 +10,8 @@ export interface JobItem {
   quantity: number
   size: string
   material: string
+  description?: string                                // richer client brief for this item (intake)
+  ref_photos?: string[]                              // job-files paths to client reference/inspo images
   // ── Client design-approval fields (optional; items is JSONB, no migration) ──
   proof_urls?: string[]                               // job-files paths to design proofs (one item can have several)
   proof_url?: string                                  // LEGACY single proof — read via itemProofs(); kept for old rows
@@ -40,6 +42,11 @@ export function itemThread(item: JobItem): ItemMessage[] {
   if (item.messages && item.messages.length) return item.messages
   if (item.client_note) return [{ from: 'client', text: item.client_note, at: '' }]
   return []
+}
+
+/** Client reference/inspo photos attached to an item at intake (empty if none). */
+export function itemRefPhotos(item: JobItem): string[] {
+  return item.ref_photos ?? []
 }
 
 /** All proof paths for an item, preferring the multi-proof array, falling back to the legacy single field. */

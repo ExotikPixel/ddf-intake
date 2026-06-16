@@ -32,6 +32,7 @@ interface JobItem {
   quantity: string
   size: string
   material: string
+  description: string
 }
 
 interface UploadedFile {
@@ -46,7 +47,9 @@ type FormErrors = Record<string, string>
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ALLOWED_EXTS = ['.jpg', '.jpeg', '.png', '.pdf', '.ai', '.eps', '.svg']
+const IMG_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.gif']
 const MAX_FILES = 3
+const MAX_ITEM_PHOTOS = 8
 const MAX_BYTES = 50 * 1024 * 1024
 const MATERIALS = ['vinyl', 'fabric', 'foam-board', 'acrylic', 'other']
 
@@ -94,13 +97,20 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
 
   // Job items
   const [items, setItems] = useState<JobItem[]>([
-    { id: genId(), name: '', quantity: '', size: '', material: '' },
+    { id: genId(), name: '', quantity: '', size: '', material: '', description: '' },
   ])
+  // Per-item reference photos, keyed by item id (mirrors the job-level `uploads`).
+  const [itemUploads, setItemUploads] = useState<Record<string, UploadedFile[]>>({})
 
   // Files & deadline
   const [dateRequired, setDateRequired] = useState('')
   const [eventName, setEventName] = useState('')
   const [notes, setNotes] = useState('')
+  // Crew logistics (one set per job)
+  const [setupLocation, setSetupLocation] = useState('')
+  const [setupTime, setSetupTime] = useState('')
+  const [removalLocation, setRemovalLocation] = useState('')
+  const [removalTime, setRemovalTime] = useState('')
   const [uploads, setUploads] = useState<UploadedFile[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dropOver, setDropOver] = useState(false)
@@ -152,16 +162,66 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
 
   function addItem() {
     if (items.length >= 10) return
-    setItems(prev => [...prev, { id: genId(), name: '', quantity: '', size: '', material: '' }])
+    setItems(prev => [...prev, { id: genId(), name: '', quantity: '', size: '', material: '', description: '' }])
   }
 
   function removeItem(id: string) {
     if (items.length <= 1) return
     setItems(prev => prev.filter(i => i.id !== id))
+    setItemUploads(prev => { const next = { ...prev }; delete next[id]; return next })
   }
 
   function updateItem(id: string, field: keyof Omit<JobItem, 'id'>, value: string) {
     setItems(prev => prev.map(i => i.id === id ? { ...i, [field]: value } : i))
+  }
+
+  // ── Per-item reference photos ───────────────────────────────────────────────
+
+  function validateAndAddItemPhotos(itemId: string, fileList: FileList | null) {
+    if (!fileList) return
+    const existing = itemUploads[itemId] ?? []
+    const newFiles: File[] = []
+    let err = ''
+    Array.from(fileList).forEach(f => {
+      if (existing.length + newFiles.length >= MAX_ITEM_PHOTOS) { err = `Up to ${MAX_ITEM_PHOTOS} photos per item`; return }
+      const ext = '.' + f.name.split('.').pop()?.toLowerCase()
+      if (!IMG_EXTS.includes(ext)) { err = `${f.name}: please attach an image`; return }
+      if (f.size > MAX_BYTES) { err = `${f.name}: exceeds 50MB`; return }
+      newFiles.push(f)
+    })
+    setErrors(prev => { const e = { ...prev }; if (err) e[`item-${itemId}-photos`] = err; else delete e[`item-${itemId}-photos`]; return e })
+    if (newFiles.length) uploadItemPhotos(itemId, newFiles)
+  }
+
+  async function uploadItemPhotos(itemId: string, files: File[]) {
+    let presigned: { path: string; signedUrl: string }[]
+    try {
+      const res = await axios.post('/api/upload-url', { files: files.map(f => ({ name: f.name, type: f.type, size: f.size })) })
+      presigned = res.data.uploads
+    } catch {
+      setErrors(prev => ({ ...prev, [`item-${itemId}-photos`]: 'Could not prepare upload. Try again.' }))
+      return
+    }
+    const entries: UploadedFile[] = files.map((file, i) => ({ file, path: presigned[i].path, progress: 0 }))
+    setItemUploads(prev => ({ ...prev, [itemId]: [...(prev[itemId] ?? []), ...entries] }))
+    for (let i = 0; i < files.length; i++) {
+      const { signedUrl, path } = presigned[i]
+      try {
+        await axios.put(signedUrl, entries[i].file, {
+          headers: { 'Content-Type': entries[i].file.type || 'application/octet-stream' },
+          onUploadProgress: evt => {
+            const pct = evt.total ? Math.round((evt.loaded / evt.total) * 100) : 0
+            setItemUploads(prev => ({ ...prev, [itemId]: (prev[itemId] ?? []).map(u => u.path === path ? { ...u, progress: pct } : u) }))
+          },
+        })
+      } catch {
+        setItemUploads(prev => ({ ...prev, [itemId]: (prev[itemId] ?? []).map(u => u.path === path ? { ...u, error: 'Upload failed — check connection' } : u) }))
+      }
+    }
+  }
+
+  function removeItemPhoto(itemId: string, path: string) {
+    setItemUploads(prev => ({ ...prev, [itemId]: (prev[itemId] ?? []).filter(u => u.path !== path) }))
   }
 
   // ── File handling ─────────────────────────────────────────────────────────
@@ -273,7 +333,8 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
       return
     }
 
-    const uploading = uploads.some(u => u.progress < 100 && !u.error)
+    const allUploads = [...uploads, ...Object.values(itemUploads).flat()]
+    const uploading = allUploads.some(u => u.progress < 100 && !u.error)
     if (uploading) {
       setSubmitError('Please wait for all files to finish uploading.')
       return
@@ -288,11 +349,17 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
         dateRequired,
         eventName: eventName.trim() || undefined,
         notes: notes.trim() || undefined,
+        setupLocation: setupLocation.trim() || undefined,
+        setupTime: setupTime.trim() || undefined,
+        removalLocation: removalLocation.trim() || undefined,
+        removalTime: removalTime.trim() || undefined,
         items: items.map(i => ({
           name: i.name.trim(),
           quantity: parseInt(i.quantity),
           size: i.size.trim(),
           material: i.material,
+          description: i.description.trim() || undefined,
+          ref_photos: (itemUploads[i.id] ?? []).filter(u => u.progress === 100).map(u => u.path),
         })),
         filePaths: uploads.filter(u => u.progress === 100).map(u => u.path),
         submissionId: submissionId.current,
@@ -589,6 +656,33 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                           </select>
                         </Field>
                       </div>
+
+                      <div style={{ marginTop: '12px' }}>
+                        <Field label={<>Description <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— colours, wording, style, anything specific</span></>} compact>
+                          <textarea value={item.description} onChange={e => updateItem(item.id, 'description', e.target.value)} placeholder="e.g. Gold mirror-acrylic welcome sign, script font, names 'Aman & Priya', on a stand" rows={3} style={{ ...inputStyle(false), resize: 'vertical', minHeight: '72px' }}/>
+                        </Field>
+                      </div>
+
+                      <div style={{ marginTop: '4px' }}>
+                        <Field label={<>Reference photos <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— optional inspiration images</span></>} compact error={errors[`item-${item.id}-photos`]}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            {(itemUploads[item.id] ?? []).map(u => (
+                              <div key={u.path} style={{ position: 'relative', width: 64, height: 64, border: '1px solid var(--charcoal-border)', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                                {u.error ? <span style={{ fontSize: 9, color: 'var(--red-err)', padding: 2, textAlign: 'center' }}>{u.error}</span>
+                                  : u.progress < 100 ? <span style={{ fontSize: 11, color: 'var(--charcoal-60)' }}>{u.progress}%</span>
+                                  : <img src={URL.createObjectURL(u.file)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>}
+                                <button type="button" onClick={() => removeItemPhoto(item.id, u.path)} style={{ position: 'absolute', top: -1, right: -1, background: 'var(--charcoal)', color: '#fff', border: 'none', width: 18, height: 18, fontSize: 12, lineHeight: 1, cursor: 'pointer' }}>×</button>
+                              </div>
+                            ))}
+                            {(itemUploads[item.id] ?? []).length < MAX_ITEM_PHOTOS && (
+                              <label style={{ width: 64, height: 64, border: '1.5px dashed var(--charcoal-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--charcoal-60)', fontSize: 24 }}>
+                                +
+                                <input type="file" multiple accept={IMG_EXTS.join(',')} style={{ display: 'none' }} onChange={e => { validateAndAddItemPhotos(item.id, e.target.files); e.target.value = '' }}/>
+                              </label>
+                            )}
+                          </div>
+                        </Field>
+                      </div>
                     </div>
                   ))}
                   {items.length < 10 && (
@@ -606,6 +700,22 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                     </Field>
                     <Field label="Event / project name">
                       <input value={eventName} onChange={e => setEventName(e.target.value)} placeholder="Brand Launch 2026" style={inputStyle(false)}/>
+                    </Field>
+                  </div>
+
+                  <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--charcoal-60)', margin: '8px 0 10px' }}>Setup &amp; Removal <span style={{ fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>— so our crew knows where &amp; when</span></div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    <Field label="Setup location">
+                      <input value={setupLocation} onChange={e => setSetupLocation(e.target.value)} placeholder="Venue name / address" style={inputStyle(false)}/>
+                    </Field>
+                    <Field label="Setup time">
+                      <input value={setupTime} onChange={e => setSetupTime(e.target.value)} placeholder="e.g. Fri 19 Jun, 8:00 AM" style={inputStyle(false)}/>
+                    </Field>
+                    <Field label="Removal location">
+                      <input value={removalLocation} onChange={e => setRemovalLocation(e.target.value)} placeholder="Same as setup, or other" style={inputStyle(false)}/>
+                    </Field>
+                    <Field label="Removal time">
+                      <input value={removalTime} onChange={e => setRemovalTime(e.target.value)} placeholder="e.g. Sun 21 Jun, 11:00 PM" style={inputStyle(false)}/>
                     </Field>
                   </div>
 

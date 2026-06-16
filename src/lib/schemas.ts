@@ -5,6 +5,9 @@ export const ItemSchema = z.object({
   quantity: z.number().int().min(1, 'Quantity must be at least 1'),
   size: z.string().min(1, 'Size is required'),
   material: z.enum(['vinyl', 'fabric', 'foam-board', 'acrylic', 'other']),
+  // Client-facing detail captured at intake (both optional).
+  description: z.string().max(2000).optional(),   // richer free-text brief for this item
+  ref_photos: z.array(z.string()).max(8).optional(), // job-files paths to client reference/inspo images
   // Optional approval fields — preserved on edit, set by admin (proof) and client (status)
   proof_urls: z.array(z.string()).optional(),
   proof_url: z.string().optional(),
@@ -29,6 +32,11 @@ export const SubmitSchema = z.object({
   dateRequired: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
   eventName: z.string().optional(),
   notes: z.string().optional(),
+  // Crew logistics — one set per job (all optional, free-form text).
+  setupLocation: z.string().max(300).optional(),
+  setupTime: z.string().max(120).optional(),
+  removalLocation: z.string().max(300).optional(),
+  removalTime: z.string().max(120).optional(),
   items: z.array(ItemSchema).min(1, 'At least one item is required').max(10),
   filePaths: z.array(z.string()).max(3),
   submissionId: z.string().uuid('Invalid submission ID'),
