@@ -21,15 +21,22 @@ function slug(s: string): string {
 // Item names are usually "June 15 - Welcome Sign": the part before " - " is the
 // item's own event date. Resolve it to YYYY-MM-DD, falling back to the job's
 // overall date_required when the name carries no date.
+const MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec'
+// Only treat a label as a date when it actually looks like one ("June 15",
+// "15 June", "2026-06-15", "6/15"). Node's parser is lenient enough that
+// "Welcome Sign 2026" yields Jan 1 and "June 15" yields year 2001, so we guard
+// the shape first, then inject the job's year for year-less labels.
+const DATE_LIKE = new RegExp(
+  `(${MONTHS})[a-z]*\\s+\\d{1,2}|\\d{1,2}\\s+(${MONTHS})|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}/\\d{1,2}`, 'i'
+)
+
 function eventDateFor(name: string, fallback: string | null): string | null {
   const i = name.indexOf(' - ')
   const label = i > 0 ? name.slice(0, i).trim() : ''
-  if (label) {
-    let t = new Date(label).getTime()
-    if (isNaN(t)) {
-      const year = fallback ? new Date(`${fallback}T00:00:00`).getFullYear() : new Date().getFullYear()
-      t = new Date(`${label} ${year}`).getTime()
-    }
+  if (label && DATE_LIKE.test(label)) {
+    const year = fallback ? new Date(`${fallback}T00:00:00`).getFullYear() : new Date().getFullYear()
+    const hasYear = /\b\d{4}\b/.test(label)
+    const t = new Date(hasYear ? label : `${label} ${year}`).getTime()
     if (!isNaN(t)) return new Date(t).toISOString().slice(0, 10)
   }
   return fallback || null
