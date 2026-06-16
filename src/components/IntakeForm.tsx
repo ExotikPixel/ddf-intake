@@ -368,9 +368,18 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
       const res = await axios.post('/api/submit', payload)
       setRefNumber(res.data.referenceNumber)
     } catch (err: unknown) {
-      const msg = axios.isAxiosError(err)
-        ? err.response?.data?.error ?? 'Something went wrong'
-        : 'Something went wrong'
+      let msg = 'Something went wrong'
+      if (axios.isAxiosError(err)) {
+        const data = err.response?.data
+        msg = data?.error ?? msg
+        // Surface the specific field that failed validation instead of a generic message.
+        const issues = data?.issues as Array<{ path?: (string | number)[]; message?: string }> | undefined
+        if (Array.isArray(issues) && issues.length) {
+          const first = issues[0]
+          const where = (first.path ?? []).filter(p => p !== '').join(' › ')
+          msg = `${msg}${where ? ` (${where})` : ''}: ${first.message ?? 'invalid value'}`
+        }
+      }
       setSubmitError(`${msg} — your job was not submitted. Please try again.`)
     } finally {
       setSubmitting(false)
@@ -664,7 +673,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                       </div>
 
                       <div style={{ marginTop: '4px' }}>
-                        <Field label={<>Reference photos <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— optional inspiration images</span></>} compact error={errors[`item-${item.id}-photos`]}>
+                        <Field label={<>Image files <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— inspo pictures or images to use</span></>} compact error={errors[`item-${item.id}-photos`]}>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                             {(itemUploads[item.id] ?? []).map(u => (
                               <div key={u.path} style={{ position: 'relative', width: 64, height: 64, border: '1px solid var(--charcoal-border)', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>

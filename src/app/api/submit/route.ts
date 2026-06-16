@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = SubmitSchema.safeParse(body)
   if (!parsed.success) {
+    console.error('[submit] validation failed:', JSON.stringify(parsed.error.issues))
     return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 })
   }
 
