@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase-server'
 import { approvedProofs, itemProofs } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
+import { sendNtfy } from '@/lib/ntfy'
 
 // Push approved items into Command Centre's Kanban as printable job tickets.
 // Fired automatically whenever an item is approved (admin, portal, or review).
@@ -135,9 +136,22 @@ export async function syncApprovedItemsToKanban(jobId: number): Promise<void> {
     })
 
     if (!res.ok) {
-      console.error('[kanban-sync] Command Centre rejected', res.status, await res.text().catch(() => ''))
+      const body = await res.text().catch(() => '')
+      console.error('[kanban-sync] Command Centre rejected', res.status, body)
+      await sendNtfy({
+        title: 'Kanban sync FAILED',
+        message: `${job.reference_number} (${job.client_name}) didn't reach Command Centre — HTTP ${res.status}. Approved designs are NOT on the board.\n${body.slice(0, 200)}`,
+        tags: 'rotating_light',
+        priority: 5,
+      })
     }
   } catch (err) {
     console.error('[kanban-sync] failed for job', jobId, err)
+    await sendNtfy({
+      title: 'Kanban sync FAILED',
+      message: `Job ${jobId} could not be pushed to Command Centre (network/error). Approved designs are NOT on the board.\n${err instanceof Error ? err.message : String(err)}`,
+      tags: 'rotating_light',
+      priority: 5,
+    })
   }
 }
