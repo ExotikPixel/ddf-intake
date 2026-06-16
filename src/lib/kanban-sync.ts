@@ -85,7 +85,10 @@ export async function syncApprovedItemsToKanban(jobId: number): Promise<void> {
       const lines = members.map(({ it, rest }) => {
         let name = isMain ? it.name : rest
         if (!isMain && titleVenue && name.toLowerCase().startsWith(titleVenue.toLowerCase())) {
-          name = name.slice(titleVenue.length).replace(/^\s*[-–]\s*/, '')
+          // Only strip the venue prefix when a real item description remains —
+          // otherwise (single-item events where the venue IS the item) keep the name.
+          const stripped = name.slice(titleVenue.length).replace(/^\s*[-–]\s*/, '').trim()
+          if (stripped) name = stripped
         }
         const specs = [it.size, it.material].filter(Boolean).join(' · ')
         return `${Number(it.quantity) || 1}× ${cap(name, 90)}${specs ? ` · ${specs}` : ''}`
