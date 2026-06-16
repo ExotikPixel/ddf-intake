@@ -51,29 +51,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const items = (job.items ?? []) as JobItem[]
-  const item = items[itemIndex]
+  const existingItems = (job.items ?? []) as JobItem[]
+  const item = existingItems[itemIndex]
   if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
   if (itemProofs(item).length === 0) {
     return NextResponse.json({ error: 'No proof to review for this item' }, { status: 409 })
   }
 
+  // Build a patch for exactly one item and apply it atomically (row-locked) so
+  // concurrent approvals can't clobber each other. nulls clear a field.
+  let patch: Record<string, unknown>
+  let appendMessage: { from: string; text: string; at: string } | null = null
   if (action === 'approve') {
-    item.approval_status = 'approved'
-    item.approved_at = new Date().toISOString()
-    item.client_note = undefined
+    patch = { approval_status: 'approved', approved_at: new Date().toISOString(), client_note: null }
   } else {
     const text = note?.trim() || 'Requested changes.'
-    item.approval_status = 'changes_requested'
-    item.client_note = text
-    item.messages = [...(item.messages ?? []), { from: 'client', text, at: new Date().toISOString() }]
-    item.approved_at = undefined
-    item.approved_proof_url = undefined
+    patch = { approval_status: 'changes_requested', client_note: text, approved_at: null, approved_proof_url: null }
+    appendMessage = { from: 'client', text, at: new Date().toISOString() }
   }
-  items[itemIndex] = item
 
-  const { error } = await supabaseAdmin.from('jobs').update({ items }).eq('id', jobId)
+  const { data: updatedItems, error } = await supabaseAdmin.rpc('update_job_item', {
+    p_job_id: jobId, p_index: itemIndex, p_patch: patch, p_append_message: appendMessage,
+  })
   if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+  const items = (updatedItems ?? []) as JobItem[]
 
   // Best-effort: alert the team when a client asks for changes, or push when they approve.
   if (action === 'request_changes') {

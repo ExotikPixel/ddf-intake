@@ -34,39 +34,42 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
 
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const items = (job.items ?? []) as JobItem[]
-  const item = items[itemIndex]
+  const existingItems = (job.items ?? []) as JobItem[]
+  const item = existingItems[itemIndex]
   if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
   if (itemProofs(item).length === 0) return NextResponse.json({ error: 'No proof to review for this item' }, { status: 409 })
 
   const proofs = itemProofs(item)
   const pickMode = proofs.length > 1 && designsMode(item) === 'pick'
+
+  // Build a patch for exactly one item and apply it atomically (row-locked) so
+  // concurrent approvals can't clobber each other. nulls clear a field.
+  let patch: Record<string, unknown>
+  let appendMessage: { from: string; text: string; at: string } | null = null
   if (action === 'approve') {
+    let approvedProof: string | null
     if (pickMode) {
       // Alternatives — the client must pick exactly one.
       if (!selectedProof || !proofs.includes(selectedProof)) {
         return NextResponse.json({ error: 'Please choose which design to approve' }, { status: 400 })
       }
-      item.approved_proof_url = selectedProof
+      approvedProof = selectedProof
     } else {
       // Single design, or several that are all needed — approve the whole set.
-      item.approved_proof_url = proofs.length === 1 ? proofs[0] : undefined
+      approvedProof = proofs.length === 1 ? proofs[0] : null
     }
-    item.approval_status = 'approved'
-    item.approved_at = new Date().toISOString()
-    item.client_note = undefined
+    patch = { approval_status: 'approved', approved_at: new Date().toISOString(), approved_proof_url: approvedProof, client_note: null }
   } else {
     const text = note?.trim() || 'Requested changes.'
-    item.approval_status = 'changes_requested'
-    item.client_note = text                                   // legacy mirror of the latest request
-    item.messages = [...(item.messages ?? []), { from: 'client', text, at: new Date().toISOString() }]
-    item.approved_at = undefined
-    item.approved_proof_url = undefined
+    patch = { approval_status: 'changes_requested', client_note: text, approved_at: null, approved_proof_url: null }
+    appendMessage = { from: 'client', text, at: new Date().toISOString() }
   }
-  items[itemIndex] = item
 
-  const { error } = await supabaseAdmin.from('jobs').update({ items }).eq('id', jobId)
+  const { data: updatedItems, error } = await supabaseAdmin.rpc('update_job_item', {
+    p_job_id: jobId, p_index: itemIndex, p_patch: patch, p_append_message: appendMessage,
+  })
   if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+  const items = (updatedItems ?? []) as JobItem[]
 
   if (action === 'request_changes') {
     await sendChangeRequestNotification(
