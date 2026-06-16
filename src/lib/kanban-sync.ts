@@ -20,10 +20,6 @@ const MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec'
 // "June 22 - rest", "Jun. 3 - rest", etc. Captures the date label and the remainder.
 const DATE_PREFIX = new RegExp(`^((?:${MONTHS})[a-z]*\\.?\\s+\\d{1,2})\\s*[-–]\\s*(.*)$`, 'i')
 
-function slug(s: string): string {
-  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
-}
-
 function cap(s: string, n = 60): string {
   s = s.trim().replace(/[.,;:\s]+$/, '')
   return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s
@@ -39,7 +35,12 @@ function resolveDate(dateLabel: string, fallback: string | null): string | null 
   return fallback || null
 }
 
-interface ParsedItem { it: JobItem; index: number; dateLabel: string; rest: string }
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December']
+function fmtDate(iso: string): string {
+  const [, m, d] = iso.split('-').map(Number)
+  return (m && d) ? `${MONTH_NAMES[m - 1]} ${d}` : iso
+}
 
 export async function syncApprovedItemsToKanban(jobId: number): Promise<void> {
   try {
@@ -55,60 +56,61 @@ export async function syncApprovedItemsToKanban(jobId: number): Promise<void> {
     if (!job) return
 
     const items = (job.items ?? []) as JobItem[]
-    const approved: ParsedItem[] = items
+    // Resolve each approved item to a day (its own event date, or the job's due
+    // date when undated) and the venue/occasion it belongs to.
+    const approved = items
       .map((it, index) => ({ it, index }))
       .filter(({ it }) => it.approval_status === 'approved' && itemProofs(it).length > 0)
       .map(({ it, index }) => {
         const m = it.name.match(DATE_PREFIX)
-        return { it, index, dateLabel: m ? m[1] : '', rest: m ? m[2] : it.name }
+        const dateLabel = m ? m[1] : ''
+        const rest = m ? m[2] : it.name
+        const day = (dateLabel ? resolveDate(dateLabel, job.date_required) : job.date_required) || 'no-date'
+        const venueRaw = dateLabel ? rest.split(/\s[-–]\s/)[0].trim() : (job.company_name || '')
+        return { it, index, dateLabel, rest, day, venueRaw }
       })
     if (approved.length === 0) return
 
-    // Group by event: the date label, or "__main__" for undated items.
-    const groups = new Map<string, ParsedItem[]>()
+    // One sticky per day, per client. Undated items land on the job's due date.
+    const groups = new Map<string, typeof approved>()
     for (const p of approved) {
-      const key = p.dateLabel ? p.dateLabel.toLowerCase() : '__main__'
-      ;(groups.get(key) ?? groups.set(key, []).get(key)!).push(p)
+      ;(groups.get(p.day) ?? groups.set(p.day, []).get(p.day)!).push(p)
     }
 
-    const tickets = await Promise.all([...groups.entries()].map(async ([key, members]) => {
-      const isMain = key === '__main__'
-      // Title venue/occasion: company_name for the main tile; the segment after
-      // the date (first " - " chunk) for a dated event.
-      const firstRest = members[0].rest
-      const titleVenue = isMain
-        ? (job.company_name || job.event_name || job.client_name || 'Main Event')
-        : cap(firstRest.split(/\s[-–]\s/)[0])
-      const title = `${cap(titleVenue, 70)} — ${job.client_name}`
+    const tickets = await Promise.all([...groups.entries()].map(async ([day, members]) => {
+      // When the whole day shares one venue/occasion, show it in the title and
+      // strip it from each line; on mixed days omit it and keep each line's venue.
+      const venues = [...new Set(members.map(m => m.venueRaw).filter(Boolean))]
+      const dayVenue = venues.length === 1 ? venues[0] : ''
+      const dateNice = day !== 'no-date' ? fmtDate(day) : ''
+      const title = [[dateNice, cap(dayVenue, 40)].filter(Boolean).join(' · '), job.client_name]
+        .filter(Boolean).join(' — ')
 
-      // Clean each item line: drop the date prefix, and the venue segment when present.
-      const lines = members.map(({ it, rest }) => {
-        let name = isMain ? it.name : rest
-        if (!isMain && titleVenue && name.toLowerCase().startsWith(titleVenue.toLowerCase())) {
-          // Only strip the venue prefix when a real item description remains —
-          // otherwise (single-item events where the venue IS the item) keep the name.
-          const stripped = name.slice(titleVenue.length).replace(/^\s*[-–]\s*/, '').trim()
+      const lines = members.map(({ it, dateLabel, rest }) => {
+        let name = dateLabel ? rest : it.name
+        if (dayVenue && name.toLowerCase().startsWith(dayVenue.toLowerCase())) {
+          const stripped = name.slice(dayVenue.length).replace(/^\s*[-–]\s*/, '').trim()
           if (stripped) name = stripped
         }
         const specs = [it.size, it.material].filter(Boolean).join(' · ')
         return `${Number(it.quantity) || 1}× ${cap(name, 90)}${specs ? ` · ${specs}` : ''}`
       })
 
-      // All approved proofs for every item in this event.
+      // Every approved design for the day.
       const allPaths = members.flatMap(({ it }) => approvedProofs(it))
       const signed = await Promise.all(allPaths.map(async path => {
         const { data } = await supabaseAdmin.storage.from('job-files').createSignedUrl(path, PROOF_TTL_SECONDS)
         return data?.signedUrl
       }))
 
-      const eventDate = isMain ? job.date_required : resolveDate(members[0].dateLabel, job.date_required)
+      const eventDate = day !== 'no-date' ? day : job.date_required
       const special = [
         job.event_name ? `Event: ${job.event_name}` : null,
         job.notes      ? `Job notes: ${job.notes}`  : null,
       ].filter(Boolean).join('\n') || null
 
       return {
-        ticket_ref:           `evt-${slug(key)}`,
+        ticket_ref:           `day-${day}`,
         title,
         description:          lines.join('\n'),
         special_instructions: special,
