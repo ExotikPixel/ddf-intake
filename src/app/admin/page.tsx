@@ -604,27 +604,28 @@ export default function AdminPage() {
   async function approveItem(job: Job, idx: number, approve: boolean, chosenProof?: string) {
     const key = `${job.id}:${idx}`
     setApprovingItem(key)
-    const newItems: JobItem[] = job.items.map((it, i) => {
-      if (i !== idx) return it
-      if (!approve) {
-        return { ...it, approval_status: 'pending' as ApprovalStatus, approved_at: undefined }
-      }
+    let patch: Record<string, unknown>
+    if (!approve) {
+      patch = { approval_status: 'pending', approved_at: null }
+    } else {
+      const it = job.items[idx]
       const proofs = itemProofs(it)
-      const picked = chosenProof ?? (proofs.length === 1 ? proofs[0] : it.approved_proof_url)
-      return {
-        ...it,
-        approval_status: 'approved' as ApprovalStatus,
+      patch = {
+        approval_status: 'approved',
         approved_at: new Date().toISOString(),
-        approved_proof_url: picked,
-        client_note: undefined,
+        approved_proof_url: chosenProof ?? (proofs.length === 1 ? proofs[0] : it.approved_proof_url) ?? null,
+        client_note: null,
       }
-    })
+    }
     try {
       const res = await fetch(`/api/admin/jobs/${job.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: newItems }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemPatch: { index: idx, patch } }),
       })
-      if (res.ok) setJobs(prev => prev.map(j => j.id === job.id ? { ...j, items: newItems } : j))
-      else alert('Failed to update approval — please try again.')
+      if (res.ok) {
+        const { items } = await res.json()
+        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, items } : j))
+      } else alert('Failed to update approval — please try again.')
     } catch {
       alert('Network error — approval not saved.')
     } finally {
@@ -639,15 +640,19 @@ export default function AdminPage() {
     if (!text) return
     setSendingReply(key)
     const msg: ItemMessage = { from: 'shop', text, at: new Date().toISOString() }
-    const newItems: JobItem[] = job.items.map((it, i) => i === idx
-      ? { ...it, messages: [...(it.messages ?? itemThread(it)), msg] }
-      : it)
+    // Migrated items can append safely (concurrent-safe); legacy items without a
+    // messages array get their thread seeded from itemThread() in the patch.
+    const it = job.items[idx]
+    const itemPatch = Array.isArray(it.messages)
+      ? { index: idx, patch: {}, appendMessage: msg }
+      : { index: idx, patch: { messages: [...itemThread(it), msg] } }
     try {
       const res = await fetch(`/api/admin/jobs/${job.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: newItems }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itemPatch }),
       })
       if (res.ok) {
-        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, items: newItems } : j))
+        const { items } = await res.json()
+        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, items } : j))
         setReplyDraft(prev => ({ ...prev, [key]: '' }))
       } else alert('Failed to send reply — please try again.')
     } catch {
@@ -675,23 +680,24 @@ export default function AdminPage() {
       if (!putRes.ok) { setRevisionError(prev => ({ ...prev, [key]: 'Upload failed — please try again.' })); return }
 
       const sys: ItemMessage = { from: 'shop', text: 'Uploaded a revised design — please review.', at: new Date().toISOString() }
-      const newItems: JobItem[] = job.items.map((it, i) => {
-        if (i !== idx) return it
-        const archived = [...(it.proof_history ?? []), ...itemProofs(it)]   // old version(s) → history
-        return {
-          ...it,
-          proof_history: archived,
-          proof_urls: [path], proof_url: undefined,
-          approval_status: 'pending' as ApprovalStatus, approved_proof_url: undefined,
-          approved_at: undefined, client_note: undefined,
-          messages: [...(it.messages ?? itemThread(it)), sys],
-        }
-      })
+      const it = job.items[idx]
+      const archived = [...(it.proof_history ?? []), ...itemProofs(it)]   // old version(s) → history
+      const basePatch: Record<string, unknown> = {
+        proof_history: archived,
+        proof_urls: [path], proof_url: null,
+        approval_status: 'pending', approved_proof_url: null,
+        approved_at: null, client_note: null,
+      }
+      const itemPatch = Array.isArray(it.messages)
+        ? { index: idx, patch: basePatch, appendMessage: sys }
+        : { index: idx, patch: { ...basePatch, messages: [...itemThread(it), sys] } }
       const res = await fetch(`/api/admin/jobs/${job.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: newItems }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itemPatch }),
       })
-      if (res.ok) setJobs(prev => prev.map(j => j.id === job.id ? { ...j, items: newItems } : j))
-      else setRevisionError(prev => ({ ...prev, [key]: 'Could not save the new version.' }))
+      if (res.ok) {
+        const { items } = await res.json()
+        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, items } : j))
+      } else setRevisionError(prev => ({ ...prev, [key]: 'Could not save the new version.' }))
     } catch {
       setRevisionError(prev => ({ ...prev, [key]: 'Network error during upload.' }))
     } finally {

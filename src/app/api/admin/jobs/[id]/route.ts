@@ -86,6 +86,58 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ success: true })
   }
 
+  // Single-item atomic update (approve / reply / revision). Routes through the
+  // row-locked update_job_item RPC so it can't clobber a concurrent client
+  // approval the way a full-array write would.
+  if ('itemPatch' in body) {
+    const ip = body.itemPatch as { index?: unknown; patch?: unknown; appendMessage?: unknown } | null
+    const index = ip && typeof ip.index === 'number' ? ip.index : NaN
+    const itemPatch = ip?.patch
+    if (isNaN(index) || index < 0 || typeof itemPatch !== 'object' || itemPatch === null) {
+      return NextResponse.json({ error: 'Invalid itemPatch' }, { status: 400 })
+    }
+    const appendMessage = (ip && typeof ip.appendMessage === 'object') ? ip.appendMessage : null
+
+    // Gate by tenant before mutating (the RPC keys on job id alone).
+    const { data: cur } = await supabaseAdmin
+      .from('jobs').select('items, reference_number, company_name')
+      .eq('id', jobId).eq('tenant_id', auth.tenantId).single()
+    if (!cur) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    const oldItems = (cur.items ?? []) as JobItem[]
+
+    const { data: updatedItems, error } = await supabaseAdmin.rpc('update_job_item', {
+      p_job_id: jobId, p_index: index, p_patch: itemPatch, p_append_message: appendMessage,
+    })
+    if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+    const newItems = (updatedItems ?? []) as JobItem[]
+
+    // Keep Kanban in sync and push a phone alert if this approval is new / completes the job.
+    await syncApprovedItemsToKanban(jobId)
+    const newlyApproved = newItems.filter((it, i) =>
+      it.approval_status === 'approved' && oldItems[i]?.approval_status !== 'approved')
+    if (newlyApproved.length > 0) {
+      const proofedNew = newItems.filter(it => itemProofs(it).length > 0)
+      const proofedOld = oldItems.filter(it => itemProofs(it).length > 0)
+      const fullNow = proofedNew.length > 0 && proofedNew.every(it => it.approval_status === 'approved')
+      const fullBefore = proofedOld.length > 0 && proofedOld.every(it => it.approval_status === 'approved')
+      await sendNtfy({
+        title: 'Design approved',
+        message: `${cur.company_name ?? ''} (${cur.reference_number ?? jobId})\nApproved: ${newlyApproved.map(it => it.name).join(', ')}`,
+        tags: 'white_check_mark',
+        priority: 3,
+      })
+      if (fullNow && !fullBefore) {
+        await sendNtfy({
+          title: 'Job fully approved',
+          message: `${cur.company_name ?? ''} (${cur.reference_number ?? jobId}) — all designs approved, ready for production`,
+          tags: 'checkered_flag',
+          priority: 4,
+        })
+      }
+    }
+    return NextResponse.json({ success: true, items: newItems })
+  }
+
   // Brief edit update
   if ('date_required' in body || 'event_name' in body || 'notes' in body || 'items' in body || 'file_paths' in body) {
     const patch: Record<string, unknown> = {}
