@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase-server'
 import { approvedProofs, itemProofs } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 import { sendNtfy } from '@/lib/ntfy'
+import { DATE_PREFIX, cap, resolveDate, fmtDate } from '@/lib/kanban-days'
 
 // Push approved items into Command Centre's Kanban as printable job tickets.
 // Fired automatically whenever an item is approved (admin, portal, or review).
@@ -17,31 +18,6 @@ import { sendNtfy } from '@/lib/ntfy'
 //   • Idempotent (CC upserts per event key); never throws; never blocks approval.
 
 const PROOF_TTL_SECONDS = 60 * 60 * 24 * 90 // 90 days — tickets can sit for weeks
-const MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec'
-// "June 22 - rest", "Jun. 3 - rest", etc. Captures the date label and the remainder.
-const DATE_PREFIX = new RegExp(`^((?:${MONTHS})[a-z]*\\.?\\s+\\d{1,2})\\s*[-–]\\s*(.*)$`, 'i')
-
-function cap(s: string, n = 60): string {
-  s = s.trim().replace(/[.,;:\s]+$/, '')
-  return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s
-}
-
-// Resolve a date label like "June 22" to YYYY-MM-DD using the job's year.
-function resolveDate(dateLabel: string, fallback: string | null): string | null {
-  if (dateLabel) {
-    const year = fallback ? new Date(`${fallback}T00:00:00`).getFullYear() : new Date().getFullYear()
-    const t = new Date(`${dateLabel} ${year}`).getTime()
-    if (!isNaN(t)) return new Date(t).toISOString().slice(0, 10)
-  }
-  return fallback || null
-}
-
-const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December']
-function fmtDate(iso: string): string {
-  const [, m, d] = iso.split('-').map(Number)
-  return (m && d) ? `${MONTH_NAMES[m - 1]} ${d}` : iso
-}
 
 export async function syncApprovedItemsToKanban(jobId: number): Promise<void> {
   try {
