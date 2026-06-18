@@ -425,8 +425,22 @@ export default function AdminPage() {
       setEditForm(prev => {
         if (!prev) return prev
         const items = [...prev.items]
-        const cur = itemProofs(items[index])
-        items[index] = { ...items[index], proof_urls: [...cur, path], proof_url: undefined, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
+        const target = items[index]
+        const cur = itemProofs(target)
+        if (target.approval_status === 'changes_requested' && cur.length > 0) {
+          // The client asked for changes — this upload is a NEW VERSION. The
+          // design(s) they reviewed move to history; the new one becomes current.
+          items[index] = {
+            ...target,
+            proof_history: [...(target.proof_history ?? []), ...cur],
+            proof_urls: [path], proof_url: undefined,
+            approval_status: 'pending', approved_proof_url: undefined,
+            client_note: undefined, approved_at: undefined,
+          }
+        } else {
+          // Still building the design set (first upload / alternatives) — append.
+          items[index] = { ...target, proof_urls: [...cur, path], proof_url: undefined, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
+        }
         return { ...prev, items }
       })
     } catch {
@@ -1822,7 +1836,7 @@ export default function AdminPage() {
                                     </span>
                                   )
                                 })}
-                                {proofs.length < 6 && (
+                                {(proofs.length < 6 || item.approval_status === 'changes_requested') && (
                                   <label
                                     onDragOver={e => { e.preventDefault(); if (uploadingProof !== idx) setDragProof(idx) }}
                                     onDragLeave={() => setDragProof(prev => prev === idx ? null : prev)}
@@ -1848,8 +1862,10 @@ export default function AdminPage() {
                                     {uploadingProof === idx
                                       ? 'Uploading…'
                                       : dragProof === idx
-                                        ? 'Drop mockup to upload'
-                                        : proofs.length > 0 ? '+ Add Proof' : '+ Drop or click to attach proof'}
+                                        ? (item.approval_status === 'changes_requested' ? 'Drop revised design' : 'Drop mockup to upload')
+                                        : item.approval_status === 'changes_requested'
+                                          ? '↑ Upload revised version'
+                                          : proofs.length > 0 ? '+ Add Proof' : '+ Drop or click to attach proof'}
                                   </label>
                                 )}
                                 {item.approval_status && item.approval_status !== 'pending' && (

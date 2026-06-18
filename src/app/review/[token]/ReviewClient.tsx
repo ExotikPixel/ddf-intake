@@ -41,6 +41,8 @@ export default function ReviewClient({ token }: { token: string }) {
   const [invalid, setInvalid] = useState(false)
   const [openIdx, setOpenIdx] = useState<number | null>(null)
   const [actioning, setActioning] = useState<number | null>(null)
+  const [actioningAll, setActioningAll] = useState(false)
+  const [allMsg, setAllMsg] = useState('')
   const [noteDraft, setNoteDraft] = useState<Record<number, string>>({})
   const [selected, setSelected] = useState<Record<number, string>>({}) // item index → chosen proof path
   const [err, setErr] = useState<Record<number, string>>({})
@@ -110,6 +112,35 @@ export default function ReviewClient({ token }: { token: string }) {
       setErr(prev => ({ ...prev, [idx]: 'Network error — not saved.' }))
     } finally {
       setActioning(null)
+    }
+  }
+
+  // Approve every ready item at once. Pick-one items with a choice already made
+  // are included (their selection is sent); pick items still awaiting a choice
+  // come back as `skipped` and are flagged for individual approval.
+  async function submitAll() {
+    if (!data) return
+    setActioningAll(true)
+    setAllMsg('')
+    try {
+      const selections: Record<string, string> = {}
+      for (const [k, v] of Object.entries(selected)) if (v) selections[k] = v
+      const res = await fetch(`/api/review/${token}/approve-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selections }),
+      })
+      if (res.status === 429) { setAllMsg('Too many requests — please wait a moment and try again.'); return }
+      if (!res.ok) { setAllMsg('Could not approve everything — please try again.'); await refresh(); return }
+      const j = await res.json()
+      setData(prev => prev ? { ...prev, items: j.items } : prev)
+      if (j.skipped > 0) {
+        setAllMsg(`${j.skipped} item${j.skipped > 1 ? 's' : ''} still need you to choose a design — please approve ${j.skipped > 1 ? 'them' : 'it'} below.`)
+      }
+    } catch {
+      setAllMsg('Network error — not saved.')
+    } finally {
+      setActioningAll(false)
     }
   }
 
@@ -197,6 +228,20 @@ export default function ReviewClient({ token }: { token: string }) {
           {allDone && (
             <div style={{ background: '#eef7f3', border: '1px solid #1B7F4F44', color: '#1B7F4F', padding: '12px 16px', marginBottom: 16, fontSize: 14, fontWeight: 600 }}>
               ✓ All proofs approved — thank you! We&apos;ll get these into print.
+            </div>
+          )}
+          {reviewable.length > 1 && !allDone && (
+            <div style={{ background: '#fff', border: '1px solid var(--charcoal-border)', padding: '12px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, color: 'var(--charcoal-60)', fontWeight: 600 }}>Happy with everything? Approve all designs at once.</span>
+              <button onClick={submitAll} disabled={actioningAll}
+                style={{ fontSize: 14, fontWeight: 700, padding: '11px 18px', background: '#1B7F4F', color: '#fff', border: 'none', cursor: actioningAll ? 'default' : 'pointer', opacity: actioningAll ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
+                {actioningAll ? 'Approving…' : '✓ Approve all'}
+              </button>
+            </div>
+          )}
+          {allMsg && (
+            <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', color: '#b06a00', padding: '10px 14px', marginBottom: 12, fontSize: 13, fontWeight: 600 }}>
+              {allMsg}
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
