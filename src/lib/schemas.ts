@@ -8,6 +8,9 @@ export const ItemSchema = z.object({
   // Client-facing detail captured at intake (both optional).
   description: z.string().max(2000).optional(),   // richer free-text brief for this item
   ref_photos: z.array(z.string()).max(8).optional(), // job-files paths to client reference/inspo images
+  // Shop-authored, client-facing detail added at proof/approval time.
+  admin_note: z.string().max(2000).optional(),    // note explaining the design / how it'll be made
+  example_photos: z.array(z.string()).max(8).optional(), // job-files paths to shop example/inspiration images
   // Optional approval fields — preserved on edit, set by admin (proof) and client (status)
   proof_urls: z.array(z.string()).optional(),
   proof_url: z.string().optional(),

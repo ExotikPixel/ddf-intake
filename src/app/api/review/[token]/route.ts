@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 import { verifyReviewToken } from '@/lib/review-token'
-import { itemProofs } from '@/lib/job-types'
+import { itemProofs, itemExamplePhotos } from '@/lib/job-types'
 import { getTenantBranding } from '@/lib/tenant-settings'
 import type { JobItem } from '@/lib/job-types'
 
@@ -24,8 +24,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const items = (job.items ?? []) as JobItem[]
-  // Sign current proofs AND archived previous versions so the thread can show history.
-  const paths = items.flatMap(it => [...itemProofs(it), ...(it.proof_history ?? [])])
+  // Sign current proofs, archived previous versions (so the thread can show history),
+  // and any shop example/inspiration photos shown alongside the proofs.
+  const paths = items.flatMap(it => [...itemProofs(it), ...(it.proof_history ?? []), ...itemExamplePhotos(it)])
 
   const proofUrls: Record<string, string> = {}
   if (paths.length > 0) {

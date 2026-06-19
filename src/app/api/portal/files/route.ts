@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { itemProofs } from '@/lib/job-types'
+import { itemProofs, itemExamplePhotos } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 
 export const dynamic = 'force-dynamic'
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const paths = ((job.items ?? []) as JobItem[]).flatMap(itemProofs)
+  const paths = ((job.items ?? []) as JobItem[]).flatMap(it => [...itemProofs(it), ...itemExamplePhotos(it)])
 
   if (paths.length === 0) return NextResponse.json({ urls: {} })
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-import { STATUS_CONFIG, APPROVAL_CONFIG, itemProofs } from '@/lib/job-types'
+import { STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemExamplePhotos } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 
 interface Job {
@@ -420,6 +420,30 @@ export default function PortalPage() {
                                     <ApprovalPill status={status} />
                                   </div>
                                   {it.size && <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--charcoal-60)' }}>{it.size}</p>}
+                                  {it.admin_note && (
+                                    <div style={{ margin: '0 0 8px', padding: '8px 10px', background: '#faf9f7', border: '1px solid var(--charcoal-border)', borderLeft: '3px solid var(--coral)' }}>
+                                      <span style={{ display: 'block', fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--coral)', marginBottom: 3 }}>A note from us</span>
+                                      <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--charcoal)', whiteSpace: 'pre-wrap' }}>{it.admin_note}</p>
+                                    </div>
+                                  )}
+                                  {itemExamplePhotos(it).length > 0 && (
+                                    <div style={{ margin: '0 0 8px' }}>
+                                      <span style={{ display: 'block', fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--charcoal-60)', marginBottom: 6 }}>How it might look</span>
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                        {itemExamplePhotos(it).map(p => {
+                                          const u = proofUrls[job.id]?.[p]
+                                          return (
+                                            <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer"
+                                               style={{ display: 'block', width: 64, height: 64, background: '#f4f3f1', border: '1px solid var(--charcoal-border)', overflow: 'hidden' }}>
+                                              {u
+                                                ? <img src={u} alt="Example" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                : <span style={{ fontSize: 9, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>…</span>}
+                                            </a>
+                                          )
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
                                   {status === 'changes_requested' && it.client_note && (
                                     <p style={{ margin: '0 0 8px', fontSize: 12, color: '#C62828', background: '#fff0f0', border: '1px solid #f6caca', padding: '6px 9px' }}>
                                       You requested: “{it.client_note}”

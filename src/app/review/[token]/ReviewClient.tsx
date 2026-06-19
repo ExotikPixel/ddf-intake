@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { APPROVAL_CONFIG, itemProofs, itemThread, designsMode } from '@/lib/job-types'
+import { APPROVAL_CONFIG, itemProofs, itemExamplePhotos, itemThread, designsMode } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 
 interface ReviewData {
@@ -280,6 +280,30 @@ export default function ReviewClient({ token }: { token: string }) {
                         <p style={{ margin: '14px 0 0', fontSize: 13, lineHeight: 1.5, color: 'var(--charcoal-60)', whiteSpace: 'pre-wrap' }}>
                           <span style={{ fontWeight: 700, color: 'var(--charcoal)' }}>Your brief: </span>{it.description}
                         </p>
+                      )}
+                      {it.admin_note && (
+                        <div style={{ margin: '14px 0 0', padding: '10px 12px', background: '#faf9f7', border: '1px solid var(--charcoal-border)', borderLeft: '3px solid var(--coral)' }}>
+                          <span style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--coral)', marginBottom: 4 }}>A note from us</span>
+                          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: 'var(--charcoal)', whiteSpace: 'pre-wrap' }}>{it.admin_note}</p>
+                        </div>
+                      )}
+                      {itemExamplePhotos(it).length > 0 && (
+                        <div style={{ margin: '14px 0 0' }}>
+                          <span style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--charcoal-60)', marginBottom: 8 }}>How it might look</span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {itemExamplePhotos(it).map(p => {
+                              const u = data.proofUrls[p]
+                              return (
+                                <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer" style={{ display: 'block', width: 96, height: 96, background: '#f4f3f1', border: '1px solid var(--charcoal-border)', overflow: 'hidden' }}>
+                                  {u
+                                    ? <img src={u} alt="Example" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                    : <span style={{ fontSize: 10, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>Loading…</span>}
+                                </a>
+                              )
+                            })}
+                          </div>
+                          <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--charcoal-60)' }}>Inspiration / example only — your final proof is below.</p>
+                        </div>
                       )}
                       {(() => {
                         const multi = proofs.length > 1

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemRefPhotos, approvedProofs, itemThread, designsMode } from '@/lib/job-types'
+import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemRefPhotos, itemExamplePhotos, approvedProofs, itemThread, designsMode } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus, ItemMessage } from '@/lib/job-types'
 
 interface Job {
@@ -158,6 +158,8 @@ export default function AdminPage() {
   const [uploadPhotoError, setUploadPhotoError] = useState('')
   const [uploadingProof, setUploadingProof] = useState<number | null>(null)
   const [proofError, setProofError] = useState('')
+  const [uploadingExample, setUploadingExample] = useState<number | null>(null)
+  const [exampleError, setExampleError] = useState('')
   const [copyingLink, setCopyingLink] = useState<number | null>(null)
   const [copiedLink, setCopiedLink] = useState<number | null>(null)
   const [approvingItem, setApprovingItem] = useState<string | null>(null)
@@ -287,7 +289,7 @@ export default function AdminPage() {
     })
     // Sign reference photos + every item's proofs so the edit panel can show
     // thumbnails (the stored filenames are random — a preview tells them apart).
-    const proofPaths = job.items.flatMap(it => [...itemProofs(it), ...itemRefPhotos(it)])
+    const proofPaths = job.items.flatMap(it => [...itemProofs(it), ...itemRefPhotos(it), ...itemExamplePhotos(it)])
     const all = [...job.file_paths, ...proofPaths]
     if (all.length > 0) void loadFiles(job.id, all)
   }
@@ -459,6 +461,49 @@ export default function AdminPage() {
       const items = [...prev.items]
       const cur = itemProofs(items[index]).filter(p => p !== path)
       items[index] = { ...items[index], proof_urls: cur, proof_url: undefined, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
+      return { ...prev, items }
+    })
+  }
+
+  // Example/inspiration photos the client sees alongside the proofs. Purely
+  // informative — adding or removing one does NOT reset the item's approval.
+  async function addExamplePhoto(index: number, file: File) {
+    if (!editForm) return
+    setExampleError('')
+    setUploadingExample(index)
+    try {
+      const urlRes = await fetch('/api/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: [{ name: file.name, type: file.type, size: file.size }] }),
+      })
+      if (!urlRes.ok) {
+        const { error } = await urlRes.json()
+        setExampleError(error ?? 'Could not get upload URL')
+        return
+      }
+      const { uploads } = await urlRes.json()
+      const { path, signedUrl } = uploads[0]
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      if (!putRes.ok) { setExampleError('Upload failed — please try again.'); return }
+      setEditForm(prev => {
+        if (!prev) return prev
+        const items = [...prev.items]
+        items[index] = { ...items[index], example_photos: [...itemExamplePhotos(items[index]), path] }
+        return { ...prev, items }
+      })
+    } catch {
+      setExampleError('Network error during upload.')
+    } finally {
+      setUploadingExample(null)
+    }
+  }
+
+  function removeExamplePhoto(index: number, path: string) {
+    setEditForm(prev => {
+      if (!prev) return prev
+      const items = [...prev.items]
+      items[index] = { ...items[index], example_photos: itemExamplePhotos(items[index]).filter(p => p !== path) }
       return { ...prev, items }
     })
   }
@@ -1923,6 +1968,65 @@ export default function AdminPage() {
                                   </div>
                                 </div>
                               )}
+                              {/* Shop note shown to the client at review */}
+                              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 12, fontSize: 9, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#999' }}>Note for client
+                                <textarea
+                                  value={item.admin_note ?? ''}
+                                  onChange={e => updateEditItem(idx, 'admin_note', e.target.value)}
+                                  rows={2}
+                                  placeholder="Explain the concept, finish, or how this will be made — the client sees this above the proofs."
+                                  style={{ padding: '7px 9px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
+                                />
+                              </label>
+                              {/* Shop example/inspiration photos shown to the client */}
+                              <div style={{ marginTop: 12 }}>
+                                <span style={{ display: 'block', fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#999', marginBottom: 8 }}>
+                                  Example photos for client{itemExamplePhotos(item).length > 0 ? ` · ${itemExamplePhotos(item).length}` : ''}
+                                </span>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                  {itemExamplePhotos(item).map(p => {
+                                    const signed = fileUrls[job.id]?.find(f => f.path === p)
+                                    return (
+                                      <div key={p} style={{ position: 'relative', width: 60, height: 60, flexShrink: 0 }}>
+                                        {signed ? (
+                                          <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Example photo" style={{ display: 'block', width: '100%', height: '100%' }}>
+                                            <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #e0e0e0', borderRadius: 6, display: 'block' }} />
+                                          </a>
+                                        ) : <span style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f4f2', border: '1px solid #e7e5e1', borderRadius: 6, color: '#bbb', fontSize: 8, fontWeight: 700 }}>IMG</span>}
+                                        <button
+                                          onClick={() => removeExamplePhoto(idx, p)}
+                                          title="Remove example photo"
+                                          style={{ position: 'absolute', top: -7, right: -7, width: 18, height: 18, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 11, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}
+                                        >×</button>
+                                      </div>
+                                    )
+                                  })}
+                                  {itemExamplePhotos(item).length < 8 && (
+                                    <label
+                                      title="Attach an example / inspiration photo for the client"
+                                      style={{
+                                        width: 60, height: 60, flexShrink: 0,
+                                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+                                        textAlign: 'center', lineHeight: 1.15,
+                                        fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px',
+                                        color: uploadingExample === idx ? '#aaa' : 'var(--coral)',
+                                        border: '1.5px dashed var(--coral)77', borderRadius: 6, background: '#fff',
+                                        cursor: uploadingExample === idx ? 'default' : 'pointer',
+                                      }}
+                                    >
+                                      <input
+                                        type="file"
+                                        accept="image/jpeg,image/png,image/webp,image/svg+xml"
+                                        style={{ display: 'none' }}
+                                        disabled={uploadingExample === idx}
+                                        onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addExamplePhoto(idx, f) } }}
+                                      />
+                                      {uploadingExample === idx ? '…' : (<><span style={{ fontSize: 16, lineHeight: 1 }}>+</span><span>Example</span></>)}
+                                    </label>
+                                  )}
+                                </div>
+                                {exampleError && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#dc2626' }}>{exampleError}</p>}
+                              </div>
                               {/* Per-item design proofs (multiple) */}
                               <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0efec' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
