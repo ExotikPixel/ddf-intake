@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 import { requireAdmin } from '@/lib/admin-auth'
-import { itemProofs } from '@/lib/job-types'
+import { itemProofs, itemRefPhotos } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 
 export const dynamic = 'force-dynamic'
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
   // Only sign paths that belong to a job in the admin's own workspace —
   // otherwise an admin could request another tenant's file paths. The allowlist
-  // covers both reference photos (file_paths) and per-item design proofs.
+  // covers job-level files, per-item design proofs, and per-item reference photos.
   const { data: tenantJobs } = await supabaseAdmin
     .from('jobs')
     .select('file_paths, items')
@@ -25,7 +25,10 @@ export async function POST(req: NextRequest) {
   const allowed = new Set<string>()
   for (const j of tenantJobs ?? []) {
     for (const p of ((j.file_paths as string[]) ?? [])) allowed.add(p)
-    for (const it of ((j.items as JobItem[]) ?? [])) for (const p of itemProofs(it)) allowed.add(p)
+    for (const it of ((j.items as JobItem[]) ?? [])) {
+      for (const p of itemProofs(it)) allowed.add(p)
+      for (const p of itemRefPhotos(it)) allowed.add(p)
+    }
   }
   const safePaths = paths.filter(p => allowed.has(p))
 

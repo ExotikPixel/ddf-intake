@@ -146,6 +146,7 @@ export default function AdminPage() {
   const [fileUrls, setFileUrls]         = useState<Record<number, { path: string; name: string; url: string }[]>>({})
   const [loadingFiles, setLoadingFiles] = useState<number | null>(null)
   const [fileError, setFileError]       = useState<number | null>(null)
+  const [openRefs, setOpenRefs]         = useState<string | null>(null) // `${jobId}:${itemIndex}` whose ref photos are revealed
   const [sendingToCC, setSendingToCC]   = useState<number | null>(null)
   const [sentToCC, setSentToCC]         = useState<Set<number>>(new Set())
   const [editingJob, setEditingJob]     = useState<number | null>(null)
@@ -1380,15 +1381,43 @@ export default function AdminPage() {
                               {item.size     && <span style={{ color: '#999' }}> · {item.size}</span>}
                               {item.material && <span style={{ color: '#bbb' }}> · {item.material}</span>}
                             </span>
-                            {refs.length > 0 && (
-                              <span title={`${refs.length} client reference photo${refs.length > 1 ? 's' : ''} — open Edit Brief to view`} style={{ fontSize: 10, fontWeight: 700, color: '#7a6', background: '#f0fbf4', border: '1px solid #cfe9d8', padding: '1px 6px' }}>📎 {refs.length}</span>
-                            )}
+                            {refs.length > 0 && (() => {
+                              const key = `${job.id}:${i}`
+                              const isOpen = openRefs === key
+                              return (
+                                <button
+                                  onClick={() => {
+                                    if (isOpen) { setOpenRefs(null); return }
+                                    void loadFiles(job.id, refs)
+                                    setOpenRefs(key)
+                                  }}
+                                  title={`${refs.length} client reference photo${refs.length > 1 ? 's' : ''} — click to view`}
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: isOpen ? '#fff' : '#5a8a6f', background: isOpen ? '#5a8a6f' : '#f0fbf4', border: '1px solid #cfe9d8', borderRadius: 4, padding: '2px 7px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}
+                                >📎 {refs.length}</button>
+                              )
+                            })()}
                             {itemProofs(item).length > 0 && (
                               item.approval_status && item.approval_status !== 'pending'
                                 ? <ApprovalPill status={item.approval_status} />
                                 : <span title="Proof attached — not yet approved for print" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#888', background: '#f0f0f0', border: '1px solid #ddd', padding: '1px 6px', textTransform: 'uppercase' }}>Awaiting Approval</span>
                             )}
                           </span>
+                          {refs.length > 0 && openRefs === `${job.id}:${i}` && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingLeft: 2, marginTop: 4 }}>
+                              {refs.map(p => {
+                                const signed = fileUrls[job.id]?.find(f => f.path === p)
+                                return signed ? (
+                                  <a key={p} href={signed.url} target="_blank" rel="noopener noreferrer" title={`Open ${signed.name}`} style={{ display: 'block', width: 64, height: 64 }}>
+                                    <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #cfe9d8', borderRadius: 6, display: 'block' }} />
+                                  </a>
+                                ) : (
+                                  <span key={p} style={{ width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f4f2', border: '1px solid #e7e5e1', borderRadius: 6, color: '#bbb', fontSize: 11 }}>
+                                    {fileError === job.id ? '!' : loadingFiles === job.id ? '…' : '·'}
+                                  </span>
+                                )
+                              })}
+                            </div>
+                          )}
                           {item.description && <span style={{ fontSize: 11.5, color: '#777', lineHeight: 1.4, paddingLeft: 2 }}>{item.description}</span>}
                         </div>
                         )
@@ -1686,7 +1715,7 @@ export default function AdminPage() {
                         </label>
 
                         {/* Setup & Removal logistics */}
-                        <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Setup &amp; Removal</p>
+                        <p style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', paddingBottom: 6, borderBottom: '1px solid #ececec', fontSize: 11, fontWeight: 700, color: 'var(--charcoal)', textTransform: 'uppercase', letterSpacing: '1px' }}><span style={{ width: 3, height: 12, background: 'var(--coral)', borderRadius: 2 }} />Setup &amp; Removal</p>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
                           {([
                             ['Setup location', 'setup_location', 'Venue / address'],
@@ -1709,7 +1738,7 @@ export default function AdminPage() {
 
                         {/* Reference Photos */}
                         <div style={{ marginBottom: 14 }}>
-                          <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Reference Photos</p>
+                          <p style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', paddingBottom: 6, borderBottom: '1px solid #ececec', fontSize: 11, fontWeight: 700, color: 'var(--charcoal)', textTransform: 'uppercase', letterSpacing: '1px' }}><span style={{ width: 3, height: 12, background: 'var(--coral)', borderRadius: 2 }} />Reference Photos <span style={{ color: '#aaa', fontWeight: 600, letterSpacing: 0 }}>· job-wide</span></p>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
                             {editForm.file_paths.map(path => {
                               const name = path.split('/').pop() ?? path
@@ -1747,133 +1776,164 @@ export default function AdminPage() {
 
                         {/* Items */}
                         <div style={{ marginBottom: 14 }}>
-                          <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Items</p>
+                          <p style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', paddingBottom: 6, borderBottom: '1px solid #ececec', fontSize: 11, fontWeight: 700, color: 'var(--charcoal)', textTransform: 'uppercase', letterSpacing: '1px' }}><span style={{ width: 3, height: 12, background: 'var(--coral)', borderRadius: 2 }} />Items <span style={{ color: '#aaa', fontWeight: 600, letterSpacing: 0 }}>({editForm.items.length})</span></p>
                           {editForm.items.map((item, idx) => {
                             const proofs = itemProofs(item)
                             return (
-                            <div key={idx} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: idx < editForm.items.length - 1 ? '1px dashed #ececec' : 'none' }}>
-                              <div style={{ display: 'grid', gridTemplateColumns: '52px 1fr 120px 140px 32px', gap: 6, alignItems: 'center' }}>
-                                <input
-                                  type="number" min={1} value={item.quantity}
-                                  onChange={e => updateEditItem(idx, 'quantity', parseInt(e.target.value) || 1)}
-                                  style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', textAlign: 'center' }}
-                                  placeholder="Qty"
-                                />
-                                <input
-                                  type="text" value={item.name}
-                                  onChange={e => updateEditItem(idx, 'name', e.target.value)}
-                                  style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}
-                                  placeholder="Description"
-                                />
-                                <input
-                                  type="text" value={item.size}
-                                  onChange={e => updateEditItem(idx, 'size', e.target.value)}
-                                  style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}
-                                  placeholder="Size"
-                                />
-                                <select
-                                  value={item.material}
-                                  onChange={e => updateEditItem(idx, 'material', e.target.value)}
-                                  style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}
-                                >
-                                  {['vinyl','fabric','foam-board','acrylic','other'].map(m => (
-                                    <option key={m} value={m}>{m}</option>
-                                  ))}
-                                </select>
+                            <div key={idx} style={{ background: '#fff', border: '1px solid #e7e5e1', borderRadius: 8, padding: '12px 12px 14px', marginBottom: 10, boxShadow: '0 1px 2px rgba(20,18,16,0.04)' }}>
+                              {/* Item header: number badge + name + remove */}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: 'var(--charcoal)' }}>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 5, background: 'var(--coral)', color: '#fff', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{idx + 1}</span>
+                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name?.trim() ? item.name : `Item ${idx + 1}`}</span>
+                                </span>
                                 <button
                                   onClick={() => removeEditItem(idx)}
                                   disabled={editForm.items.length === 1}
-                                  style={{ background: 'none', border: '1px solid #fca5a5', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: '4px 6px', opacity: editForm.items.length === 1 ? 0.3 : 1 }}
-                                >×</button>
+                                  title={editForm.items.length === 1 ? 'A job needs at least one item' : 'Remove this item'}
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: editForm.items.length === 1 ? '#ccc' : '#C62828', cursor: editForm.items.length === 1 ? 'default' : 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-body)', padding: 4, flexShrink: 0 }}
+                                >✕ Remove</button>
+                              </div>
+                              {/* Approval status strip */}
+                              {item.approval_status && item.approval_status !== 'pending' && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                                  <ApprovalPill status={item.approval_status} />
+                                  {item.client_note && (
+                                    <span style={{ fontSize: 11.5, color: '#C62828', fontStyle: 'italic' }}>“{item.client_note}”</span>
+                                  )}
+                                </div>
+                              )}
+                              {/* Core fields */}
+                              <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 8, marginBottom: 8 }}>
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#999' }}>Qty
+                                  <input
+                                    type="number" min={1} value={item.quantity}
+                                    onChange={e => updateEditItem(idx, 'quantity', parseInt(e.target.value) || 1)}
+                                    style={{ padding: '7px 9px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', textAlign: 'center' }}
+                                  />
+                                </label>
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#999' }}>Item name
+                                  <input
+                                    type="text" value={item.name}
+                                    onChange={e => updateEditItem(idx, 'name', e.target.value)}
+                                    placeholder="e.g. Welcome Sign"
+                                    style={{ padding: '7px 9px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box' }}
+                                  />
+                                </label>
+                              </div>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#999' }}>Size
+                                  <input
+                                    type="text" value={item.size}
+                                    onChange={e => updateEditItem(idx, 'size', e.target.value)}
+                                    placeholder="e.g. 22×28"
+                                    style={{ padding: '7px 9px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box' }}
+                                  />
+                                </label>
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#999' }}>Material
+                                  <select
+                                    value={item.material}
+                                    onChange={e => updateEditItem(idx, 'material', e.target.value)}
+                                    style={{ padding: '7px 9px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box' }}
+                                  >
+                                    {['vinyl','fabric','foam-board','acrylic','other'].map(m => (
+                                      <option key={m} value={m}>{m}</option>
+                                    ))}
+                                  </select>
+                                </label>
                               </div>
                               {/* Per-item client brief */}
-                              <textarea
-                                value={item.description ?? ''}
-                                onChange={e => updateEditItem(idx, 'description', e.target.value)}
-                                rows={2}
-                                placeholder="Description / client brief for this item"
-                                style={{ width: '100%', marginTop: 6, padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', color: '#1a1a1a', resize: 'vertical', boxSizing: 'border-box' }}
-                              />
+                              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#999' }}>Description / brief
+                                <textarea
+                                  value={item.description ?? ''}
+                                  onChange={e => updateEditItem(idx, 'description', e.target.value)}
+                                  rows={2}
+                                  placeholder="Finishing, sides, easel back, etc."
+                                  style={{ padding: '7px 9px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
+                                />
+                              </label>
                               {/* Per-item reference photos (read-only thumbnails) */}
                               {itemRefPhotos(item).length > 0 && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb' }}>Refs ({itemRefPhotos(item).length})</span>
-                                  {itemRefPhotos(item).map(p => {
-                                    const signed = fileUrls[job.id]?.find(f => f.path === p)
-                                    return signed ? (
-                                      <a key={p} href={signed.url} target="_blank" rel="noopener noreferrer" title="Reference photo" style={{ display: 'flex' }}>
-                                        <img src={signed.url} alt="" style={{ width: 36, height: 36, objectFit: 'cover', border: '1px solid #e0e0e0' }} />
-                                      </a>
-                                    ) : <span key={p} style={{ fontSize: 10, color: '#bbb' }}>·</span>
-                                  })}
+                                <div style={{ marginTop: 12 }}>
+                                  <span style={{ display: 'block', fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#999', marginBottom: 8 }}>Reference photos · {itemRefPhotos(item).length}</span>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                    {itemRefPhotos(item).map(p => {
+                                      const signed = fileUrls[job.id]?.find(f => f.path === p)
+                                      return signed ? (
+                                        <a key={p} href={signed.url} target="_blank" rel="noopener noreferrer" title="Reference photo" style={{ display: 'block', width: 60, height: 60 }}>
+                                          <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #e0e0e0', borderRadius: 6, display: 'block' }} />
+                                        </a>
+                                      ) : <span key={p} style={{ width: 60, height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f4f2', border: '1px solid #e7e5e1', borderRadius: 6, color: '#bbb', fontSize: 8, fontWeight: 700 }}>IMG</span>
+                                    })}
+                                  </div>
                                 </div>
                               )}
                               {/* Per-item design proofs (multiple) */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb' }}>
-                                  Proofs{proofs.length > 0 ? ` (${proofs.length})` : ''}
-                                </span>
-                                {proofs.map(p => {
-                                  const nm = p.split('/').pop() ?? p
-                                  const signed = fileUrls[job.id]?.find(f => f.path === p)
-                                  return (
-                                    <span key={p} title={nm} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#555', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '3px 6px 3px 4px' }}>
-                                      {signed ? (
-                                        <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Click to view full image" style={{ display: 'flex', flexShrink: 0 }}>
-                                          <img src={signed.url} alt={nm} style={{ width: 30, height: 30, objectFit: 'cover', border: '1px solid #d6f0dd', display: 'block', cursor: 'zoom-in' }} />
-                                        </a>
-                                      ) : (
-                                        <span style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#e9f7ee', color: '#9ccdb0', fontSize: 8, fontWeight: 700, flexShrink: 0 }}>IMG</span>
+                              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0efec' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#999' }}>
+                                    Design proofs{proofs.length > 0 ? ` · ${proofs.length}` : ''}
+                                  </span>
+                                  {item.approval_status === 'changes_requested' && (
+                                    <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#C62828' }}>Upload replaces current →</span>
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                  {proofs.map(p => {
+                                    const nm = p.split('/').pop() ?? p
+                                    const signed = fileUrls[job.id]?.find(f => f.path === p)
+                                    return (
+                                      <div key={p} title={nm} style={{ position: 'relative', width: 60, height: 60, flexShrink: 0 }}>
+                                        {signed ? (
+                                          <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Click to view full image" style={{ display: 'block', width: '100%', height: '100%' }}>
+                                            <img src={signed.url} alt={nm} style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #d6f0dd', borderRadius: 6, display: 'block', cursor: 'zoom-in' }} />
+                                          </a>
+                                        ) : (
+                                          <span style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, color: '#86c8a0', fontSize: 8, fontWeight: 700 }}>IMG</span>
+                                        )}
+                                        <button
+                                          onClick={() => removeProof(idx, p)}
+                                          title={`Remove ${nm}`}
+                                          style={{ position: 'absolute', top: -7, right: -7, width: 18, height: 18, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 11, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}
+                                        >×</button>
+                                      </div>
+                                    )
+                                  })}
+                                  {(proofs.length < 6 || item.approval_status === 'changes_requested') && (
+                                    <label
+                                      onDragOver={e => { e.preventDefault(); if (uploadingProof !== idx) setDragProof(idx) }}
+                                      onDragLeave={() => setDragProof(prev => prev === idx ? null : prev)}
+                                      onDrop={e => { e.preventDefault(); setDragProof(null); const f = e.dataTransfer.files?.[0]; if (f && uploadingProof !== idx) addProof(idx, f) }}
+                                      title={item.approval_status === 'changes_requested' ? 'Upload the revised design — the current one moves to Earlier versions' : 'Attach a design proof'}
+                                      style={{
+                                        width: 60, height: 60, flexShrink: 0,
+                                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+                                        textAlign: 'center', lineHeight: 1.15,
+                                        fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px',
+                                        color: uploadingProof === idx ? '#aaa' : dragProof === idx ? '#15803d' : 'var(--coral)',
+                                        border: `1.5px dashed ${dragProof === idx ? '#15803d' : 'var(--coral)77'}`,
+                                        borderRadius: 6,
+                                        background: dragProof === idx ? '#f0fdf4' : '#fff',
+                                        cursor: uploadingProof === idx ? 'default' : 'pointer',
+                                        transition: 'background 0.12s, border-color 0.12s',
+                                      }}
+                                    >
+                                      <input
+                                        type="file"
+                                        accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
+                                        style={{ display: 'none' }}
+                                        disabled={uploadingProof === idx}
+                                        onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addProof(idx, f) } }}
+                                      />
+                                      {uploadingProof === idx ? '…' : dragProof === idx ? 'Drop' : (
+                                        <>
+                                          <span style={{ fontSize: 16, lineHeight: 1 }}>{item.approval_status === 'changes_requested' ? '↑' : '+'}</span>
+                                          <span>{item.approval_status === 'changes_requested' ? 'New version' : proofs.length > 0 ? 'Add' : 'Add proof'}</span>
+                                        </>
                                       )}
-                                      {signed && (
-                                        <a href={signed.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 600, color: 'var(--coral)', textDecoration: 'none' }}>View</a>
-                                      )}
-                                      <button
-                                        onClick={() => removeProof(idx, p)}
-                                        title={`Remove ${nm}`}
-                                        style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 14, fontWeight: 700, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
-                                      >×</button>
-                                    </span>
-                                  )
-                                })}
-                                {(proofs.length < 6 || item.approval_status === 'changes_requested') && (
-                                  <label
-                                    onDragOver={e => { e.preventDefault(); if (uploadingProof !== idx) setDragProof(idx) }}
-                                    onDragLeave={() => setDragProof(prev => prev === idx ? null : prev)}
-                                    onDrop={e => { e.preventDefault(); setDragProof(null); const f = e.dataTransfer.files?.[0]; if (f && uploadingProof !== idx) addProof(idx, f) }}
-                                    style={{
-                                      display: 'inline-flex', alignItems: 'center', gap: 6,
-                                      fontSize: 11, fontWeight: 600,
-                                      color: uploadingProof === idx ? '#aaa' : dragProof === idx ? '#15803d' : 'var(--coral)',
-                                      border: `1px dashed ${dragProof === idx ? '#15803d' : 'var(--coral)66'}`,
-                                      background: dragProof === idx ? '#f0fdf4' : 'transparent',
-                                      padding: dragProof === idx ? '8px 18px' : '3px 10px',
-                                      cursor: uploadingProof === idx ? 'default' : 'pointer',
-                                      transition: 'background 0.12s, padding 0.12s',
-                                    }}
-                                  >
-                                    <input
-                                      type="file"
-                                      accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
-                                      style={{ display: 'none' }}
-                                      disabled={uploadingProof === idx}
-                                      onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addProof(idx, f) } }}
-                                    />
-                                    {uploadingProof === idx
-                                      ? 'Uploading…'
-                                      : dragProof === idx
-                                        ? (item.approval_status === 'changes_requested' ? 'Drop revised design' : 'Drop mockup to upload')
-                                        : item.approval_status === 'changes_requested'
-                                          ? '↑ Upload revised version'
-                                          : proofs.length > 0 ? '+ Add Proof' : '+ Drop or click to attach proof'}
-                                  </label>
-                                )}
-                                {item.approval_status && item.approval_status !== 'pending' && (
-                                  <ApprovalPill status={item.approval_status} />
-                                )}
-                                {item.client_note && (
-                                  <span style={{ fontSize: 11, color: '#C62828', fontStyle: 'italic' }}>“{item.client_note}”</span>
-                                )}
+                                    </label>
+                                  )}
+                                </div>
                               </div>
                               {/* When an item has several designs: are they all needed, or alternatives? */}
                               {proofs.length > 1 && (
