@@ -63,15 +63,23 @@ export async function syncApprovedItemsToKanban(jobId: number): Promise<void> {
       const title = [[dateNice, cap(dayVenue, 40)].filter(Boolean).join(' · '), job.client_name]
         .filter(Boolean).join(' — ')
 
-      const lines = members.map(({ it, dateLabel, rest }) => {
+      const lines: string[] = []
+      const itemNotes: string[] = []   // client's per-item brief — must reach the crew
+      for (const { it, dateLabel, rest } of members) {
         let name = dateLabel ? rest : it.name
         if (dayVenue && name.toLowerCase().startsWith(dayVenue.toLowerCase())) {
           const stripped = name.slice(dayVenue.length).replace(/^\s*[-–]\s*/, '').trim()
           if (stripped) name = stripped
         }
+        const qty = Number(it.quantity) || 1
         const specs = [it.size, it.material].filter(Boolean).join(' · ')
-        return `${Number(it.quantity) || 1}× ${cap(name, 90)}${specs ? ` · ${specs}` : ''}`
-      })
+        lines.push(`${qty}× ${cap(name, 90)}${specs ? ` · ${specs}` : ''}`)
+        const brief = (it.description ?? '').trim()
+        if (brief) {
+          const briefFlat = brief.split('\n').map(s => s.trim()).filter(Boolean).join(' · ')
+          itemNotes.push(`• ${qty}× ${cap(name, 60)}: ${cap(briefFlat, 400)}`)
+        }
+      }
 
       // Every approved design for the day.
       const allPaths = members.flatMap(({ it }) => approvedProofs(it))
@@ -81,10 +89,13 @@ export async function syncApprovedItemsToKanban(jobId: number): Promise<void> {
       }))
 
       const eventDate = day !== 'no-date' ? day : job.date_required
+      // Client item notes go FIRST and under a clear heading — Command Centre
+      // flags any ticket containing "Client notes:" so the crew can't miss them.
       const special = [
+        itemNotes.length ? `📝 Client notes:\n${itemNotes.join('\n')}` : null,
         job.event_name ? `Event: ${job.event_name}` : null,
         job.notes      ? `Job notes: ${job.notes}`  : null,
-      ].filter(Boolean).join('\n') || null
+      ].filter(Boolean).join('\n\n') || null
 
       return {
         ticket_ref:           `day-${day}`,
