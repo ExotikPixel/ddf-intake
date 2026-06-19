@@ -1942,46 +1942,59 @@ export default function AdminPage() {
                                   </select>
                                 </label>
                               </div>
-                              {/* Per-item client brief */}
-                              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#999' }}>Description / brief
-                                <textarea
-                                  value={item.description ?? ''}
-                                  onChange={e => updateEditItem(idx, 'description', e.target.value)}
-                                  rows={2}
-                                  placeholder="Finishing, sides, easel back, etc."
-                                  style={{ padding: '7px 9px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
-                                />
-                              </label>
-                              {/* Per-item reference photos (read-only thumbnails) */}
-                              {itemRefPhotos(item).length > 0 && (
-                                <div style={{ marginTop: 12 }}>
-                                  <span style={{ display: 'block', fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#999', marginBottom: 8 }}>Reference photos · {itemRefPhotos(item).length}</span>
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                    {itemRefPhotos(item).map(p => {
-                                      const signed = fileUrls[job.id]?.find(f => f.path === p)
-                                      return signed ? (
-                                        <a key={p} href={signed.url} target="_blank" rel="noopener noreferrer" title="Reference photo" style={{ display: 'block', width: 60, height: 60 }}>
-                                          <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #e0e0e0', borderRadius: 6, display: 'block' }} />
-                                        </a>
-                                      ) : <span key={p} style={{ width: 60, height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f4f2', border: '1px solid #e7e5e1', borderRadius: 6, color: '#bbb', fontSize: 8, fontWeight: 700 }}>IMG</span>
-                                    })}
-                                  </div>
+                              {/* ───── From the client (their brief + references) — hidden when empty ───── */}
+                              {(item.description || itemRefPhotos(item).length > 0) && (
+                              <div style={{ marginTop: 4, borderRadius: 10, border: '1px solid #eceae5', background: '#faf9f7', padding: '12px 14px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 11 }}>
+                                  <span style={{ width: 14, height: 2, background: '#cfc9bf', borderRadius: 2 }} />
+                                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: '#8a857c' }}>From the client</span>
                                 </div>
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#6f6a62' }}>Brief
+                                  <textarea
+                                    value={item.description ?? ''}
+                                    onChange={e => updateEditItem(idx, 'description', e.target.value)}
+                                    rows={2}
+                                    placeholder="What the client asked for — finishing, sides, easel back, etc."
+                                    style={{ padding: '8px 10px', border: '1px solid #e2ded7', borderRadius: 7, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
+                                  />
+                                </label>
+                                {itemRefPhotos(item).length > 0 && (
+                                  <div style={{ marginTop: 11 }}>
+                                    <span style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase', color: '#6f6a62', marginBottom: 8 }}>Reference photos · {itemRefPhotos(item).length}</span>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                      {itemRefPhotos(item).map(p => {
+                                        const signed = fileUrls[job.id]?.find(f => f.path === p)
+                                        return signed ? (
+                                          <a key={p} href={signed.url} target="_blank" rel="noopener noreferrer" title="Reference photo" style={{ display: 'block', width: 58, height: 58 }}>
+                                            <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #e0ddd6', borderRadius: 8, display: 'block' }} />
+                                          </a>
+                                        ) : <span key={p} style={{ width: 58, height: 58, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1efea', border: '1px solid #e7e5e1', borderRadius: 8, color: '#bbb', fontSize: 8, fontWeight: 700 }}>IMG</span>
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                               )}
-                              {/* Shop note shown to the client at review */}
-                              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 12, fontSize: 9, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#999' }}>Note for client
-                                <textarea
-                                  value={item.admin_note ?? ''}
-                                  onChange={e => updateEditItem(idx, 'admin_note', e.target.value)}
-                                  rows={2}
-                                  placeholder="Explain the concept, finish, or how this will be made — the client sees this above the proofs."
-                                  style={{ padding: '7px 9px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
-                                />
-                              </label>
+
+                              {/* ───── What your client sees (your note, examples, proofs) ───── */}
+                              <div style={{ marginTop: 12, borderRadius: 10, border: '1px solid #f1d9d1', background: '#fff', padding: '12px 14px 14px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                                  <span style={{ width: 14, height: 2, background: 'var(--coral)', borderRadius: 2 }} />
+                                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--coral)' }}>What your client sees</span>
+                                </div>
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#6f6a62' }}>Note for client
+                                  <textarea
+                                    value={item.admin_note ?? ''}
+                                    onChange={e => updateEditItem(idx, 'admin_note', e.target.value)}
+                                    rows={2}
+                                    placeholder="Explain the concept, finish, or how this will be made — shown above the proofs."
+                                    style={{ padding: '8px 10px', border: '1px solid #e2ded7', borderRadius: 7, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
+                                  />
+                                </label>
                               {/* Shop example/inspiration photos shown to the client */}
                               <div style={{ marginTop: 12 }}>
-                                <span style={{ display: 'block', fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#999', marginBottom: 8 }}>
-                                  Example photos for client{itemExamplePhotos(item).length > 0 ? ` · ${itemExamplePhotos(item).length}` : ''}
+                                <span style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase', color: '#6f6a62', marginBottom: 8 }}>
+                                  Example photos{itemExamplePhotos(item).length > 0 ? ` · ${itemExamplePhotos(item).length}` : ''}
                                 </span>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                                   {itemExamplePhotos(item).map(p => {
@@ -1996,7 +2009,7 @@ export default function AdminPage() {
                                         <button
                                           onClick={() => removeExamplePhoto(idx, p)}
                                           title="Remove example photo"
-                                          style={{ position: 'absolute', top: -7, right: -7, width: 18, height: 18, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 11, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}
+                                          style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}
                                         >×</button>
                                       </div>
                                     )
@@ -2030,7 +2043,7 @@ export default function AdminPage() {
                               {/* Per-item design proofs (multiple) */}
                               <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0efec' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-                                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#999' }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase', color: '#6f6a62' }}>
                                     Design proofs{proofs.length > 0 ? ` · ${proofs.length}` : ''}
                                   </span>
                                   {item.approval_status === 'changes_requested' && (
@@ -2053,7 +2066,7 @@ export default function AdminPage() {
                                         <button
                                           onClick={() => removeProof(idx, p)}
                                           title={`Remove ${nm}`}
-                                          style={{ position: 'absolute', top: -7, right: -7, width: 18, height: 18, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 11, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}
+                                          style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}
                                         >×</button>
                                       </div>
                                     )
@@ -2117,6 +2130,7 @@ export default function AdminPage() {
                                   <span style={{ fontSize: 10, color: '#999' }}>{designsMode(item) === 'all' ? 'every design is printed' : 'they are alternatives'}</span>
                                 </div>
                               )}
+                              </div>
                             </div>
                           )})}
                           {proofError && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#dc2626' }}>{proofError}</p>}
