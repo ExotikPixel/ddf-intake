@@ -149,6 +149,8 @@ export default function AdminPage() {
   const [openRefs, setOpenRefs]         = useState<string | null>(null) // `${jobId}:${itemIndex}` whose ref photos are revealed
   const [sendingToCC, setSendingToCC]   = useState<number | null>(null)
   const [sentToCC, setSentToCC]         = useState<Set<number>>(new Set())
+  const [resyncing, setResyncing]       = useState<number | null>(null)
+  const [resynced, setResynced]         = useState<Set<number>>(new Set())
   const [editingJob, setEditingJob]     = useState<number | null>(null)
   const [editForm, setEditForm]         = useState<EditForm | null>(null)
   const [savingEdit, setSavingEdit]     = useState(false)
@@ -499,6 +501,32 @@ export default function AdminPage() {
       alert('Network error — could not reach Command Centre.')
     } finally {
       setSendingToCC(null)
+    }
+  }
+
+  // Manually re-push a job's approved items to the Command Centre Kanban board
+  // (refreshes client notes / designs / specs) without re-approving an item.
+  async function resyncToKanban(job: Job) {
+    setResyncing(job.id)
+    try {
+      const res = await fetch(`/api/admin/jobs/${job.id}/resync`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.ok) {
+        setResynced(prev => new Set(prev).add(job.id))
+        setTimeout(() => setResynced(prev => { const n = new Set(prev); n.delete(job.id); return n }), 2500)
+      } else {
+        const reason = data?.reason
+        alert(
+          reason === 'none_approved'  ? 'No approved items to sync yet — approve a design first.' :
+          reason === 'not_configured' ? 'Command Centre Kanban isn’t configured (missing webhook).' :
+          reason === 'webhook_failed' ? 'Command Centre rejected the sync — please check the board.' :
+          'Could not re-sync to Command Centre — please try again.'
+        )
+      }
+    } catch {
+      alert('Network error — could not reach Command Centre.')
+    } finally {
+      setResyncing(null)
     }
   }
 
@@ -1634,6 +1662,33 @@ export default function AdminPage() {
                             ? 'Sending…'
                             : <><InvoiceIcon /> Invoice</>}
                       </button>
+
+                      {/* Re-sync approved items to the Command Centre Kanban board */}
+                      {(() => {
+                        const approvedCount = job.items.filter(i => itemProofs(i).length > 0 && i.approval_status === 'approved').length
+                        if (approvedCount === 0) return null
+                        const done = resynced.has(job.id)
+                        return (
+                          <button
+                            onClick={() => resyncToKanban(job)}
+                            disabled={resyncing === job.id}
+                            className="job-action-btn"
+                            title="Push this job's approved items to the Command Centre Kanban board again — refreshes client notes, designs and specs on the tile"
+                            style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: done ? '#15803d' : '#555', background: done ? '#dcfce7' : '#fff', border: `1px solid ${done ? '#86efac' : '#ddd'}`, padding: '5px 11px', cursor: resyncing === job.id ? 'default' : 'pointer', opacity: resyncing === job.id ? 0.6 : 1, fontFamily: 'var(--font-body)' }}
+                          >
+                            {done ? <><CheckIcon /> Synced</> : resyncing === job.id ? 'Syncing…' : (
+                              <>
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="23 4 23 10 17 10"/>
+                                  <polyline points="1 20 1 14 7 14"/>
+                                  <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                                </svg>
+                                Re-sync
+                              </>
+                            )}
+                          </button>
+                        )
+                      })()}
 
                       {/* Notify client toggle */}
                       <button

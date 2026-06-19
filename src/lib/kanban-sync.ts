@@ -19,18 +19,22 @@ import { DATE_PREFIX, cap, resolveDate, fmtDate } from '@/lib/kanban-days'
 
 const PROOF_TTL_SECONDS = 60 * 60 * 24 * 90 // 90 days — tickets can sit for weeks
 
-export async function syncApprovedItemsToKanban(jobId: number): Promise<void> {
+export type KanbanSyncResult =
+  | { ok: true; tickets: number }
+  | { ok: false; reason: 'not_configured' | 'not_found' | 'none_approved' | 'webhook_failed' | 'error' }
+
+export async function syncApprovedItemsToKanban(jobId: number): Promise<KanbanSyncResult> {
   try {
     const webhookUrl = process.env.COMMAND_CENTRE_KANBAN_WEBHOOK_URL
     const secret     = process.env.INTAKE_WEBHOOK_SECRET
-    if (!webhookUrl || !secret) return
+    if (!webhookUrl || !secret) return { ok: false, reason: 'not_configured' }
 
     const { data: job } = await supabaseAdmin
       .from('jobs')
       .select('reference_number, client_name, company_name, contact_email, event_name, date_required, notes, items')
       .eq('id', jobId)
       .single()
-    if (!job) return
+    if (!job) return { ok: false, reason: 'not_found' }
 
     const items = (job.items ?? []) as JobItem[]
     // Resolve each approved item to a day (its own event date, or the job's due
@@ -46,7 +50,7 @@ export async function syncApprovedItemsToKanban(jobId: number): Promise<void> {
         const venueRaw = dateLabel ? rest.split(/\s[-–]\s/)[0].trim() : (job.company_name || '')
         return { it, index, dateLabel, rest, day, venueRaw }
       })
-    if (approved.length === 0) return
+    if (approved.length === 0) return { ok: false, reason: 'none_approved' }
 
     // One sticky per day, per client. Undated items land on the job's due date.
     const groups = new Map<string, typeof approved>()
@@ -131,7 +135,9 @@ export async function syncApprovedItemsToKanban(jobId: number): Promise<void> {
         tags: 'rotating_light',
         priority: 5,
       })
+      return { ok: false, reason: 'webhook_failed' }
     }
+    return { ok: true, tickets: tickets.length }
   } catch (err) {
     console.error('[kanban-sync] failed for job', jobId, err)
     await sendNtfy({
@@ -140,5 +146,6 @@ export async function syncApprovedItemsToKanban(jobId: number): Promise<void> {
       tags: 'rotating_light',
       priority: 5,
     })
+    return { ok: false, reason: 'error' }
   }
 }
