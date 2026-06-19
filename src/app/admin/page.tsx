@@ -1942,9 +1942,11 @@ export default function AdminPage() {
                                   </select>
                                 </label>
                               </div>
+                              {/* Two zones side by side on a wide modal; stack when narrow */}
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginTop: 10, alignItems: 'start' }}>
                               {/* ───── From the client (their brief + references) — hidden when empty ───── */}
                               {(item.description || itemRefPhotos(item).length > 0) && (
-                              <div style={{ marginTop: 4, borderRadius: 10, border: '1px solid #eceae5', background: '#faf9f7', padding: '12px 14px' }}>
+                              <div style={{ borderRadius: 10, border: '1px solid #eceae5', background: '#faf9f7', padding: '12px 14px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 11 }}>
                                   <span style={{ width: 14, height: 2, background: '#cfc9bf', borderRadius: 2 }} />
                                   <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: '#8a857c' }}>From the client</span>
@@ -1977,7 +1979,7 @@ export default function AdminPage() {
                               )}
 
                               {/* ───── What your client sees (your note, examples, proofs) ───── */}
-                              <div style={{ marginTop: 12, borderRadius: 10, border: '1px solid #f1d9d1', background: '#fff', padding: '12px 14px 14px' }}>
+                              <div style={{ borderRadius: 10, border: '1px solid #f1d9d1', background: '#fff', padding: '12px 14px 14px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                                   <span style={{ width: 14, height: 2, background: 'var(--coral)', borderRadius: 2 }} />
                                   <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--coral)' }}>What your client sees</span>
@@ -2130,6 +2132,7 @@ export default function AdminPage() {
                                   <span style={{ fontSize: 10, color: '#999' }}>{designsMode(item) === 'all' ? 'every design is printed' : 'they are alternatives'}</span>
                                 </div>
                               )}
+                              </div>
                               </div>
                             </div>
                           )})}
