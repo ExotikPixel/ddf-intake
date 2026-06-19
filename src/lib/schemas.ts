@@ -4,7 +4,7 @@ export const ItemSchema = z.object({
   name: z.string().min(1, 'Item name is required'),
   quantity: z.number().int().min(1, 'Quantity must be at least 1'),
   size: z.string().min(1, 'Size is required'),
-  material: z.enum(['vinyl', 'fabric', 'foam-board', 'acrylic', 'other']),
+  material: z.enum(['vinyl', 'fabric', 'foam-board', 'acrylic', 'cardstock', 'wood', 'pvc', 'other']),
   // Client-facing detail captured at intake (both optional).
   description: z.string().max(2000).optional(),   // richer free-text brief for this item
   ref_photos: z.array(z.string()).max(8).optional(), // job-files paths to client reference/inspo images

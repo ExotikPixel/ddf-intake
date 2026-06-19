@@ -552,7 +552,7 @@ export default function PortalPage() {
                             <select value={item.material}
                               onChange={e => updateEditItem(idx, 'material', e.target.value)}
                               style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}>
-                              {['vinyl','fabric','foam-board','acrylic','other'].map(m => (
+                              {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','other'].map(m => (
                                 <option key={m} value={m}>{m}</option>
                               ))}
                             </select>

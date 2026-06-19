@@ -1836,7 +1836,7 @@ export default function AdminPage() {
                                     onChange={e => updateEditItem(idx, 'material', e.target.value)}
                                     style={{ padding: '7px 9px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box' }}
                                   >
-                                    {['vinyl','fabric','foam-board','acrylic','other'].map(m => (
+                                    {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','other'].map(m => (
                                       <option key={m} value={m}>{m}</option>
                                     ))}
                                   </select>

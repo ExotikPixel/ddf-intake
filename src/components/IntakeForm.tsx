@@ -51,7 +51,7 @@ const IMG_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.gif']
 const MAX_FILES = 3
 const MAX_ITEM_PHOTOS = 8
 const MAX_BYTES = 50 * 1024 * 1024
-const MATERIALS = ['vinyl', 'fabric', 'foam-board', 'acrylic', 'other']
+const MATERIALS = ['vinyl', 'fabric', 'foam-board', 'acrylic', 'cardstock', 'wood', 'pvc', 'other']
 
 const STEPS = ['Client Info', 'Job Items', 'Files & Deadline', 'Summary', 'Submit']
 
