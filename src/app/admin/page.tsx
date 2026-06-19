@@ -1881,12 +1881,18 @@ export default function AdminPage() {
                             const proofs = itemProofs(item)
                             return (
                             <div key={idx} style={{ background: '#fff', border: '1px solid #e7e5e1', borderRadius: 8, padding: '12px 12px 14px', marginBottom: 10, boxShadow: '0 1px 2px rgba(20,18,16,0.04)' }}>
-                              {/* Item header: number badge + name + remove */}
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: 'var(--charcoal)' }}>
-                                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 5, background: 'var(--coral)', color: '#fff', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{idx + 1}</span>
-                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name?.trim() ? item.name : `Item ${idx + 1}`}</span>
-                                </span>
+                              {/* Item header: number badge + name + status + remove */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 6, background: 'var(--coral)', color: '#fff', fontSize: 12, fontWeight: 800, flexShrink: 0 }}>{idx + 1}</span>
+                                <input
+                                  type="text" value={item.name}
+                                  onChange={e => updateEditItem(idx, 'name', e.target.value)}
+                                  placeholder="Item name"
+                                  style={{ flex: 1, minWidth: 0, padding: '5px 8px', border: '1px solid transparent', borderRadius: 6, fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-body)', color: 'var(--charcoal)', background: 'transparent' }}
+                                  onFocus={e => { e.currentTarget.style.borderColor = '#dcdcdc'; e.currentTarget.style.background = '#fff' }}
+                                  onBlur={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'transparent' }}
+                                />
+                                <ApprovalPill status={item.approval_status ?? 'pending'} />
                                 <button
                                   onClick={() => removeEditItem(idx)}
                                   disabled={editForm.items.length === 1}
@@ -1894,245 +1900,187 @@ export default function AdminPage() {
                                   style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: editForm.items.length === 1 ? '#ccc' : '#C62828', cursor: editForm.items.length === 1 ? 'default' : 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-body)', padding: 4, flexShrink: 0 }}
                                 >✕ Remove</button>
                               </div>
-                              {/* Approval status strip */}
-                              {item.approval_status && item.approval_status !== 'pending' && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                                  <ApprovalPill status={item.approval_status} />
-                                  {item.client_note && (
-                                    <span style={{ fontSize: 11.5, color: '#C62828', fontStyle: 'italic' }}>“{item.client_note}”</span>
-                                  )}
-                                </div>
+                              {item.approval_status === 'changes_requested' && item.client_note && (
+                                <p style={{ margin: '0 0 12px', fontSize: 12, color: '#C62828', background: '#fff0f0', border: '1px solid #f6caca', borderRadius: 6, padding: '6px 10px' }}>Client asked: “{item.client_note}”</p>
                               )}
-                              {/* Core fields */}
-                              <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 8, marginBottom: 8 }}>
-                                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#999' }}>Qty
-                                  <input
-                                    type="number" min={1} value={item.quantity}
-                                    onChange={e => updateEditItem(idx, 'quantity', parseInt(e.target.value) || 1)}
-                                    style={{ padding: '7px 9px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', textAlign: 'center' }}
-                                  />
+                              {/* Spec chips */}
+                              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#8a857c' }}>Qty
+                                  <input type="number" min={1} value={item.quantity} onChange={e => updateEditItem(idx, 'quantity', parseInt(e.target.value) || 1)}
+                                    style={{ width: 60, padding: '6px 8px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', boxSizing: 'border-box', textAlign: 'center' }} />
                                 </label>
-                                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#999' }}>Item name
-                                  <input
-                                    type="text" value={item.name}
-                                    onChange={e => updateEditItem(idx, 'name', e.target.value)}
-                                    placeholder="e.g. Welcome Sign"
-                                    style={{ padding: '7px 9px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box' }}
-                                  />
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#8a857c' }}>Size
+                                  <input type="text" value={item.size} onChange={e => updateEditItem(idx, 'size', e.target.value)} placeholder="e.g. 22×28"
+                                    style={{ width: 150, padding: '6px 8px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', boxSizing: 'border-box' }} />
                                 </label>
-                              </div>
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#999' }}>Size
-                                  <input
-                                    type="text" value={item.size}
-                                    onChange={e => updateEditItem(idx, 'size', e.target.value)}
-                                    placeholder="e.g. 22×28"
-                                    style={{ padding: '7px 9px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box' }}
-                                  />
-                                </label>
-                                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', color: '#999' }}>Material
-                                  <select
-                                    value={item.material}
-                                    onChange={e => updateEditItem(idx, 'material', e.target.value)}
-                                    style={{ padding: '7px 9px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box' }}
-                                  >
-                                    {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','other'].map(m => (
-                                      <option key={m} value={m}>{m}</option>
-                                    ))}
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#8a857c' }}>Material
+                                  <select value={item.material} onChange={e => updateEditItem(idx, 'material', e.target.value)}
+                                    style={{ width: 140, padding: '6px 8px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', boxSizing: 'border-box' }}>
+                                    {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','other'].map(m => (<option key={m} value={m}>{m}</option>))}
                                   </select>
                                 </label>
                               </div>
-                              {/* Two zones side by side on a wide modal; stack when narrow */}
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginTop: 10, alignItems: 'start' }}>
-                              {/* ───── From the client (their brief + references) — hidden when empty ───── */}
-                              {(item.description || itemRefPhotos(item).length > 0) && (
-                              <div style={{ borderRadius: 10, border: '1px solid #eceae5', background: '#faf9f7', padding: '12px 14px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 11 }}>
-                                  <span style={{ width: 14, height: 2, background: '#cfc9bf', borderRadius: 2 }} />
-                                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: '#8a857c' }}>From the client</span>
-                                </div>
-                                <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#6f6a62' }}>Brief
-                                  <textarea
-                                    value={item.description ?? ''}
-                                    onChange={e => updateEditItem(idx, 'description', e.target.value)}
-                                    rows={2}
-                                    placeholder="What the client asked for — finishing, sides, easel back, etc."
-                                    style={{ padding: '8px 10px', border: '1px solid #e2ded7', borderRadius: 7, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
-                                  />
-                                </label>
-                                {itemRefPhotos(item).length > 0 && (
-                                  <div style={{ marginTop: 11 }}>
-                                    <span style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase', color: '#6f6a62', marginBottom: 8 }}>Reference photos · {itemRefPhotos(item).length}</span>
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                      {itemRefPhotos(item).map(p => {
-                                        const signed = fileUrls[job.id]?.find(f => f.path === p)
-                                        return signed ? (
-                                          <a key={p} href={signed.url} target="_blank" rel="noopener noreferrer" title="Reference photo" style={{ display: 'block', width: 58, height: 58 }}>
-                                            <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #e0ddd6', borderRadius: 8, display: 'block' }} />
-                                          </a>
-                                        ) : <span key={p} style={{ width: 58, height: 58, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1efea', border: '1px solid #e7e5e1', borderRadius: 8, color: '#bbb', fontSize: 8, fontWeight: 700 }}>IMG</span>
-                                      })}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                              )}
 
-                              {/* ───── What your client sees (your note, examples, proofs) ───── */}
-                              <div style={{ borderRadius: 10, border: '1px solid #f1d9d1', background: '#fff', padding: '12px 14px 14px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                                  <span style={{ width: 14, height: 2, background: 'var(--coral)', borderRadius: 2 }} />
-                                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--coral)' }}>What your client sees</span>
-                                </div>
-                                <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#6f6a62' }}>Note for client
-                                  <textarea
-                                    value={item.admin_note ?? ''}
-                                    onChange={e => updateEditItem(idx, 'admin_note', e.target.value)}
-                                    rows={2}
-                                    placeholder="Explain the concept, finish, or how this will be made — shown above the proofs."
-                                    style={{ padding: '8px 10px', border: '1px solid #e2ded7', borderRadius: 7, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
-                                  />
-                                </label>
-                              {/* Shop example/inspiration photos shown to the client */}
-                              <div style={{ marginTop: 12 }}>
-                                <span style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase', color: '#6f6a62', marginBottom: 8 }}>
-                                  Example photos{itemExamplePhotos(item).length > 0 ? ` · ${itemExamplePhotos(item).length}` : ''}
-                                </span>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                  {itemExamplePhotos(item).map(p => {
-                                    const signed = fileUrls[job.id]?.find(f => f.path === p)
-                                    return (
-                                      <div key={p} style={{ position: 'relative', width: 60, height: 60, flexShrink: 0 }}>
-                                        {signed ? (
-                                          <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Example photo" style={{ display: 'block', width: '100%', height: '100%' }}>
-                                            <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #e0e0e0', borderRadius: 6, display: 'block' }} />
-                                          </a>
-                                        ) : <span style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f4f2', border: '1px solid #e7e5e1', borderRadius: 6, color: '#bbb', fontSize: 8, fontWeight: 700 }}>IMG</span>}
-                                        <button
-                                          onClick={() => removeExamplePhoto(idx, p)}
-                                          title="Remove example photo"
-                                          style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}
-                                        >×</button>
+                              {/* Split: client brief (left) · design proofs for approval (right) */}
+                              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 34%) minmax(0, 1fr)', gap: 14, alignItems: 'start' }}>
+
+                                {/* LEFT — From the client */}
+                                <div style={{ borderRadius: 10, border: '1px solid #eceae5', background: '#faf9f7', padding: '12px 14px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+                                    <span style={{ width: 14, height: 2, background: '#cfc9bf', borderRadius: 2 }} />
+                                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.1px', textTransform: 'uppercase', color: '#8a857c' }}>From the client</span>
+                                  </div>
+                                  <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#6f6a62' }}>Brief
+                                    <textarea value={item.description ?? ''} onChange={e => updateEditItem(idx, 'description', e.target.value)} rows={5}
+                                      placeholder="What the client asked for — finishing, sides, easel back, etc."
+                                      style={{ padding: '8px 10px', border: '1px solid #e2ded7', borderRadius: 7, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', resize: 'vertical' }} />
+                                  </label>
+                                  {itemRefPhotos(item).length > 0 && (
+                                    <div style={{ marginTop: 11 }}>
+                                      <span style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase', color: '#6f6a62', marginBottom: 8 }}>Reference photos · {itemRefPhotos(item).length}</span>
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                        {itemRefPhotos(item).map(p => {
+                                          const signed = fileUrls[job.id]?.find(f => f.path === p)
+                                          return signed ? (
+                                            <a key={p} href={signed.url} target="_blank" rel="noopener noreferrer" title="Reference photo" style={{ display: 'block', width: 54, height: 54 }}>
+                                              <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #e0ddd6', borderRadius: 8, display: 'block' }} />
+                                            </a>
+                                          ) : <span key={p} style={{ width: 54, height: 54, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1efea', border: '1px solid #e7e5e1', borderRadius: 8, color: '#bbb', fontSize: 8, fontWeight: 700 }}>IMG</span>
+                                        })}
                                       </div>
-                                    )
-                                  })}
-                                  {itemExamplePhotos(item).length < 8 && (
-                                    <label
-                                      title="Attach an example / inspiration photo for the client"
-                                      style={{
-                                        width: 60, height: 60, flexShrink: 0,
-                                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
-                                        textAlign: 'center', lineHeight: 1.15,
-                                        fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px',
-                                        color: uploadingExample === idx ? '#aaa' : 'var(--coral)',
-                                        border: '1.5px dashed var(--coral)77', borderRadius: 6, background: '#fff',
-                                        cursor: uploadingExample === idx ? 'default' : 'pointer',
-                                      }}
-                                    >
-                                      <input
-                                        type="file"
-                                        accept="image/jpeg,image/png,image/webp,image/svg+xml"
-                                        style={{ display: 'none' }}
-                                        disabled={uploadingExample === idx}
-                                        onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addExamplePhoto(idx, f) } }}
-                                      />
-                                      {uploadingExample === idx ? '…' : (<><span style={{ fontSize: 16, lineHeight: 1 }}>+</span><span>Example</span></>)}
-                                    </label>
+                                    </div>
                                   )}
                                 </div>
-                                {exampleError && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#dc2626' }}>{exampleError}</p>}
-                              </div>
-                              {/* Per-item design proofs (multiple) */}
-                              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0efec' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-                                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase', color: '#6f6a62' }}>
-                                    Design proofs{proofs.length > 0 ? ` · ${proofs.length}` : ''}
-                                  </span>
-                                  {item.approval_status === 'changes_requested' && (
-                                    <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#C62828' }}>Upload replaces current →</span>
-                                  )}
-                                </div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                  {proofs.map(p => {
-                                    const nm = p.split('/').pop() ?? p
-                                    const signed = fileUrls[job.id]?.find(f => f.path === p)
+
+                                {/* RIGHT — Design proofs for approval (hero) + note/examples */}
+                                <div style={{ borderRadius: 10, border: '1px solid #f1d9d1', background: '#fff', padding: '12px 14px 14px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                      <span style={{ width: 14, height: 2, background: 'var(--coral)', borderRadius: 2 }} />
+                                      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.1px', textTransform: 'uppercase', color: 'var(--coral)' }}>Design proofs — for approval</span>
+                                    </span>
+                                    {item.approval_status === 'changes_requested' && (
+                                      <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: '#C62828' }}>Upload replaces current →</span>
+                                    )}
+                                  </div>
+
+                                  {/* Hero: large preview of the current proof, or a big dropzone when none */}
+                                  {proofs.length > 0 ? (() => {
+                                    const hero = proofs[0]
+                                    const heroSigned = fileUrls[job.id]?.find(f => f.path === hero)
                                     return (
-                                      <div key={p} title={nm} style={{ position: 'relative', width: 60, height: 60, flexShrink: 0 }}>
-                                        {signed ? (
-                                          <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Click to view full image" style={{ display: 'block', width: '100%', height: '100%' }}>
-                                            <img src={signed.url} alt={nm} style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #d6f0dd', borderRadius: 6, display: 'block', cursor: 'zoom-in' }} />
-                                          </a>
-                                        ) : (
-                                          <span style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, color: '#86c8a0', fontSize: 8, fontWeight: 700 }}>IMG</span>
-                                        )}
-                                        <button
-                                          onClick={() => removeProof(idx, p)}
-                                          title={`Remove ${nm}`}
-                                          style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}
-                                        >×</button>
-                                      </div>
+                                      <a href={heroSigned?.url ?? undefined} target="_blank" rel="noopener noreferrer" title="Open full size"
+                                        style={{ display: 'block', border: '1px solid #d6f0dd', borderRadius: 8, overflow: 'hidden', background: '#f4f7f4' }}>
+                                        {heroSigned
+                                          ? <img src={heroSigned.url} alt="Design proof" style={{ display: 'block', width: '100%', maxHeight: 260, objectFit: 'contain', cursor: 'zoom-in' }} />
+                                          : <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ac3a8', fontSize: 12, fontWeight: 700 }}>Loading proof…</div>}
+                                      </a>
                                     )
-                                  })}
-                                  {(proofs.length < 6 || item.approval_status === 'changes_requested') && (
+                                  })() : (
                                     <label
                                       onDragOver={e => { e.preventDefault(); if (uploadingProof !== idx) setDragProof(idx) }}
                                       onDragLeave={() => setDragProof(prev => prev === idx ? null : prev)}
                                       onDrop={e => { e.preventDefault(); setDragProof(null); const f = e.dataTransfer.files?.[0]; if (f && uploadingProof !== idx) addProof(idx, f) }}
-                                      title={item.approval_status === 'changes_requested' ? 'Upload the revised design — the current one moves to Earlier versions' : 'Attach a design proof'}
-                                      style={{
-                                        width: 60, height: 60, flexShrink: 0,
-                                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
-                                        textAlign: 'center', lineHeight: 1.15,
-                                        fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px',
-                                        color: uploadingProof === idx ? '#aaa' : dragProof === idx ? '#15803d' : 'var(--coral)',
-                                        border: `1.5px dashed ${dragProof === idx ? '#15803d' : 'var(--coral)77'}`,
-                                        borderRadius: 6,
-                                        background: dragProof === idx ? '#f0fdf4' : '#fff',
-                                        cursor: uploadingProof === idx ? 'default' : 'pointer',
-                                        transition: 'background 0.12s, border-color 0.12s',
-                                      }}
-                                    >
-                                      <input
-                                        type="file"
-                                        accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
-                                        style={{ display: 'none' }}
-                                        disabled={uploadingProof === idx}
-                                        onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addProof(idx, f) } }}
-                                      />
-                                      {uploadingProof === idx ? '…' : dragProof === idx ? 'Drop' : (
-                                        <>
-                                          <span style={{ fontSize: 16, lineHeight: 1 }}>{item.approval_status === 'changes_requested' ? '↑' : '+'}</span>
-                                          <span>{item.approval_status === 'changes_requested' ? 'New version' : proofs.length > 0 ? 'Add' : 'Add proof'}</span>
-                                        </>
-                                      )}
+                                      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, height: 200, textAlign: 'center', borderRadius: 8, border: `1.5px dashed ${dragProof === idx ? '#15803d' : 'var(--coral)77'}`, background: dragProof === idx ? '#f0fdf4' : '#fffaf8', cursor: uploadingProof === idx ? 'default' : 'pointer', color: uploadingProof === idx ? '#aaa' : dragProof === idx ? '#15803d' : 'var(--coral)' }}>
+                                      <input type="file" accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
+                                        onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addProof(idx, f) } }} />
+                                      <span style={{ fontSize: 28, lineHeight: 1 }}>{uploadingProof === idx ? '…' : '+'}</span>
+                                      <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{uploadingProof === idx ? 'Uploading…' : dragProof === idx ? 'Drop the design here' : 'Add the design proof'}</span>
+                                      <span style={{ fontSize: 10.5, fontWeight: 600, color: '#b9a59d' }}>JPG · PNG · SVG · PDF · AI · EPS</span>
                                     </label>
                                   )}
+
+                                  {/* Thumbnail strip — all proofs + add tile */}
+                                  {proofs.length > 0 && (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                                      {proofs.map(p => {
+                                        const nm = p.split('/').pop() ?? p
+                                        const signed = fileUrls[job.id]?.find(f => f.path === p)
+                                        return (
+                                          <div key={p} title={nm} style={{ position: 'relative', width: 56, height: 56, flexShrink: 0 }}>
+                                            {signed ? (
+                                              <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Click to view full image" style={{ display: 'block', width: '100%', height: '100%' }}>
+                                                <img src={signed.url} alt={nm} style={{ width: '100%', height: '100%', objectFit: 'cover', border: `${p === proofs[0] ? '2px' : '1px'} solid ${p === proofs[0] ? 'var(--coral)' : '#d6f0dd'}`, borderRadius: 7, display: 'block', cursor: 'zoom-in', boxSizing: 'border-box' }} />
+                                              </a>
+                                            ) : (
+                                              <span style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 7, color: '#86c8a0', fontSize: 8, fontWeight: 700 }}>IMG</span>
+                                            )}
+                                            <button onClick={() => removeProof(idx, p)} title={`Remove ${nm}`}
+                                              style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}>×</button>
+                                          </div>
+                                        )
+                                      })}
+                                      {(proofs.length < 6 || item.approval_status === 'changes_requested') && (
+                                        <label
+                                          onDragOver={e => { e.preventDefault(); if (uploadingProof !== idx) setDragProof(idx) }}
+                                          onDragLeave={() => setDragProof(prev => prev === idx ? null : prev)}
+                                          onDrop={e => { e.preventDefault(); setDragProof(null); const f = e.dataTransfer.files?.[0]; if (f && uploadingProof !== idx) addProof(idx, f) }}
+                                          title={item.approval_status === 'changes_requested' ? 'Upload the revised design — the current one moves to Earlier versions' : 'Attach another design proof'}
+                                          style={{ width: 56, height: 56, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', color: uploadingProof === idx ? '#aaa' : dragProof === idx ? '#15803d' : 'var(--coral)', border: `1.5px dashed ${dragProof === idx ? '#15803d' : 'var(--coral)77'}`, borderRadius: 7, background: dragProof === idx ? '#f0fdf4' : '#fff', cursor: uploadingProof === idx ? 'default' : 'pointer' }}>
+                                          <input type="file" accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
+                                            onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addProof(idx, f) } }} />
+                                          {uploadingProof === idx ? '…' : dragProof === idx ? 'Drop' : (<><span style={{ fontSize: 15, lineHeight: 1 }}>{item.approval_status === 'changes_requested' ? '↑' : '+'}</span><span>{item.approval_status === 'changes_requested' ? 'New' : 'Add'}</span></>)}
+                                        </label>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Multiple designs: all needed, or alternatives? */}
+                                  {proofs.length > 1 && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                                      <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb' }}>Multiple designs</span>
+                                      {(['all', 'pick'] as const).map(m => {
+                                        const on = designsMode(item) === m
+                                        return (
+                                          <button key={m}
+                                            onClick={() => setEditForm(prev => {
+                                              if (!prev) return prev
+                                              const items = [...prev.items]
+                                              items[idx] = { ...items[idx], designs_mode: m, ...(m === 'all' ? { approved_proof_url: undefined } : {}) }
+                                              return { ...prev, items }
+                                            })}
+                                            style={{ fontSize: 11, fontWeight: 700, padding: '4px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)', background: on ? '#131313' : '#fff', color: on ? '#fff' : '#666', border: `1px solid ${on ? '#131313' : '#ddd'}` }}>
+                                            {m === 'all' ? 'Print all' : 'Client picks one'}
+                                          </button>
+                                        )
+                                      })}
+                                      <span style={{ fontSize: 10, color: '#999' }}>{designsMode(item) === 'all' ? 'every design is printed' : 'they are alternatives'}</span>
+                                    </div>
+                                  )}
+
+                                  {/* Note & examples for the client (optional) */}
+                                  <div style={{ marginTop: 14, paddingTop: 13, borderTop: '1px solid #f0efec' }}>
+                                    <span style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase', color: '#6f6a62' }}>Note &amp; examples for client <span style={{ fontWeight: 600, letterSpacing: 0, textTransform: 'none', color: '#b3ada3' }}>· optional</span></span>
+                                    <textarea value={item.admin_note ?? ''} onChange={e => updateEditItem(idx, 'admin_note', e.target.value)} rows={2}
+                                      placeholder="Explain the concept, finish, or how this will be made — shown above the proofs."
+                                      style={{ padding: '8px 10px', border: '1px solid #e2ded7', borderRadius: 7, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', resize: 'vertical' }} />
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                                      {itemExamplePhotos(item).map(p => {
+                                        const signed = fileUrls[job.id]?.find(f => f.path === p)
+                                        return (
+                                          <div key={p} style={{ position: 'relative', width: 54, height: 54, flexShrink: 0 }}>
+                                            {signed ? (
+                                              <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Example photo" style={{ display: 'block', width: '100%', height: '100%' }}>
+                                                <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #e0e0e0', borderRadius: 7, display: 'block' }} />
+                                              </a>
+                                            ) : <span style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f4f2', border: '1px solid #e7e5e1', borderRadius: 7, color: '#bbb', fontSize: 8, fontWeight: 700 }}>IMG</span>}
+                                            <button onClick={() => removeExamplePhoto(idx, p)} title="Remove example photo"
+                                              style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}>×</button>
+                                          </div>
+                                        )
+                                      })}
+                                      {itemExamplePhotos(item).length < 8 && (
+                                        <label title="Attach an example / inspiration photo for the client"
+                                          style={{ width: 54, height: 54, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', color: uploadingExample === idx ? '#aaa' : 'var(--coral)', border: '1.5px dashed var(--coral)77', borderRadius: 7, background: '#fff', cursor: uploadingExample === idx ? 'default' : 'pointer' }}>
+                                          <input type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml" style={{ display: 'none' }} disabled={uploadingExample === idx}
+                                            onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addExamplePhoto(idx, f) } }} />
+                                          {uploadingExample === idx ? '…' : (<><span style={{ fontSize: 15, lineHeight: 1 }}>+</span><span>Example</span></>)}
+                                        </label>
+                                      )}
+                                    </div>
+                                    {exampleError && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#dc2626' }}>{exampleError}</p>}
+                                  </div>
                                 </div>
-                              </div>
-                              {/* When an item has several designs: are they all needed, or alternatives? */}
-                              {proofs.length > 1 && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb' }}>Multiple designs</span>
-                                  {(['all', 'pick'] as const).map(m => {
-                                    const on = designsMode(item) === m
-                                    return (
-                                      <button key={m}
-                                        onClick={() => setEditForm(prev => {
-                                          if (!prev) return prev
-                                          const items = [...prev.items]
-                                          // Switching to "print all" drops any recorded single pick so every design prints.
-                                          items[idx] = { ...items[idx], designs_mode: m, ...(m === 'all' ? { approved_proof_url: undefined } : {}) }
-                                          return { ...prev, items }
-                                        })}
-                                        style={{ fontSize: 11, fontWeight: 700, padding: '4px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)', background: on ? '#131313' : '#fff', color: on ? '#fff' : '#666', border: `1px solid ${on ? '#131313' : '#ddd'}` }}>
-                                        {m === 'all' ? 'Print all' : 'Client picks one'}
-                                      </button>
-                                    )
-                                  })}
-                                  <span style={{ fontSize: 10, color: '#999' }}>{designsMode(item) === 'all' ? 'every design is printed' : 'they are alternatives'}</span>
-                                </div>
-                              )}
-                              </div>
                               </div>
                             </div>
                           )})}
