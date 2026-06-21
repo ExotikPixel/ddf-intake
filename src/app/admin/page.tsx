@@ -172,6 +172,7 @@ export default function AdminPage() {
   const [uploadingRevision, setUploadingRevision] = useState<string | null>(null)
   const [revisionError, setRevisionError] = useState<Record<string, string>>({})
   const [dragProof, setDragProof] = useState<number | null>(null)
+  const [dragExample, setDragExample] = useState<number | null>(null)
   const [buildingProdSheet, setBuildingProdSheet] = useState(false)
   const router = useRouter()
 
@@ -399,6 +400,7 @@ export default function AdminPage() {
         body: file,
       })
       if (!putRes.ok) { setUploadPhotoError('Upload failed — please try again.'); return }
+      if (editingJob != null) void loadFiles(editingJob, [path])  // sign it now so the thumbnail shows immediately
       setEditForm(prev => prev ? { ...prev, file_paths: [...prev.file_paths, path] } : prev)
     } catch {
       setUploadPhotoError('Network error during upload.')
@@ -426,6 +428,7 @@ export default function AdminPage() {
       const { path, signedUrl } = uploads[0]
       const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
       if (!putRes.ok) { setProofError('Proof upload failed — please try again.'); return }
+      if (editingJob != null) void loadFiles(editingJob, [path])  // sign it now so the proof preview shows immediately
       // Adding a proof resets that item's approval — the proof set the client saw has changed.
       setEditForm(prev => {
         if (!prev) return prev
@@ -486,6 +489,7 @@ export default function AdminPage() {
       const { path, signedUrl } = uploads[0]
       const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
       if (!putRes.ok) { setExampleError('Upload failed — please try again.'); return }
+      if (editingJob != null) void loadFiles(editingJob, [path])  // sign it now so the example thumbnail shows immediately
       setEditForm(prev => {
         if (!prev) return prev
         const items = [...prev.items]
@@ -801,6 +805,7 @@ export default function AdminPage() {
       const { path, signedUrl } = uploads[0]
       const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
       if (!putRes.ok) { setRevisionError(prev => ({ ...prev, [key]: 'Upload failed — please try again.' })); return }
+      void loadFiles(job.id, [path])  // sign it now so the new version's thumbnail shows immediately
 
       const sys: ItemMessage = { from: 'shop', text: 'Uploaded a revised design — please review.', at: new Date().toISOString() }
       const it = job.items[idx]
@@ -2070,11 +2075,14 @@ export default function AdminPage() {
                                         )
                                       })}
                                       {itemExamplePhotos(item).length < 8 && (
-                                        <label title="Attach an example / inspiration photo for the client"
-                                          style={{ width: 54, height: 54, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', color: uploadingExample === idx ? '#aaa' : 'var(--coral)', border: '1.5px dashed var(--coral)77', borderRadius: 7, background: '#fff', cursor: uploadingExample === idx ? 'default' : 'pointer' }}>
+                                        <label title="Attach an example / inspiration photo for the client — these are NOT printed"
+                                          onDragOver={e => { e.preventDefault(); if (uploadingExample !== idx) setDragExample(idx) }}
+                                          onDragLeave={() => setDragExample(prev => prev === idx ? null : prev)}
+                                          onDrop={e => { e.preventDefault(); setDragExample(null); const f = e.dataTransfer.files?.[0]; if (f && uploadingExample !== idx) addExamplePhoto(idx, f) }}
+                                          style={{ width: 54, height: 54, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', color: uploadingExample === idx ? '#aaa' : dragExample === idx ? '#15803d' : 'var(--coral)', border: `1.5px dashed ${dragExample === idx ? '#15803d' : 'var(--coral)77'}`, borderRadius: 7, background: dragExample === idx ? '#f0fdf4' : '#fff', cursor: uploadingExample === idx ? 'default' : 'pointer' }}>
                                           <input type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml" style={{ display: 'none' }} disabled={uploadingExample === idx}
                                             onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addExamplePhoto(idx, f) } }} />
-                                          {uploadingExample === idx ? '…' : (<><span style={{ fontSize: 15, lineHeight: 1 }}>+</span><span>Example</span></>)}
+                                          {uploadingExample === idx ? '…' : dragExample === idx ? 'Drop' : (<><span style={{ fontSize: 15, lineHeight: 1 }}>+</span><span>Example</span></>)}
                                         </label>
                                       )}
                                     </div>

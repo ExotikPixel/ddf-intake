@@ -288,21 +288,27 @@ export default function ReviewClient({ token }: { token: string }) {
                         </div>
                       )}
                       {itemExamplePhotos(it).length > 0 && (
-                        <div style={{ margin: '14px 0 0' }}>
-                          <span style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--charcoal-60)', marginBottom: 8 }}>How it might look</span>
+                        <div style={{ margin: '16px 0 0', padding: '12px 14px 14px', background: '#f7f5f1', border: '1px dashed #cfc7b6', borderRadius: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>💡</span>
+                            <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--charcoal-60)' }}>Inspiration &amp; examples</span>
+                          </div>
+                          <p style={{ margin: '3px 0 10px 22px', fontSize: 11.5, lineHeight: 1.45, color: 'var(--charcoal-60)' }}>
+                            For reference only — <strong style={{ color: 'var(--charcoal)' }}>not</strong> your artwork and <strong style={{ color: 'var(--charcoal)' }}>not printed</strong>. Your {proofs.length > 1 ? 'proofs are' : 'proof is'} below.
+                          </p>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                             {itemExamplePhotos(it).map(p => {
                               const u = data.proofUrls[p]
                               return (
-                                <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer" style={{ display: 'block', width: 96, height: 96, background: '#f4f3f1', border: '1px solid var(--charcoal-border)', overflow: 'hidden' }}>
+                                <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer" style={{ position: 'relative', display: 'block', width: 92, height: 92, background: '#eceae5', border: '1px solid #d8d1c2', overflow: 'hidden', borderRadius: 5 }}>
                                   {u
                                     ? <img src={u} alt="Example" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                                     : <span style={{ fontSize: 10, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>Loading…</span>}
+                                  <span style={{ position: 'absolute', left: 0, bottom: 0, right: 0, fontSize: 8.5, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', textAlign: 'center', color: '#fff', background: 'rgba(19,19,19,0.55)', padding: '2px 0' }}>Example</span>
                                 </a>
                               )
                             })}
                           </div>
-                          <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--charcoal-60)' }}>Inspiration / example only — your final proof is below.</p>
                         </div>
                       )}
                       {(() => {
@@ -315,6 +321,12 @@ export default function ReviewClient({ token }: { token: string }) {
                         const chosen = isApproved ? it.approved_proof_url : selected[idx]
                         return (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, margin: '16px 0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ width: 16, height: 2, background: 'var(--coral)', borderRadius: 2, flexShrink: 0 }} />
+                              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1.1px', textTransform: 'uppercase', color: 'var(--coral)' }}>
+                                {multi ? 'Your design proofs — for approval' : 'Your design proof — for approval'}
+                              </span>
+                            </div>
                             {proofs.map((p, pi) => {
                               const u = data.proofUrls[p]
                               const isChosen = pickMode && chosen === p
