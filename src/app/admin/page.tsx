@@ -153,6 +153,7 @@ export default function AdminPage() {
   const [resynced, setResynced]         = useState<Set<number>>(new Set())
   const [editingJob, setEditingJob]     = useState<number | null>(null)
   const [editForm, setEditForm]         = useState<EditForm | null>(null)
+  const [collapsedItems, setCollapsedItems] = useState<Set<number>>(new Set())  // edit view: items closed to a one-line summary
   const [savingEdit, setSavingEdit]     = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [uploadPhotoError, setUploadPhotoError] = useState('')
@@ -300,6 +301,10 @@ export default function AdminPage() {
       items: job.items.map(i => ({ ...i })),
       file_paths: [...job.file_paths],
     })
+    // Start with finished items (approved / completed) collapsed to a summary row.
+    const collapsed = new Set<number>()
+    job.items.forEach((it, i) => { if (it.completed || it.approval_status === 'approved') collapsed.add(i) })
+    setCollapsedItems(collapsed)
     // Sign reference photos + every item's proofs so the edit panel can show
     // thumbnails (the stored filenames are random — a preview tells them apart).
     const proofPaths = job.items.flatMap(it => [...itemProofs(it), ...itemRefPhotos(it), ...itemExamplePhotos(it)])
@@ -310,6 +315,7 @@ export default function AdminPage() {
   function cancelEdit() {
     setEditingJob(null)
     setEditForm(null)
+    setCollapsedItems(new Set())
   }
 
   async function saveEdit(jobId: number) {
@@ -421,15 +427,27 @@ export default function AdminPage() {
     }
   }
 
-  async function addProof(index: number, file: File) {
-    if (!editForm) return
+  // Upload one or more design proofs at once. The newest files go to the FRONT
+  // so the first selected becomes the hero preview; older designs slide down the
+  // strip but stay active alternatives. If the client asked for changes, the
+  // upload is a NEW VERSION — the reviewed designs move to history.
+  async function addProofs(index: number, files: File[]) {
+    if (!editForm || files.length === 0) return
     setProofError('')
+    const target = editForm.items[index]
+    const isRevision = target.approval_status === 'changes_requested' && itemProofs(target).length > 0
+    const room = isRevision ? 8 : Math.max(0, 6 - itemProofs(target).length)
+    const batch = files.slice(0, room)
+    if (batch.length === 0) {
+      setProofError('This design already has the maximum of 6 proofs — remove one first.')
+      return
+    }
     setUploadingProof(index)
     try {
       const urlRes = await fetch('/api/upload-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: [{ name: file.name, type: file.type, size: file.size }] }),
+        body: JSON.stringify({ files: batch.map(f => ({ name: f.name, type: f.type, size: f.size })) }),
       })
       if (!urlRes.ok) {
         const { error } = await urlRes.json()
@@ -437,34 +455,41 @@ export default function AdminPage() {
         return
       }
       const { uploads } = await urlRes.json()
-      const { path, signedUrl } = uploads[0]
-      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
-      if (!putRes.ok) { setProofError('Proof upload failed — please try again.'); return }
-      if (editingJob != null) seedPreview(editingJob, path, file)  // show the proof immediately
-      // Adding a proof resets that item's approval — the proof set the client saw has changed.
+      // Upload all files in parallel; keep selection order for the ones that land.
+      const settled = await Promise.allSettled(batch.map(async (file, i) => {
+        const { path, signedUrl } = uploads[i]
+        const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+        if (!putRes.ok) throw new Error(file.name)
+        if (editingJob != null) seedPreview(editingJob, path, file)  // show the proof immediately
+        return path
+      }))
+      const okPaths = settled.flatMap(s => s.status === 'fulfilled' ? [s.value] : [])
+      if (okPaths.length === 0) { setProofError('Proof upload failed — please try again.'); return }
+      const failed = settled.length - okPaths.length
+      // Adding proofs resets that item's approval — the proof set the client saw has changed.
       setEditForm(prev => {
         if (!prev) return prev
         const items = [...prev.items]
-        const target = items[index]
-        const cur = itemProofs(target)
-        if (target.approval_status === 'changes_requested' && cur.length > 0) {
-          // The client asked for changes — this upload is a NEW VERSION. The
-          // design(s) they reviewed move to history; the new one becomes current.
+        const t = items[index]
+        const cur = itemProofs(t)
+        if (t.approval_status === 'changes_requested' && cur.length > 0) {
+          // The client asked for changes — these uploads are a NEW VERSION. The
+          // design(s) they reviewed move to history; the new ones become current.
           items[index] = {
-            ...target,
-            proof_history: [...(target.proof_history ?? []), ...cur],
-            proof_urls: [path], proof_url: undefined,
+            ...t,
+            proof_history: [...(t.proof_history ?? []), ...cur],
+            proof_urls: okPaths, proof_url: undefined,
             approval_status: 'pending', approved_proof_url: undefined,
             client_note: undefined, approved_at: undefined,
           }
         } else {
-          // Still building the design set (first upload / alternatives) — newest
-          // goes to the FRONT so it becomes the hero preview; older designs slide
-          // down the strip but stay active alternatives (Print all / pick one).
-          items[index] = { ...target, proof_urls: [path, ...cur], proof_url: undefined, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
+          // Newest to the FRONT (first selected = hero); older slide down as alternatives.
+          items[index] = { ...t, proof_urls: [...okPaths, ...cur], proof_url: undefined, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
         }
         return { ...prev, items }
       })
+      if (failed > 0) setProofError(`${failed} file${failed > 1 ? 's' : ''} couldn’t upload — the rest were added.`)
+      else if (batch.length < files.length) setProofError(`Added ${batch.length} of ${files.length} — a design holds up to 6 proofs.`)
     } catch {
       setProofError('Network error during proof upload.')
     } finally {
@@ -769,6 +794,58 @@ export default function AdminPage() {
       } else alert('Failed to update approval — please try again.')
     } catch {
       alert('Network error — approval not saved.')
+    } finally {
+      setApprovingItem(null)
+    }
+  }
+
+  // Edit-view per-item status: Awaiting approval → Design approved → Completed.
+  // Persists immediately through the atomic item RPC (so kanban + alerts fire the
+  // same as a normal approval), keeps the edit draft and job list in sync, and
+  // rolls the whole job up to Completed once every item is marked done.
+  async function setItemStatus(job: Job, idx: number, target: 'pending' | 'approved' | 'completed') {
+    const key = `${job.id}:${idx}`
+    setApprovingItem(key)
+    const src = editForm?.items[idx] ?? job.items[idx]
+    const proofs = itemProofs(src)
+    let patch: Record<string, unknown>
+    if (target === 'pending') {
+      patch = { approval_status: 'pending', approved_at: null, completed: false, completed_at: null }
+    } else {
+      // Both "approved" and "completed" record an approved design (completed implies approved).
+      const approvedBase = {
+        approval_status: 'approved',
+        approved_at: src.approved_at ?? new Date().toISOString(),
+        approved_proof_url: src.approved_proof_url ?? (proofs.length === 1 ? proofs[0] : undefined) ?? null,
+        client_note: null,
+      }
+      patch = target === 'completed'
+        ? { ...approvedBase, completed: true, completed_at: new Date().toISOString() }
+        : { ...approvedBase, completed: false, completed_at: null }
+    }
+    // Optimistically update both the edit draft and the job list so they don't diverge.
+    const merge = (it: JobItem): JobItem => ({ ...it, ...patch } as JobItem)
+    setEditForm(prev => prev ? { ...prev, items: prev.items.map((x, i) => i === idx ? merge(x) : x) } : prev)
+    setJobs(prev => prev.map(j => j.id === job.id ? { ...j, items: j.items.map((x, i) => i === idx ? merge(x) : x) } : j))
+    // Auto-collapse a finished item; reopen one sent back to awaiting.
+    setCollapsedItems(prev => { const n = new Set(prev); if (target === 'pending') n.delete(idx); else n.add(idx); return n })
+    // Does this complete the whole job?
+    const newItems = job.items.map((x, i) => i === idx ? merge(x) : x)
+    const allCompleted = newItems.length > 0 && newItems.every(it => it.completed)
+    try {
+      const res = await fetch(`/api/admin/jobs/${job.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemPatch: { index: idx, patch } }),
+      })
+      if (!res.ok) { alert('Failed to update status — please try again.'); return }
+      const { items } = await res.json()
+      setJobs(prev => prev.map(j => j.id === job.id ? { ...j, items } : j))
+      setEditForm(prev => prev ? { ...prev, items: prev.items.map((x, i) => i === idx ? merge(x) : x) } : prev)
+      if (target === 'completed' && allCompleted && job.status !== 'completed') {
+        await updateStatus(job.id, 'completed')
+      }
+    } catch {
+      alert('Network error — status not saved.')
     } finally {
       setApprovingItem(null)
     }
@@ -1898,6 +1975,9 @@ export default function AdminPage() {
                           <p style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', paddingBottom: 6, borderBottom: '1px solid #ececec', fontSize: 11, fontWeight: 700, color: 'var(--charcoal)', textTransform: 'uppercase', letterSpacing: '1px' }}><span style={{ width: 3, height: 12, background: 'var(--coral)', borderRadius: 2 }} />Items <span style={{ color: '#aaa', fontWeight: 600, letterSpacing: 0 }}>({editForm.items.length})</span></p>
                           {editForm.items.map((item, idx) => {
                             const proofs = itemProofs(item)
+                            const itemStatus = item.completed ? 'completed' : (item.approval_status === 'approved' ? 'approved' : 'pending')
+                            const collapsed = collapsedItems.has(idx)
+                            const statusBusy = approvingItem === `${job.id}:${idx}`
                             return (
                             <div key={idx} style={{ background: '#fff', border: '1px solid #e7e5e1', borderRadius: 8, padding: '12px 12px 14px', marginBottom: 10, boxShadow: '0 1px 2px rgba(20,18,16,0.04)' }}>
                               {/* Item header: number badge + name + status + remove */}
@@ -1911,7 +1991,23 @@ export default function AdminPage() {
                                   onFocus={e => { e.currentTarget.style.borderColor = '#dcdcdc'; e.currentTarget.style.background = '#fff' }}
                                   onBlur={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'transparent' }}
                                 />
-                                <ApprovalPill status={item.approval_status ?? 'pending'} />
+                                <span style={{ display: 'inline-flex', border: '1px solid #e2ded7', borderRadius: 6, overflow: 'hidden', flexShrink: 0, opacity: statusBusy ? 0.55 : 1 }}>
+                                  {([['pending', 'Awaiting', '#b08968'], ['approved', 'Approved', '#15803d'], ['completed', 'Completed', '#131313']] as const).map(([k, label, on]) => {
+                                    const active = itemStatus === k
+                                    return (
+                                      <button key={k} disabled={statusBusy} onClick={() => setItemStatus(job, idx, k)}
+                                        title={k === 'completed' ? 'Mark this item done — collapses it; once every item is done the job rolls up to Completed' : k === 'approved' ? 'Approve the design for print' : 'Send back to awaiting approval'}
+                                        style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px', textTransform: 'uppercase', padding: '3px 9px', cursor: statusBusy ? 'default' : 'pointer', fontFamily: 'var(--font-body)', border: 'none', borderLeft: k === 'pending' ? 'none' : '1px solid #ece9e4', background: active ? on : '#fff', color: active ? '#fff' : '#8a857c' }}>
+                                        {label}
+                                      </button>
+                                    )
+                                  })}
+                                </span>
+                                <button onClick={() => setCollapsedItems(prev => { const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n })}
+                                  title={collapsed ? 'Expand item' : 'Collapse item'}
+                                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, flexShrink: 0, background: '#fff', border: '1px solid #e2ded7', borderRadius: 6, color: '#8a857c', cursor: 'pointer', fontSize: 11, lineHeight: 1, fontFamily: 'var(--font-body)' }}>
+                                  {collapsed ? '▸' : '▾'}
+                                </button>
                                 <button
                                   onClick={() => removeEditItem(idx)}
                                   disabled={editForm.items.length === 1}
@@ -1919,6 +2015,7 @@ export default function AdminPage() {
                                   style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: editForm.items.length === 1 ? '#ccc' : '#C62828', cursor: editForm.items.length === 1 ? 'default' : 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-body)', padding: 4, flexShrink: 0 }}
                                 >✕ Remove</button>
                               </div>
+                              {!collapsed && (<>
                               {item.approval_status === 'changes_requested' && item.client_note && (
                                 <p style={{ margin: '0 0 12px', fontSize: 12, color: '#C62828', background: '#fff0f0', border: '1px solid #f6caca', borderRadius: 6, padding: '6px 10px' }}>Client asked: “{item.client_note}”</p>
                               )}
@@ -1978,8 +2075,8 @@ export default function AdminPage() {
                                       <span style={{ width: 14, height: 2, background: 'var(--coral)', borderRadius: 2 }} />
                                       <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.1px', textTransform: 'uppercase', color: 'var(--coral)' }}>Design proofs — for approval</span>
                                     </span>
-                                    {item.approval_status === 'changes_requested' && (
-                                      <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: '#C62828' }}>Upload replaces current →</span>
+                                    {proofs.length > 0 && (
+                                      <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: item.approval_status === 'changes_requested' ? '#C62828' : '#b08968' }}>{item.approval_status === 'changes_requested' ? 'Upload replaces current →' : 'New design goes on top →'}</span>
                                     )}
                                   </div>
 
@@ -1999,12 +2096,12 @@ export default function AdminPage() {
                                     <label
                                       onDragOver={e => { e.preventDefault(); if (uploadingProof !== idx) setDragProof(idx) }}
                                       onDragLeave={() => setDragProof(prev => prev === idx ? null : prev)}
-                                      onDrop={e => { e.preventDefault(); setDragProof(null); const f = e.dataTransfer.files?.[0]; if (f && uploadingProof !== idx) addProof(idx, f) }}
+                                      onDrop={e => { e.preventDefault(); setDragProof(null); const fs = Array.from(e.dataTransfer.files ?? []); if (fs.length && uploadingProof !== idx) addProofs(idx, fs) }}
                                       style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, height: 200, textAlign: 'center', borderRadius: 8, border: `1.5px dashed ${dragProof === idx ? '#15803d' : 'var(--coral)77'}`, background: dragProof === idx ? '#f0fdf4' : '#fffaf8', cursor: uploadingProof === idx ? 'default' : 'pointer', color: uploadingProof === idx ? '#aaa' : dragProof === idx ? '#15803d' : 'var(--coral)' }}>
-                                      <input type="file" accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
-                                        onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addProof(idx, f) } }} />
+                                      <input type="file" multiple accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
+                                        onChange={e => { const fs = Array.from(e.target.files ?? []); if (fs.length) { e.target.value = ''; addProofs(idx, fs) } }} />
                                       <span style={{ fontSize: 28, lineHeight: 1 }}>{uploadingProof === idx ? '…' : '+'}</span>
-                                      <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{uploadingProof === idx ? 'Uploading…' : dragProof === idx ? 'Drop the design here' : 'Add the design proof'}</span>
+                                      <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{uploadingProof === idx ? 'Uploading…' : dragProof === idx ? 'Drop the designs here' : 'Add new design'}</span>
                                       <span style={{ fontSize: 10.5, fontWeight: 600, color: '#b9a59d' }}>JPG · PNG · SVG · PDF · AI · EPS</span>
                                     </label>
                                   )}
@@ -2033,12 +2130,12 @@ export default function AdminPage() {
                                         <label
                                           onDragOver={e => { e.preventDefault(); if (uploadingProof !== idx) setDragProof(idx) }}
                                           onDragLeave={() => setDragProof(prev => prev === idx ? null : prev)}
-                                          onDrop={e => { e.preventDefault(); setDragProof(null); const f = e.dataTransfer.files?.[0]; if (f && uploadingProof !== idx) addProof(idx, f) }}
-                                          title={item.approval_status === 'changes_requested' ? 'Upload the revised design — the current one moves to Earlier versions' : 'Upload a new design — it becomes the main preview; the current one moves down as an alternative'}
+                                          onDrop={e => { e.preventDefault(); setDragProof(null); const fs = Array.from(e.dataTransfer.files ?? []); if (fs.length && uploadingProof !== idx) addProofs(idx, fs) }}
+                                          title={item.approval_status === 'changes_requested' ? 'Upload the revised design(s) — the current one moves to Earlier versions' : 'Add a new design — it becomes the main preview and the current one moves down. Select several at once to add multiple.'}
                                           style={{ width: 56, height: 56, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', color: uploadingProof === idx ? '#aaa' : dragProof === idx ? '#15803d' : 'var(--coral)', border: `1.5px dashed ${dragProof === idx ? '#15803d' : 'var(--coral)77'}`, borderRadius: 7, background: dragProof === idx ? '#f0fdf4' : '#fff', cursor: uploadingProof === idx ? 'default' : 'pointer' }}>
-                                          <input type="file" accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
-                                            onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addProof(idx, f) } }} />
-                                          {uploadingProof === idx ? '…' : dragProof === idx ? 'Drop' : (<><span style={{ fontSize: 15, lineHeight: 1 }}>{item.approval_status === 'changes_requested' ? '↑' : '+'}</span><span>{item.approval_status === 'changes_requested' ? 'New' : 'Add'}</span></>)}
+                                          <input type="file" multiple accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
+                                            onChange={e => { const fs = Array.from(e.target.files ?? []); if (fs.length) { e.target.value = ''; addProofs(idx, fs) } }} />
+                                          {uploadingProof === idx ? '…' : dragProof === idx ? 'Drop' : (<><span style={{ fontSize: 15, lineHeight: 1 }}>↑</span><span>New</span></>)}
                                         </label>
                                       )}
                                     </div>
@@ -2104,6 +2201,7 @@ export default function AdminPage() {
                                   </div>
                                 </div>
                               </div>
+                              </>)}
                             </div>
                           )})}
                           {proofError && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#dc2626' }}>{proofError}</p>}

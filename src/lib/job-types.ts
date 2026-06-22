@@ -24,6 +24,8 @@ export interface JobItem {
   messages?: ItemMessage[]                            // per-item conversation between client and shop
   client_note?: string                                // LEGACY latest change-request text — read the thread via itemThread()
   approved_at?: string                                // ISO timestamp when approved
+  completed?: boolean                                 // admin marked this item done (printed/produced)
+  completed_at?: string                               // ISO timestamp when marked completed
 }
 
 /**

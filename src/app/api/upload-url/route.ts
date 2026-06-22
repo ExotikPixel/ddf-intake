@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 
+export const dynamic = 'force-dynamic'
+
 const ALLOWED_TYPES = [
   'image/jpeg',
   'image/png',
@@ -22,7 +24,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     files = body.files
-    if (!Array.isArray(files) || files.length === 0 || files.length > 3) {
+    if (!Array.isArray(files) || files.length === 0 || files.length > 8) {
       return NextResponse.json({ error: 'Invalid files array' }, { status: 400 })
     }
   } catch {
