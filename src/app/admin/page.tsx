@@ -497,6 +497,50 @@ export default function AdminPage() {
     }
   }
 
+  // Swap one specific design for a freshly uploaded file IN PLACE. Keeps every
+  // other design (and the Client-picks-one selection) intact; the replaced design
+  // moves to Earlier versions rather than being lost. Resets approval.
+  async function replaceProof(index: number, oldPath: string, file: File) {
+    if (!editForm) return
+    setProofError('')
+    setUploadingProof(index)
+    try {
+      const urlRes = await fetch('/api/upload-url', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: [{ name: file.name, type: file.type, size: file.size }] }),
+      })
+      if (!urlRes.ok) { const { error } = await urlRes.json(); setProofError(error ?? 'Could not get upload URL'); return }
+      const { uploads } = await urlRes.json()
+      const { path, signedUrl } = uploads[0]
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      if (!putRes.ok) { setProofError('Replace upload failed — please try again.'); return }
+      if (editingJob != null) seedPreview(editingJob, path, file)
+      setEditForm(prev => {
+        if (!prev) return prev
+        const items = [...prev.items]
+        const t = items[index]
+        const cur = itemProofs(t)
+        const pos = cur.indexOf(oldPath)
+        if (pos < 0) return prev
+        const next = [...cur]
+        next[pos] = path  // same slot → alternatives order + hero position preserved
+        items[index] = {
+          ...t,
+          proof_urls: next, proof_url: undefined,
+          proof_history: [...(t.proof_history ?? []), oldPath],
+          approval_status: 'pending', approved_at: undefined,
+          approved_proof_url: t.approved_proof_url === oldPath ? path : t.approved_proof_url,
+          client_note: undefined, completed: false, completed_at: undefined,
+        }
+        return { ...prev, items }
+      })
+    } catch {
+      setProofError('Network error during replace.')
+    } finally {
+      setUploadingProof(null)
+    }
+  }
+
   function removeProof(index: number, path: string) {
     setEditForm(prev => {
       if (!prev) return prev
@@ -1982,15 +2026,26 @@ export default function AdminPage() {
                             <div key={idx} style={{ background: '#fff', border: '1px solid #e7e5e1', borderRadius: 8, padding: '12px 12px 14px', marginBottom: 10, boxShadow: '0 1px 2px rgba(20,18,16,0.04)' }}>
                               {/* Item header: number badge + name + status + remove */}
                               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 6, background: 'var(--coral)', color: '#fff', fontSize: 12, fontWeight: 800, flexShrink: 0 }}>{idx + 1}</span>
-                                <input
-                                  type="text" value={item.name}
-                                  onChange={e => updateEditItem(idx, 'name', e.target.value)}
-                                  placeholder="Item name"
-                                  style={{ flex: 1, minWidth: 0, padding: '5px 8px', border: '1px solid transparent', borderRadius: 6, fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-body)', color: 'var(--charcoal)', background: 'transparent' }}
-                                  onFocus={e => { e.currentTarget.style.borderColor = '#dcdcdc'; e.currentTarget.style.background = '#fff' }}
-                                  onBlur={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'transparent' }}
-                                />
+                                <span onClick={() => setCollapsedItems(prev => { const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n })}
+                                  title={collapsed ? 'Open item' : 'Collapse item'}
+                                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 6, background: 'var(--coral)', color: '#fff', fontSize: 12, fontWeight: 800, flexShrink: 0, cursor: 'pointer' }}>{idx + 1}</span>
+                                {collapsed ? (
+                                  <button type="button"
+                                    onClick={() => setCollapsedItems(prev => { const n = new Set(prev); n.delete(idx); return n })}
+                                    title="Click to open this item"
+                                    style={{ flex: 1, minWidth: 0, textAlign: 'left', padding: '5px 8px', border: '1px solid transparent', borderRadius: 6, fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-body)', color: 'var(--charcoal)', background: 'transparent', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {item.name || 'Item name'} <span style={{ fontSize: 11, fontWeight: 600, color: '#b3ada3', textTransform: 'none', letterSpacing: 0 }}>· click to open</span>
+                                  </button>
+                                ) : (
+                                  <input
+                                    type="text" value={item.name}
+                                    onChange={e => updateEditItem(idx, 'name', e.target.value)}
+                                    placeholder="Item name"
+                                    style={{ flex: 1, minWidth: 0, padding: '5px 8px', border: '1px solid transparent', borderRadius: 6, fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-body)', color: 'var(--charcoal)', background: 'transparent' }}
+                                    onFocus={e => { e.currentTarget.style.borderColor = '#dcdcdc'; e.currentTarget.style.background = '#fff' }}
+                                    onBlur={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'transparent' }}
+                                  />
+                                )}
                                 <span style={{ display: 'inline-flex', border: '1px solid #e2ded7', borderRadius: 6, overflow: 'hidden', flexShrink: 0, opacity: statusBusy ? 0.55 : 1 }}>
                                   {([['pending', 'Awaiting', '#b08968'], ['approved', 'Approved', '#15803d'], ['completed', 'Completed', '#131313']] as const).map(([k, label, on]) => {
                                     const active = itemStatus === k
@@ -2004,9 +2059,9 @@ export default function AdminPage() {
                                   })}
                                 </span>
                                 <button onClick={() => setCollapsedItems(prev => { const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n })}
-                                  title={collapsed ? 'Expand item' : 'Collapse item'}
-                                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, flexShrink: 0, background: '#fff', border: '1px solid #e2ded7', borderRadius: 6, color: '#8a857c', cursor: 'pointer', fontSize: 11, lineHeight: 1, fontFamily: 'var(--font-body)' }}>
-                                  {collapsed ? '▸' : '▾'}
+                                  title={collapsed ? 'Open item' : 'Collapse item'}
+                                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, height: 24, flexShrink: 0, padding: collapsed ? '0 9px' : '0', width: collapsed ? 'auto' : 24, background: collapsed ? '#fff8f6' : '#fff', border: `1px solid ${collapsed ? 'var(--coral)55' : '#e2ded7'}`, borderRadius: 6, color: collapsed ? 'var(--coral)' : '#8a857c', cursor: 'pointer', fontSize: collapsed ? 10 : 11, fontWeight: 700, letterSpacing: collapsed ? '0.4px' : 0, textTransform: 'uppercase', lineHeight: 1, fontFamily: 'var(--font-body)' }}>
+                                  {collapsed ? '▸ Open' : '▾'}
                                 </button>
                                 <button
                                   onClick={() => removeEditItem(idx)}
@@ -2123,6 +2178,12 @@ export default function AdminPage() {
                                             )}
                                             <button onClick={() => removeProof(idx, p)} title={`Remove ${nm}`}
                                               style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}>×</button>
+                                            <label title="Replace this design with a new file — the old one moves to Earlier versions"
+                                              style={{ position: 'absolute', bottom: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid var(--coral)55', color: 'var(--coral)', cursor: uploadingProof === idx ? 'default' : 'pointer', fontSize: 12, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}>
+                                              <input type="file" accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
+                                                onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; replaceProof(idx, p, f) } }} />
+                                              ⟳
+                                            </label>
                                           </div>
                                         )
                                       })}
