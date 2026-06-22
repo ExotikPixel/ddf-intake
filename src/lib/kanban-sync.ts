@@ -108,6 +108,10 @@ export async function syncApprovedItemsToKanban(jobId: number): Promise<KanbanSy
         special_instructions: special,
         image_urls:           signed.filter((u): u is string => Boolean(u)),
         event_date:           eventDate,
+        // Admin marked every item for this event done in intake → tell CC to move
+        // the card to Done. When false we send nothing that overrides the crew's
+        // own board position (CC only forces 'done', never back to todo).
+        done:                 members.every(m => Boolean(m.it.completed)),
       }
     }))
 
