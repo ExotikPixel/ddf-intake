@@ -458,8 +458,10 @@ export default function AdminPage() {
             client_note: undefined, approved_at: undefined,
           }
         } else {
-          // Still building the design set (first upload / alternatives) — append.
-          items[index] = { ...target, proof_urls: [...cur, path], proof_url: undefined, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
+          // Still building the design set (first upload / alternatives) — newest
+          // goes to the FRONT so it becomes the hero preview; older designs slide
+          // down the strip but stay active alternatives (Print all / pick one).
+          items[index] = { ...target, proof_urls: [path, ...cur], proof_url: undefined, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
         }
         return { ...prev, items }
       })
@@ -2032,7 +2034,7 @@ export default function AdminPage() {
                                           onDragOver={e => { e.preventDefault(); if (uploadingProof !== idx) setDragProof(idx) }}
                                           onDragLeave={() => setDragProof(prev => prev === idx ? null : prev)}
                                           onDrop={e => { e.preventDefault(); setDragProof(null); const f = e.dataTransfer.files?.[0]; if (f && uploadingProof !== idx) addProof(idx, f) }}
-                                          title={item.approval_status === 'changes_requested' ? 'Upload the revised design — the current one moves to Earlier versions' : 'Attach another design proof'}
+                                          title={item.approval_status === 'changes_requested' ? 'Upload the revised design — the current one moves to Earlier versions' : 'Upload a new design — it becomes the main preview; the current one moves down as an alternative'}
                                           style={{ width: 56, height: 56, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', color: uploadingProof === idx ? '#aaa' : dragProof === idx ? '#15803d' : 'var(--coral)', border: `1.5px dashed ${dragProof === idx ? '#15803d' : 'var(--coral)77'}`, borderRadius: 7, background: dragProof === idx ? '#f0fdf4' : '#fff', cursor: uploadingProof === idx ? 'default' : 'pointer' }}>
                                           <input type="file" accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
                                             onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addProof(idx, f) } }} />
