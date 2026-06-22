@@ -275,6 +275,18 @@ export default function AdminPage() {
     }
   }
 
+  // Show a just-uploaded file instantly from a local object URL. The signed-URL
+  // API only signs paths already saved to a job, so a brand-new upload can't be
+  // fetched until the brief is saved — this previews it in the meantime.
+  function seedPreview(jobId: number, path: string, file: File) {
+    const url = URL.createObjectURL(file)
+    setFileUrls(prev => {
+      const have = prev[jobId] ?? []
+      if (have.some(f => f.path === path)) return prev
+      return { ...prev, [jobId]: [...have, { path, name: file.name, url }] }
+    })
+  }
+
   function startEdit(job: Job) {
     setEditingJob(job.id)
     setEditForm({
@@ -400,7 +412,7 @@ export default function AdminPage() {
         body: file,
       })
       if (!putRes.ok) { setUploadPhotoError('Upload failed — please try again.'); return }
-      if (editingJob != null) void loadFiles(editingJob, [path])  // sign it now so the thumbnail shows immediately
+      if (editingJob != null) seedPreview(editingJob, path, file)  // show it immediately
       setEditForm(prev => prev ? { ...prev, file_paths: [...prev.file_paths, path] } : prev)
     } catch {
       setUploadPhotoError('Network error during upload.')
@@ -428,7 +440,7 @@ export default function AdminPage() {
       const { path, signedUrl } = uploads[0]
       const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
       if (!putRes.ok) { setProofError('Proof upload failed — please try again.'); return }
-      if (editingJob != null) void loadFiles(editingJob, [path])  // sign it now so the proof preview shows immediately
+      if (editingJob != null) seedPreview(editingJob, path, file)  // show the proof immediately
       // Adding a proof resets that item's approval — the proof set the client saw has changed.
       setEditForm(prev => {
         if (!prev) return prev
@@ -489,7 +501,7 @@ export default function AdminPage() {
       const { path, signedUrl } = uploads[0]
       const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
       if (!putRes.ok) { setExampleError('Upload failed — please try again.'); return }
-      if (editingJob != null) void loadFiles(editingJob, [path])  // sign it now so the example thumbnail shows immediately
+      if (editingJob != null) seedPreview(editingJob, path, file)  // show the example immediately
       setEditForm(prev => {
         if (!prev) return prev
         const items = [...prev.items]
@@ -805,7 +817,7 @@ export default function AdminPage() {
       const { path, signedUrl } = uploads[0]
       const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
       if (!putRes.ok) { setRevisionError(prev => ({ ...prev, [key]: 'Upload failed — please try again.' })); return }
-      void loadFiles(job.id, [path])  // sign it now so the new version's thumbnail shows immediately
+      seedPreview(job.id, path, file)  // show the new version immediately
 
       const sys: ItemMessage = { from: 'shop', text: 'Uploaded a revised design — please review.', at: new Date().toISOString() }
       const it = job.items[idx]
