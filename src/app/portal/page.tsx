@@ -73,6 +73,13 @@ export default function PortalPage() {
   const [noteOpen, setNoteOpen] = useState<Record<string, boolean>>({})
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({})
   const [approvalError, setApprovalError] = useState<Record<string, string>>({})
+  // Append-only "Add to Job" state (for jobs already in progress)
+  const [addingJob, setAddingJob] = useState<number | null>(null)
+  const [addItems, setAddItems] = useState<JobItem[]>([])
+  const [addFiles, setAddFiles] = useState<string[]>([])
+  const [savingAdd, setSavingAdd] = useState(false)
+  const [addError, setAddError] = useState('')
+  const [addUploading, setAddUploading] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -235,6 +242,91 @@ export default function PortalPage() {
     }
   }
 
+  // ── Add to Job (append-only, for in-progress jobs) ───────────────────
+  function startAdd(job: Job) {
+    setAddingJob(job.id)
+    setAddError('')
+    setAddItems([{ name: '', quantity: 1, size: '', material: 'vinyl' }])
+    setAddFiles([])
+  }
+
+  function cancelAdd() {
+    setAddingJob(null)
+    setAddItems([])
+    setAddFiles([])
+    setAddError('')
+  }
+
+  function updateAddItem(index: number, field: keyof JobItem, value: string | number) {
+    setAddItems(prev => {
+      const items = [...prev]
+      items[index] = { ...items[index], [field]: value }
+      return items
+    })
+  }
+
+  async function addExtraFile(file: File) {
+    setAddError('')
+    setAddUploading(true)
+    try {
+      const urlRes = await fetch('/api/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: [{ name: file.name, type: file.type, size: file.size }] }),
+      })
+      if (!urlRes.ok) {
+        const { error } = await urlRes.json()
+        setAddError(error ?? 'Could not get upload URL')
+        return
+      }
+      const { uploads } = await urlRes.json()
+      const { path, signedUrl } = uploads[0]
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      if (!putRes.ok) { setAddError('Upload failed — please try again.'); return }
+      setAddFiles(prev => [...prev, path])
+    } catch {
+      setAddError('Network error during upload.')
+    } finally {
+      setAddUploading(false)
+    }
+  }
+
+  async function saveAdd(jobId: number) {
+    const items = addItems.filter(i => i.name.trim() || i.size.trim())
+    if (items.some(i => !i.name.trim() || !i.size.trim())) {
+      setAddError('Each item needs a name and a size.')
+      return
+    }
+    if (items.length === 0 && addFiles.length === 0) {
+      setAddError('Add at least one item or file.')
+      return
+    }
+    setSavingAdd(true)
+    setAddError('')
+    try {
+      const res = await fetch(`/api/portal/jobs/${jobId}/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newItems: items, newFilePaths: addFiles }),
+      })
+      if (res.status === 409) {
+        setAddError('This job is closed and can no longer take new items.')
+        return
+      }
+      if (!res.ok) {
+        setAddError('Failed to add — please try again.')
+        return
+      }
+      const { items: serverItems, file_paths } = await res.json()
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, items: serverItems, file_paths } : j))
+      cancelAdd()
+    } catch {
+      setAddError('Network error — nothing was added.')
+    } finally {
+      setSavingAdd(false)
+    }
+  }
+
   async function signOut() {
     const supabase = createClient()
     await supabase.auth.signOut()
@@ -333,6 +425,7 @@ export default function PortalPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {jobs.map(job => {
                 const canEdit = job.status === 'pending' || job.status === 'received'
+                const canAdd = job.status === 'in_progress'
                 const proofItems = job.items
                   .map((it, idx) => ({ it, idx }))
                   .filter(x => itemProofs(x.it).length > 0)
@@ -364,6 +457,14 @@ export default function PortalPage() {
                             style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', padding: '4px 12px', background: editingJob === job.id ? '#fff8f6' : '#f8f7f5', color: editingJob === job.id ? 'var(--coral)' : '#666', border: `1px solid ${editingJob === job.id ? 'var(--coral)44' : 'var(--charcoal-border)'}`, cursor: 'pointer', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap' }}
                           >
                             {editingJob === job.id ? 'Cancel' : 'Edit Brief'}
+                          </button>
+                        )}
+                        {canAdd && (
+                          <button
+                            onClick={() => addingJob === job.id ? cancelAdd() : startAdd(job)}
+                            style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', padding: '4px 12px', background: addingJob === job.id ? '#fff8f6' : '#f8f7f5', color: addingJob === job.id ? 'var(--coral)' : '#666', border: `1px solid ${addingJob === job.id ? 'var(--coral)44' : 'var(--charcoal-border)'}`, cursor: 'pointer', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap' }}
+                          >
+                            {addingJob === job.id ? 'Cancel' : '+ Add to Job'}
                           </button>
                         )}
                       </div>
@@ -597,6 +698,92 @@ export default function PortalPage() {
                         <button onClick={() => saveEdit(job.id)} disabled={savingEdit}
                           style={{ fontSize: 12, fontWeight: 700, padding: '7px 20px', background: 'var(--coral)', color: '#fff', border: 'none', cursor: savingEdit ? 'default' : 'pointer', opacity: savingEdit ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}>
                           {savingEdit ? 'Saving…' : 'Save Changes'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Add-to-Job panel (append-only, in-progress jobs) */}
+                  {addingJob === job.id && (
+                    <div style={{ padding: '18px 24px', borderTop: '2px solid var(--coral)', background: '#fffdf9' }}>
+                      <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>Add to this Job</p>
+                      <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--charcoal-60)', lineHeight: 1.5 }}>
+                        Add new items or documents to a job already in production. Existing items aren&apos;t affected — we&apos;ll quote and proof the additions separately.
+                      </p>
+                      {addError && (
+                        <div style={{ background: '#fff0f0', border: '1px solid #fca5a5', color: '#b91c1c', fontSize: 12, padding: '8px 12px', marginBottom: 12 }}>{addError}</div>
+                      )}
+
+                      <div style={{ marginBottom: 14 }}>
+                        <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>New Items</p>
+                        {addItems.map((item, idx) => (
+                          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '48px 1fr 110px 130px 30px', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                            <input type="number" min={1} value={item.quantity}
+                              onChange={e => updateAddItem(idx, 'quantity', parseInt(e.target.value) || 1)}
+                              style={{ padding: '6px 4px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', textAlign: 'center' }} />
+                            <input type="text" value={item.name}
+                              onChange={e => updateAddItem(idx, 'name', e.target.value)}
+                              placeholder="Description"
+                              style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }} />
+                            <input type="text" value={item.size}
+                              onChange={e => updateAddItem(idx, 'size', e.target.value)}
+                              placeholder="Size"
+                              style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }} />
+                            <select value={item.material}
+                              onChange={e => updateAddItem(idx, 'material', e.target.value)}
+                              style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}>
+                              {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','other'].map(m => (
+                                <option key={m} value={m}>{m}</option>
+                              ))}
+                            </select>
+                            <button onClick={() => setAddItems(prev => prev.filter((_, i) => i !== idx))}
+                              style={{ background: 'none', border: '1px solid #fca5a5', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: '3px 6px' }}>×</button>
+                          </div>
+                        ))}
+                        {addItems.length < 10 && (
+                          <button onClick={() => setAddItems(prev => [...prev, { name: '', quantity: 1, size: '', material: 'vinyl' }])}
+                            style={{ fontSize: 11, fontWeight: 600, color: 'var(--coral)', background: 'none', border: '1px dashed var(--coral)66', padding: '5px 14px', cursor: 'pointer', fontFamily: 'var(--font-body)', marginTop: 4 }}>
+                            + Add Item
+                          </button>
+                        )}
+                      </div>
+
+                      <div style={{ marginBottom: 14 }}>
+                        <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>New Documents / Photos</p>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                          {addFiles.map(path => {
+                            const name = path.split('/').pop() ?? path
+                            return (
+                              <div key={path} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg)', border: '1px solid var(--charcoal-border)', padding: '5px 8px' }}>
+                                <span style={{ fontSize: 12, color: 'var(--charcoal)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                                <button
+                                  onClick={() => setAddFiles(prev => prev.filter(p => p !== path))}
+                                  title="Remove file"
+                                  style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 14, fontWeight: 700, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
+                                >×</button>
+                              </div>
+                            )
+                          })}
+                          {addFiles.length < 3 && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: addUploading ? 'var(--charcoal-60)' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '5px 12px', cursor: addUploading ? 'default' : 'pointer' }}>
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
+                                style={{ display: 'none' }}
+                                disabled={addUploading}
+                                onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addExtraFile(f) } }}
+                              />
+                              {addUploading ? 'Uploading…' : '+ Add File'}
+                            </label>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                        <button onClick={cancelAdd} style={{ fontSize: 12, padding: '7px 18px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Cancel</button>
+                        <button onClick={() => saveAdd(job.id)} disabled={savingAdd}
+                          style={{ fontSize: 12, fontWeight: 700, padding: '7px 20px', background: 'var(--coral)', color: '#fff', border: 'none', cursor: savingAdd ? 'default' : 'pointer', opacity: savingAdd ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}>
+                          {savingAdd ? 'Adding…' : 'Add to Job'}
                         </button>
                       </div>
                     </div>

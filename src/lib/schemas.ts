@@ -68,3 +68,15 @@ export const ApprovalActionSchema = z.object({
 })
 
 export type ApprovalActionInput = z.infer<typeof ApprovalActionSchema>
+
+// Client appends NEW items and/or NEW reference files to an existing job
+// (append-only — existing items are never sent and cannot be changed here).
+export const AddToJobSchema = z.object({
+  newItems: z.array(ItemSchema).max(10).optional(),
+  newFilePaths: z.array(z.string()).max(3).optional(),
+}).refine(
+  d => (d.newItems?.length ?? 0) > 0 || (d.newFilePaths?.length ?? 0) > 0,
+  { message: 'Add at least one item or file' },
+)
+
+export type AddToJobInput = z.infer<typeof AddToJobSchema>

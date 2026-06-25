@@ -26,6 +26,7 @@ export interface JobItem {
   approved_at?: string                                // ISO timestamp when approved
   completed?: boolean                                 // admin marked this item done (printed/produced)
   completed_at?: string                               // ISO timestamp when marked completed
+  added_at?: string                                   // ISO timestamp — set when a client appended this item AFTER submitting (Add to Job)
 }
 
 /**
