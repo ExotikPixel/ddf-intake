@@ -99,7 +99,17 @@ export default function LoginPage() {
               </div>
             )}
 
-            {error && <p style={{ color: 'var(--red-err)', fontSize: 13, marginBottom: 16 }}>{error}</p>}
+            {error && (
+              error.toLowerCase().includes('rate limit') ? (
+                <div style={{ background: '#fff7ed', border: '1px solid #f6cfa0', padding: '12px 14px', marginBottom: 16, fontSize: 13, color: '#92400e', lineHeight: 1.55 }}>
+                  Too many sign-in emails were requested in a short time. Please wait a few minutes and try again — or email{' '}
+                  <a href="mailto:hello@ddfevents.ca?subject=Portal%20sign-in%20link" style={{ color: 'var(--coral)', fontWeight: 700, textDecoration: 'none' }}>hello@ddfevents.ca</a>{' '}
+                  and we&apos;ll send your link manually.
+                </div>
+              ) : (
+                <p style={{ color: 'var(--red-err)', fontSize: 13, marginBottom: 16 }}>{error}</p>
+              )
+            )}
 
             <button
               type="submit"
