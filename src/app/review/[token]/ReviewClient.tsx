@@ -439,6 +439,20 @@ export default function ReviewClient({ token }: { token: string }) {
         </>
       )}
 
+      {/* Need-to-change-the-order footer — the review link is approval-only, so
+          point clients to the portal where they can edit / add to the brief. */}
+      <div style={{ marginTop: 24, borderTop: '1px solid var(--charcoal-border)', paddingTop: 16, textAlign: 'center' }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--charcoal-60)', lineHeight: 1.6 }}>
+          Need to add items or change your brief?{' '}
+          <a href="/login" style={{ color: 'var(--coral)', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+            Log in to your portal →
+          </a>
+        </p>
+        <p style={{ margin: '4px 0 0', fontSize: 11.5, color: 'var(--charcoal-60)' }}>
+          Use the email this job was submitted under.
+        </p>
+      </div>
+
       {/* Chat drawer — right-side panel on desktop, full-screen on mobile */}
       {chatOpen !== null && data.items[chatOpen] && (() => {
         const idx = chatOpen
