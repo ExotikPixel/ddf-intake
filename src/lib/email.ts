@@ -235,3 +235,47 @@ export async function sendStatusNotification(
     console.error('[sendStatusNotification] Brevo send failed:', err)
   }
 }
+
+// Alerts the team when a client appends items/files to a job already in
+// production (the append-only "Add to Job" flow). Mirrors the change-request
+// notification: best-effort, replies route back to the client.
+export async function sendAddedToJobNotification(
+  job: { reference_number: string; client_name: string; contact_email: string },
+  added: { items: Array<{ name: string; quantity: number; size: string }>; fileCount: number },
+  brand: EmailBrand = DDF_BRAND
+): Promise<void> {
+  const itemRows = added.items.map(it =>
+    `<tr><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">${it.quantity}× ${it.name}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;color:#555">${it.size || '—'}</td></tr>`
+  ).join('')
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px">
+  <div style="background:#1a1a1a;color:#fff;padding:16px 20px;margin-bottom:24px">
+    <span style="font-weight:800;font-size:18px;letter-spacing:2px">${brand.businessName}</span>
+    <span style="float:right;background:${brand.brandColor};color:#fff;padding:4px 10px;font-size:12px;font-weight:700;border-radius:3px">${job.reference_number}</span>
+  </div>
+
+  <h2 style="margin:0 0 16px">Client Added to a Job In Progress</h2>
+  <p><strong>${job.client_name}</strong> (${job.contact_email}) added to <strong>${job.reference_number}</strong>:</p>
+  ${added.items.length > 0 ? `<table style="width:100%;border-collapse:collapse;margin-bottom:16px"><thead><tr><th style="text-align:left;padding:6px 12px;background:#f8f6f2;font-size:12px;color:#666">New Item</th><th style="text-align:left;padding:6px 12px;background:#f8f6f2;font-size:12px;color:#666">Size</th></tr></thead><tbody>${itemRows}</tbody></table>` : ''}
+  ${added.fileCount > 0 ? `<div style="background:#fff2ef;border-left:3px solid ${brand.brandColor};padding:12px 16px;margin-bottom:16px">📎 ${added.fileCount} new document${added.fileCount !== 1 ? 's' : ''} attached — view in the admin job card.</div>` : ''}
+  <p style="color:#666;font-size:13px">These additions are awaiting your quote and proof — existing items on the job are unchanged.</p>
+  <hr style="border:none;border-top:1px solid #e0deda;margin:24px 0">
+  <p style="color:#666;font-size:13px">Reply to this email to contact ${job.client_name} directly.</p>
+</body>
+</html>`
+
+  try {
+    await brevo.transactionalEmails.sendTransacEmail({
+      to: [{ email: process.env.NOTIFICATION_EMAIL! }],
+      replyTo: { email: job.contact_email, name: job.client_name },
+      sender: { email: process.env.SENDER_EMAIL!, name: brand.businessName },
+      subject: `Client added to ${job.reference_number}`,
+      htmlContent: html,
+    })
+  } catch (err) {
+    console.error('[sendAddedToJobNotification] Brevo send failed:', err)
+  }
+}

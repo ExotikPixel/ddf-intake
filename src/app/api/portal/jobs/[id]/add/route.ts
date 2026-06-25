@@ -4,6 +4,8 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { AddToJobSchema } from '@/lib/schemas'
 import { sendNtfy } from '@/lib/ntfy'
+import { sendAddedToJobNotification } from '@/lib/email'
+import { getTenantBranding } from '@/lib/tenant-settings'
 import type { JobItem } from '@/lib/job-types'
 
 export const dynamic = 'force-dynamic'
@@ -41,7 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // once it's completed (or cancelled) — at that point the job is closed.
   const { data: job } = await supabaseAdmin
     .from('jobs')
-    .select('contact_email, reference_number, company_name, client_name, status')
+    .select('contact_email, reference_number, company_name, client_name, status, tenant_id')
     .eq('id', jobId)
     .single()
 
@@ -75,16 +77,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const items = (result?.items ?? []) as JobItem[]
   const filePaths = (result?.file_paths ?? []) as string[]
 
-  // Best-effort phone push so the team sees mid-job additions.
+  // Best-effort alerts (phone push + admin email) so the team sees mid-job
+  // additions. Neither failure blocks the append, which is already committed.
   const parts: string[] = []
   if (stamped.length) parts.push(`${stamped.length} item${stamped.length !== 1 ? 's' : ''}`)
   if (newFilePaths.length) parts.push(`${newFilePaths.length} file${newFilePaths.length !== 1 ? 's' : ''}`)
-  await sendNtfy({
-    title: 'Client added to a job',
-    message: `${job.company_name} — ${job.client_name}\nAdded ${parts.join(' + ')}\nRef ${job.reference_number}`,
-    tags: 'heavy_plus_sign',
-    priority: 4,
-  })
+  const brand = await getTenantBranding(job.tenant_id)
+  await Promise.allSettled([
+    sendNtfy({
+      title: 'Client added to a job',
+      message: `${job.company_name} — ${job.client_name}\nAdded ${parts.join(' + ')}\nRef ${job.reference_number}`,
+      tags: 'heavy_plus_sign',
+      priority: 4,
+    }),
+    sendAddedToJobNotification(
+      { reference_number: job.reference_number, client_name: job.client_name, contact_email: job.contact_email },
+      { items: stamped.map(it => ({ name: it.name, quantity: it.quantity, size: it.size })), fileCount: newFilePaths.length },
+      brand,
+    ).catch(e => console.error('[add-to-job] email failed:', e)),
+  ])
 
   return NextResponse.json({ success: true, items, file_paths: filePaths })
 }

@@ -1614,6 +1614,9 @@ export default function AdminPage() {
                                 ? <ApprovalPill status={item.approval_status} />
                                 : <span title="Proof attached — not yet approved for print" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#888', background: '#f0f0f0', border: '1px solid #ddd', padding: '1px 6px', textTransform: 'uppercase' }}>Awaiting Approval</span>
                             )}
+                            {item.added_at && (
+                              <span title={`Client added this after submitting, on ${new Date(item.added_at).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}`} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#9a6a00', background: '#fff6e5', border: '1px solid #f0d79a', padding: '1px 6px', textTransform: 'uppercase' }}>🆕 Added Later</span>
+                            )}
                           </span>
                           {refs.length > 0 && openRefs === `${job.id}:${i}` && (
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingLeft: 2, marginTop: 4 }}>
