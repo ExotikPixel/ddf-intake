@@ -80,6 +80,7 @@ export default function PortalPage() {
   const [savingAdd, setSavingAdd] = useState(false)
   const [addError, setAddError] = useState('')
   const [addUploading, setAddUploading] = useState(false)
+  const [addItemUploading, setAddItemUploading] = useState<number | null>(null)
   const router = useRouter()
 
   useEffect(() => {
@@ -289,6 +290,45 @@ export default function PortalPage() {
     } finally {
       setAddUploading(false)
     }
+  }
+
+  // Upload an example/reference file and attach it to ONE new item's ref_photos.
+  async function addItemFile(idx: number, file: File) {
+    setAddError('')
+    setAddItemUploading(idx)
+    try {
+      const urlRes = await fetch('/api/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: [{ name: file.name, type: file.type, size: file.size }] }),
+      })
+      if (!urlRes.ok) {
+        const { error } = await urlRes.json()
+        setAddError(error ?? 'Could not get upload URL')
+        return
+      }
+      const { uploads } = await urlRes.json()
+      const { path, signedUrl } = uploads[0]
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      if (!putRes.ok) { setAddError('Upload failed — please try again.'); return }
+      setAddItems(prev => {
+        const items = [...prev]
+        items[idx] = { ...items[idx], ref_photos: [...(items[idx].ref_photos ?? []), path] }
+        return items
+      })
+    } catch {
+      setAddError('Network error during upload.')
+    } finally {
+      setAddItemUploading(null)
+    }
+  }
+
+  function removeItemFile(idx: number, path: string) {
+    setAddItems(prev => {
+      const items = [...prev]
+      items[idx] = { ...items[idx], ref_photos: (items[idx].ref_photos ?? []).filter(p => p !== path) }
+      return items
+    })
   }
 
   async function saveAdd(jobId: number) {
@@ -716,30 +756,66 @@ export default function PortalPage() {
 
                       <div style={{ marginBottom: 14 }}>
                         <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>New Items</p>
-                        {addItems.map((item, idx) => (
-                          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '48px 1fr 110px 130px 30px', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-                            <input type="number" min={1} value={item.quantity}
-                              onChange={e => updateAddItem(idx, 'quantity', parseInt(e.target.value) || 1)}
-                              style={{ padding: '6px 4px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', textAlign: 'center' }} />
-                            <input type="text" value={item.name}
-                              onChange={e => updateAddItem(idx, 'name', e.target.value)}
-                              placeholder="Description"
-                              style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }} />
-                            <input type="text" value={item.size}
-                              onChange={e => updateAddItem(idx, 'size', e.target.value)}
-                              placeholder="Size"
-                              style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }} />
-                            <select value={item.material}
-                              onChange={e => updateAddItem(idx, 'material', e.target.value)}
-                              style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}>
-                              {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','other'].map(m => (
-                                <option key={m} value={m}>{m}</option>
-                              ))}
-                            </select>
-                            <button onClick={() => setAddItems(prev => prev.filter((_, i) => i !== idx))}
-                              style={{ background: 'none', border: '1px solid #fca5a5', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: '3px 6px' }}>×</button>
+                        {addItems.map((item, idx) => {
+                          const photos = item.ref_photos ?? []
+                          const uploading = addItemUploading === idx
+                          return (
+                          <div key={idx} style={{ border: '1px solid var(--charcoal-border)', background: '#fff', padding: 10, marginBottom: 8 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 110px 130px 30px', gap: 6, alignItems: 'center' }}>
+                              <input type="number" min={1} value={item.quantity}
+                                onChange={e => updateAddItem(idx, 'quantity', parseInt(e.target.value) || 1)}
+                                style={{ padding: '6px 4px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', textAlign: 'center' }} />
+                              <input type="text" value={item.name}
+                                onChange={e => updateAddItem(idx, 'name', e.target.value)}
+                                placeholder="Item name"
+                                style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }} />
+                              <input type="text" value={item.size}
+                                onChange={e => updateAddItem(idx, 'size', e.target.value)}
+                                placeholder="Size"
+                                style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }} />
+                              <select value={item.material}
+                                onChange={e => updateAddItem(idx, 'material', e.target.value)}
+                                style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}>
+                                {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','other'].map(m => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))}
+                              </select>
+                              <button onClick={() => setAddItems(prev => prev.filter((_, i) => i !== idx))}
+                                style={{ background: 'none', border: '1px solid #fca5a5', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: '3px 6px' }}>×</button>
+                            </div>
+                            <textarea
+                              value={item.description ?? ''}
+                              rows={2}
+                              onChange={e => updateAddItem(idx, 'description', e.target.value)}
+                              placeholder="Notes for this item (optional) — colours, finish, placement…"
+                              style={{ width: '100%', marginTop: 6, padding: '7px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', resize: 'vertical', boxSizing: 'border-box' }} />
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, alignItems: 'center' }}>
+                              {photos.map(path => {
+                                const name = path.split('/').pop() ?? path
+                                return (
+                                  <div key={path} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--bg)', border: '1px solid var(--charcoal-border)', padding: '4px 7px' }}>
+                                    <span style={{ fontSize: 11, color: 'var(--charcoal)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                                    <button onClick={() => removeItemFile(idx, path)} title="Remove"
+                                      style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}>×</button>
+                                  </div>
+                                )
+                              })}
+                              {photos.length < 5 && (
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: uploading ? 'var(--charcoal-60)' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '4px 10px', cursor: uploading ? 'default' : 'pointer' }}>
+                                  <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
+                                    style={{ display: 'none' }}
+                                    disabled={uploading}
+                                    onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addItemFile(idx, f) } }}
+                                  />
+                                  {uploading ? 'Uploading…' : '+ Example / file'}
+                                </label>
+                              )}
+                            </div>
                           </div>
-                        ))}
+                          )
+                        })}
                         {addItems.length < 10 && (
                           <button onClick={() => setAddItems(prev => [...prev, { name: '', quantity: 1, size: '', material: 'vinyl' }])}
                             style={{ fontSize: 11, fontWeight: 600, color: 'var(--coral)', background: 'none', border: '1px dashed var(--coral)66', padding: '5px 14px', cursor: 'pointer', fontFamily: 'var(--font-body)', marginTop: 4 }}>
