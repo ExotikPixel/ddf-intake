@@ -20,7 +20,7 @@ export interface JobItem {
   proof_history?: string[]                            // superseded proof versions (view-only history), oldest→newest
   approval_status?: 'pending' | 'approved' | 'changes_requested'
   approved_proof_url?: string                         // PICK mode: the ONE design chosen out of several
-  designs_mode?: 'all' | 'pick'                       // multiple designs are all-needed (default) or pick-one
+  designs_mode?: 'all' | 'pick' | 'latest'            // multiple designs: all-needed (default), pick-one, or latest-only
   messages?: ItemMessage[]                            // per-item conversation between client and shop
   client_note?: string                                // LEGACY latest change-request text — read the thread via itemThread()
   approved_at?: string                                // ISO timestamp when approved
@@ -31,11 +31,15 @@ export interface JobItem {
 
 /**
  * How multiple designs on an item behave. 'all' (default) = every design is
- * needed and prints; 'pick' = they're alternatives and one is chosen. Only
- * meaningful when an item has more than one proof.
+ * needed and prints; 'pick' = they're alternatives and one is chosen by the
+ * client; 'latest' = only the newest design is shown big / printed and the
+ * earlier ones are kept as small reference thumbnails. Only meaningful when an
+ * item has more than one proof.
  */
-export function designsMode(item: JobItem): 'all' | 'pick' {
-  return item.designs_mode === 'pick' ? 'pick' : 'all'
+export function designsMode(item: JobItem): 'all' | 'pick' | 'latest' {
+  if (item.designs_mode === 'pick') return 'pick'
+  if (item.designs_mode === 'latest') return 'latest'
+  return 'all'
 }
 
 /**
@@ -73,6 +77,8 @@ export function itemProofs(item: JobItem): string[] {
  */
 export function approvedProofs(item: JobItem): string[] {
   const all = itemProofs(item)
+  // Latest-only: just the newest design (kept on top by addProofs) goes to print.
+  if (designsMode(item) === 'latest' && all.length > 1) return [all[0]]
   if (item.approved_proof_url && all.includes(item.approved_proof_url)) return [item.approved_proof_url]
   return all
 }

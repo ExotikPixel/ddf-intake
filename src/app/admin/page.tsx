@@ -483,8 +483,12 @@ export default function AdminPage() {
             client_note: undefined, approved_at: undefined,
           }
         } else {
-          // Newest to the FRONT (first selected = hero); older slide down as alternatives.
-          items[index] = { ...t, proof_urls: [...okPaths, ...cur], proof_url: undefined, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
+          // Newest to the FRONT (first selected = hero); older slide down.
+          // Appending to an item that ALREADY had a design defaults to 'latest'
+          // (newest big, earlier ones small) — unless the admin already chose a
+          // mode explicitly. Fresh first-upload (cur empty) keeps the default.
+          const nextMode = t.designs_mode ?? (cur.length > 0 ? 'latest' : undefined)
+          items[index] = { ...t, proof_urls: [...okPaths, ...cur], proof_url: undefined, designs_mode: nextMode, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
         }
         return { ...prev, items }
       })
@@ -2205,26 +2209,29 @@ export default function AdminPage() {
                                     </div>
                                   )}
 
-                                  {/* Multiple designs: all needed, or alternatives? */}
+                                  {/* Multiple designs: all needed, alternatives, or latest-only? */}
                                   {proofs.length > 1 && (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                                       <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb' }}>Multiple designs</span>
-                                      {(['all', 'pick'] as const).map(m => {
+                                      {(['all', 'pick', 'latest'] as const).map(m => {
                                         const on = designsMode(item) === m
+                                        const label = m === 'all' ? 'Print all' : m === 'pick' ? 'Client picks one' : 'Latest only'
                                         return (
                                           <button key={m}
+                                            title={m === 'all' ? 'Every design is printed' : m === 'pick' ? 'They are alternatives — the client chooses one' : 'Only the newest design is shown big & printed; the earlier ones stay as small reference thumbnails'}
                                             onClick={() => setEditForm(prev => {
                                               if (!prev) return prev
                                               const items = [...prev.items]
-                                              items[idx] = { ...items[idx], designs_mode: m, ...(m === 'all' ? { approved_proof_url: undefined } : {}) }
+                                              // Only 'pick' uses a chosen design — clear it for the other modes.
+                                              items[idx] = { ...items[idx], designs_mode: m, ...(m === 'pick' ? {} : { approved_proof_url: undefined }) }
                                               return { ...prev, items }
                                             })}
                                             style={{ fontSize: 11, fontWeight: 700, padding: '4px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)', background: on ? '#131313' : '#fff', color: on ? '#fff' : '#666', border: `1px solid ${on ? '#131313' : '#ddd'}` }}>
-                                            {m === 'all' ? 'Print all' : 'Client picks one'}
+                                            {label}
                                           </button>
                                         )
                                       })}
-                                      <span style={{ fontSize: 10, color: '#999' }}>{designsMode(item) === 'all' ? 'every design is printed' : 'they are alternatives'}</span>
+                                      <span style={{ fontSize: 10, color: '#999' }}>{designsMode(item) === 'all' ? 'every design is printed' : designsMode(item) === 'pick' ? 'they are alternatives' : 'newest shown big, earlier ones kept small'}</span>
                                     </div>
                                   )}
 

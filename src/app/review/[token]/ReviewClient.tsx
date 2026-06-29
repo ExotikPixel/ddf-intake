@@ -312,8 +312,12 @@ export default function ReviewClient({ token }: { token: string }) {
                         </div>
                       )}
                       {(() => {
-                        const multi = proofs.length > 1
-                        const pickMode = multi && designsMode(it) === 'pick'   // alternatives → choose one; else all needed
+                        const mode = designsMode(it)
+                        // Latest-only: show just the newest design big; the rest drop to small thumbnails below.
+                        const latestMode = proofs.length > 1 && mode === 'latest'
+                        const shownProofs = latestMode ? proofs.slice(0, 1) : proofs
+                        const multi = shownProofs.length > 1
+                        const pickMode = multi && mode === 'pick'   // alternatives → choose one; else all needed
                         const isApproved = status === 'approved'
                         // Only treat designs as picked/not-picked when an actual choice was recorded.
                         const hasPick = pickMode && isApproved && !!it.approved_proof_url
@@ -327,7 +331,7 @@ export default function ReviewClient({ token }: { token: string }) {
                                 {multi ? 'Your design proofs — for approval' : 'Your design proof — for approval'}
                               </span>
                             </div>
-                            {proofs.map((p, pi) => {
+                            {shownProofs.map((p, pi) => {
                               const u = data.proofUrls[p]
                               const isChosen = pickMode && chosen === p
                               const dimmed = hasPick && !isChosen // non-selected designs fade out once a pick is recorded
@@ -371,6 +375,24 @@ export default function ReviewClient({ token }: { token: string }) {
                                 </div>
                               )
                             })}
+                            {/* Latest-only mode: earlier designs kept small for reference (not the one being approved). */}
+                            {latestMode && proofs.length > 1 && (
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--charcoal-60)', marginBottom: 6 }}>Earlier designs</div>
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                  {proofs.slice(1).map((p, vi) => {
+                                    const u = data.proofUrls[p]
+                                    return (
+                                      <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer"
+                                         title={`Earlier design ${vi + 1}`}
+                                         style={{ display: 'block', width: 64, height: 64, border: '1px solid var(--charcoal-border)', background: '#f4f3f1', flexShrink: 0 }}>
+                                        {u && <img src={u} alt={`Earlier design ${vi + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.7 }} />}
+                                      </a>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )
                       })()}
@@ -378,7 +400,9 @@ export default function ReviewClient({ token }: { token: string }) {
                         {proofs.length > 1
                           ? (designsMode(it) === 'pick'
                               ? `${proofs.length} designs — choose the one you'd like, then approve. Tap an image to open it full size.`
-                              : `${proofs.length} designs — all will be printed. Tap an image to open it full size.`)
+                              : designsMode(it) === 'latest'
+                                ? `Showing the latest design for approval — earlier ones are kept below for reference. Tap an image to open it full size.`
+                                : `${proofs.length} designs — all will be printed. Tap an image to open it full size.`)
                           : 'Tap the image to open it full size.'}
                       </p>
 

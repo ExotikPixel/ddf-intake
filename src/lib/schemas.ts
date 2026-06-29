@@ -17,7 +17,7 @@ export const ItemSchema = z.object({
   proof_history: z.array(z.string()).optional(),
   approval_status: z.enum(['pending', 'approved', 'changes_requested']).optional(),
   approved_proof_url: z.string().optional(),
-  designs_mode: z.enum(['all', 'pick']).optional(),
+  designs_mode: z.enum(['all', 'pick', 'latest']).optional(),
   messages: z.array(z.object({
     from: z.enum(['client', 'shop']),
     text: z.string().max(2000),

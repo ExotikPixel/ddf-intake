@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-import { STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemExamplePhotos } from '@/lib/job-types'
+import { STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemExamplePhotos, designsMode } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 
 interface Job {
@@ -583,13 +583,16 @@ export default function PortalPage() {
                             const err = approvalError[key]
                             return (
                               <div key={idx} style={{ border: '1px solid var(--charcoal-border)', background: '#fff', display: 'flex', flexWrap: 'wrap', gap: 12, padding: 12, alignItems: 'flex-start' }}>
-                                {/* Thumbnails (one or more proofs) */}
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flexShrink: 0 }}>
-                                  {proofs.map(p => {
+                                {/* Thumbnails (one or more proofs) — latest-only keeps the newest big, earlier ones small/dim */}
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flexShrink: 0, alignItems: 'flex-start' }}>
+                                  {proofs.map((p, pi) => {
                                     const u = proofUrls[job.id]?.[p]
+                                    const older = proofs.length > 1 && designsMode(it) === 'latest' && pi > 0
+                                    const dim = older ? 56 : 84
                                     return (
                                       <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer"
-                                         style={{ display: 'block', width: 84, height: 84, background: '#f4f3f1', border: '1px solid var(--charcoal-border)', overflow: 'hidden' }}>
+                                         title={older ? 'Earlier design' : undefined}
+                                         style={{ display: 'block', width: dim, height: dim, background: '#f4f3f1', border: '1px solid var(--charcoal-border)', overflow: 'hidden', opacity: older ? 0.6 : 1 }}>
                                         {u
                                           ? <img src={u} alt={`Proof for ${it.name}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                           : <span style={{ fontSize: 10, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>Loading…</span>}
