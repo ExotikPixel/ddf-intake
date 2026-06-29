@@ -43,3 +43,10 @@ next-env.d.ts
 
 # build caches / agent tooling
 node-compile-cache/
+
+# local working notes, content drafts & brand reference (keep out of repo)
+/CLIENT_APPROVAL_MEMORY.md
+/CLIENT_APPROVAL_TASKS.md
+/DG_Devotion_Split_Quotes.md
+/JUICY_Advent_Display_Quote.md
+/Brand Guidelines/
