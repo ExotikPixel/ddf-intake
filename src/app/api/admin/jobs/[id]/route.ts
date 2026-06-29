@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 import { requireAdmin } from '@/lib/admin-auth'
-import { STATUSES, NOTIFICATION_STATUSES, NotificationStatus, itemProofs } from '@/lib/job-types'
+import { STATUSES, NOTIFICATION_STATUSES, NotificationStatus, itemProofs, mergeItemsPreservingApproval } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 import { JobPatchNotifySchema } from '@/lib/schemas'
 import { sendStatusNotification } from '@/lib/email'
@@ -150,28 +150,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if ('removal_location' in body) patch.removal_location = body.removal_location ?? null
     if ('removal_time' in body)     patch.removal_time     = body.removal_time ?? null
 
-    // When items change, diff approval state for a phone push (admin/staff approval + full approval).
-    let approvalPush: { names: string[]; becameFull: boolean; ref: string; company: string } | null = null
+    // When items change, merge server-side so a brief edit can NEVER clobber a
+    // concurrent client approval. The server owns approval state — approval
+    // fields come from the DB, and an item only resets to pending if its proofs
+    // actually changed. (Approvals themselves flow through the itemPatch RPC, so
+    // a brief save can no longer newly-approve anything → no push needed here.)
     if ('items' in body) {
-      patch.items = body.items
-      const newItems = (body.items ?? []) as JobItem[]
+      const incoming = (body.items ?? []) as JobItem[]
       const { data: cur } = await supabaseAdmin
-        .from('jobs').select('items, reference_number, company_name').eq('id', jobId).eq('tenant_id', auth.tenantId).single()
-      const oldItems = (cur?.items ?? []) as JobItem[]
-      const newlyApproved = newItems.filter((it, i) =>
-        it.approval_status === 'approved' && oldItems[i]?.approval_status !== 'approved')
-      if (newlyApproved.length > 0) {
-        const proofedNew = newItems.filter(it => itemProofs(it).length > 0)
-        const proofedOld = oldItems.filter(it => itemProofs(it).length > 0)
-        const fullNow = proofedNew.length > 0 && proofedNew.every(it => it.approval_status === 'approved')
-        const fullBefore = proofedOld.length > 0 && proofedOld.every(it => it.approval_status === 'approved')
-        approvalPush = {
-          names: newlyApproved.map(it => it.name),
-          becameFull: fullNow && !fullBefore,
-          ref: cur?.reference_number ?? String(jobId),
-          company: cur?.company_name ?? '',
-        }
-      }
+        .from('jobs').select('items').eq('id', jobId).eq('tenant_id', auth.tenantId).single()
+      patch.items = mergeItemsPreservingApproval(incoming, (cur?.items ?? []) as JobItem[])
     }
 
     if ('file_paths' in body) {
@@ -195,22 +183,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // No-op when nothing is approved; updates existing tickets in place.
     if ('items' in body) await syncApprovedItemsToKanban(jobId)
 
-    if (approvalPush) {
-      await sendNtfy({
-        title: 'Design approved',
-        message: `${approvalPush.company} (${approvalPush.ref})\nApproved: ${approvalPush.names.join(', ')}`,
-        tags: 'white_check_mark',
-        priority: 3,
-      })
-      if (approvalPush.becameFull) {
-        await sendNtfy({
-          title: 'Job fully approved',
-          message: `${approvalPush.company} (${approvalPush.ref}) — all designs approved, ready for production`,
-          tags: 'checkered_flag',
-          priority: 4,
-        })
-      }
-    }
     return NextResponse.json({ success: true })
   }
 

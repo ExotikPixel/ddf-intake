@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { mergeItemsPreservingApproval } from '@/lib/job-types'
+import type { JobItem } from '@/lib/job-types'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,7 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // Verify ownership and status
   const { data: job } = await supabaseAdmin
     .from('jobs')
-    .select('contact_email, status, file_paths')
+    .select('contact_email, status, file_paths, items')
     .eq('id', jobId)
     .single()
 
@@ -42,7 +44,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if ('date_required' in body) patch.date_required = body.date_required
   if ('event_name' in body)   patch.event_name   = body.event_name ?? null
   if ('notes' in body)        patch.notes        = body.notes ?? null
-  if ('items' in body)        patch.items        = body.items
+  // Server owns approval state — a client brief edit must not clobber approvals
+  // (or wipe them) via a full-array write. Merge onto the current DB items.
+  if ('items' in body)        patch.items        = mergeItemsPreservingApproval((body.items ?? []) as JobItem[], (job.items ?? []) as JobItem[])
   if ('file_paths' in body) {
     const newPaths = body.file_paths as string[]
     const removed = (job.file_paths as string[] ?? []).filter((p: string) => !newPaths.includes(p))

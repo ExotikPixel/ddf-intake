@@ -83,6 +83,45 @@ export function approvedProofs(item: JobItem): string[] {
   return all
 }
 
+/**
+ * Merge a brief-edit's incoming items onto the current DB items so a full-array
+ * brief save can NEVER clobber a concurrent client/admin approval. The server
+ * owns approval state: approval fields are always taken from the DB, never from
+ * the (possibly stale) edit-form payload. The ONE exception is an item whose
+ * proof set actually changed — a new/replaced design must be re-approved, so it
+ * resets to pending. Approval / completion / status changes flow through the
+ * atomic update_job_item RPC instead, never through here.
+ *
+ * Items are matched by index (consistent with the rest of the system); a brand
+ * new item past the end of the DB array keeps its incoming state.
+ */
+export function mergeItemsPreservingApproval(incoming: JobItem[], current: JobItem[]): JobItem[] {
+  const sameProofs = (a: JobItem, b: JobItem) =>
+    JSON.stringify(itemProofs(a)) === JSON.stringify(itemProofs(b))
+  return incoming.map((inc, i) => {
+    const cur = current[i]
+    if (!cur) return inc // new item — nothing to preserve
+    // Carry approval-owned fields from the DB, ignoring whatever the form sent.
+    const merged: JobItem = {
+      ...inc,
+      approval_status: cur.approval_status,
+      approved_at: cur.approved_at,
+      approved_proof_url: cur.approved_proof_url,
+      client_note: cur.client_note,
+      messages: cur.messages,
+      completed: cur.completed,
+      completed_at: cur.completed_at,
+    }
+    if (!sameProofs(inc, cur)) {
+      // Design changed → the client must re-approve the new proof(s).
+      merged.approval_status = 'pending'
+      merged.approved_at = undefined
+      merged.approved_proof_url = undefined
+    }
+    return merged
+  })
+}
+
 export const APPROVAL_STATUSES = ['pending', 'approved', 'changes_requested'] as const
 export type ApprovalStatus = typeof APPROVAL_STATUSES[number]
 
