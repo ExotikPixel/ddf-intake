@@ -3,5 +3,8 @@
   "buildCommand": "next build",
   "outputDirectory": ".next",
   "installCommand": "npm install",
-  "regions": ["cpt1"]
+  "regions": ["cpt1"],
+  "crons": [
+    { "path": "/api/cron/kanban-retry", "schedule": "0 12 * * *" }
+  ]
 }
