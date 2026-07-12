@@ -736,9 +736,10 @@ export default function AdminPage() {
     body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 32px; }
     table { width: 100%; border-collapse: collapse; }
     @media print {
-      body { padding: 0; }
-      @page { margin: 18mm 20mm; size: A4 portrait; }
+      body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      @page { margin: 14mm; size: letter portrait; }
       .no-print { display: none !important; }
+      .sheet { max-width: 100% !important; }
     }
   </style>
 </head>
@@ -747,7 +748,7 @@ export default function AdminPage() {
     <button onclick="window.print()" style="background:#1a1a1a;color:#fff;border:none;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Print Ticket</button>
     <button onclick="window.close()" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;padding:10px 24px;font-size:13px;cursor:pointer;">Close</button>
   </div>
-  <div style="max-width:720px;margin:0 auto;">
+  <div class="sheet" style="max-width:720px;margin:0 auto;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a1a1a;padding-bottom:20px;margin-bottom:24px;">
       <div>
         <div style="font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#999;margin-bottom:4px;">DDF x Pixel</div>
@@ -1061,7 +1062,12 @@ export default function AdminPage() {
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 32px; }
   table { width: 100%; border-collapse: collapse; }
-  @media print { body { padding: 0; } @page { margin: 14mm 16mm; size: A4 portrait; } .no-print { display: none !important; } }
+  @media print {
+    body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    @page { margin: 12mm; size: letter portrait; }
+    .no-print { display: none !important; }
+    .sheet { max-width: 100% !important; }
+  }
 </style></head>
 <body>
   <div class="no-print" style="margin-bottom:24px;display:flex;gap:10px;align-items:center;">
@@ -1069,7 +1075,7 @@ export default function AdminPage() {
     <button onclick="window.close()" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;padding:10px 24px;font-size:13px;cursor:pointer;">Close</button>
     <span id="loadNote" style="font-size:12px;color:#999;"></span>
   </div>
-  <div style="max-width:760px;margin:0 auto;">
+  <div class="sheet" style="max-width:760px;margin:0 auto;">
 
     <!-- Header -->
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
@@ -1216,7 +1222,12 @@ export default function AdminPage() {
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 32px; }
   section { margin-bottom: 24px; }
-  @media print { body { padding: 0; } @page { margin: 14mm 16mm; size: A4 portrait; } .no-print { display: none !important; } }
+  @media print {
+    body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    @page { margin: 12mm; size: letter portrait; }
+    .no-print { display: none !important; }
+    .sheet { max-width: 100% !important; }
+  }
 </style></head>
 <body>
   <div class="no-print" style="margin-bottom:24px;display:flex;gap:10px;align-items:center;">
@@ -1224,7 +1235,7 @@ export default function AdminPage() {
     <button onclick="window.close()" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;padding:10px 24px;font-size:13px;cursor:pointer;">Close</button>
     <span id="loadNote" style="font-size:12px;color:#999;"></span>
   </div>
-  <div style="max-width:760px;margin:0 auto;">
+  <div class="sheet" style="max-width:760px;margin:0 auto;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
       <div>
         <div style="font-size:22px;font-weight:900;letter-spacing:1px;">DDF <span style="font-weight:400;">X</span> PIXEL</div>
