@@ -736,10 +736,11 @@ export default function AdminPage() {
     body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 32px; }
     table { width: 100%; border-collapse: collapse; }
     @media print {
-      body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      @page { margin: 14mm; size: letter portrait; }
+      html, body { width: 7.3in; margin: 0 auto; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      @page { size: letter portrait; margin: 0.5in; }
       .no-print { display: none !important; }
-      .sheet { max-width: 100% !important; }
+      .sheet { width: 100% !important; max-width: 100% !important; margin: 0 !important; }
+      img { max-width: 100% !important; }
     }
   </style>
 </head>
@@ -1063,10 +1064,11 @@ export default function AdminPage() {
   body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 32px; }
   table { width: 100%; border-collapse: collapse; }
   @media print {
-    body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    @page { margin: 12mm; size: letter portrait; }
+    html, body { width: 7.3in; margin: 0 auto; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    @page { size: letter portrait; margin: 0.5in; }
     .no-print { display: none !important; }
-    .sheet { max-width: 100% !important; }
+    .sheet { width: 100% !important; max-width: 100% !important; margin: 0 !important; }
+    img { max-width: 100% !important; }
   }
 </style></head>
 <body>
@@ -1223,10 +1225,11 @@ export default function AdminPage() {
   body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 32px; }
   section { margin-bottom: 24px; }
   @media print {
-    body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    @page { margin: 12mm; size: letter portrait; }
+    html, body { width: 7.3in; margin: 0 auto; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    @page { size: letter portrait; margin: 0.5in; }
     .no-print { display: none !important; }
-    .sheet { max-width: 100% !important; }
+    .sheet { width: 100% !important; max-width: 100% !important; margin: 0 !important; }
+    img { max-width: 100% !important; }
   }
 </style></head>
 <body>
