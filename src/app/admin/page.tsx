@@ -1015,15 +1015,22 @@ export default function AdminPage() {
 
     const renderCell = (c: Cell) => {
       const u = urlMap[c.path]
-      const cap = `${c.qty}× ${c.short}${c.size ? ' · ' + c.size : ''}${c.total > 1 ? ` (${c.pi + 1}/${c.total})` : ''}`
+      const sizeBits = [c.size, c.total > 1 ? `${c.pi + 1} of ${c.total}` : ''].filter(Boolean).join('   ·   ')
       return `
-        <div style="page-break-inside:avoid;border:1px solid #e8e8e8;">
+        <div style="page-break-inside:avoid;border:1px solid #e2e2e2;">
           ${u
             ? `<img src="${u}" alt="${escHtml(c.short)}" style="width:100%;height:240px;object-fit:contain;display:block;background:#fafafa;border-bottom:1px solid #eee;" />`
-            : `<div style="height:240px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:12px;">Image unavailable</div>`}
-          <div style="padding:7px 10px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
-            <span style="font-size:11px;font-weight:700;line-height:1.3;">${escHtml(cap)}</span>
-            <span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#1B7F4F;white-space:nowrap;">✓${c.when ? ' ' + c.when : ''}</span>
+            : `<div style="height:240px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:12px;border-bottom:1px solid #eee;">Image unavailable</div>`}
+          <div style="padding:11px 12px;display:flex;align-items:center;gap:11px;">
+            <div style="flex:none;min-width:38px;height:38px;padding:0 9px;background:#1a1a1a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:800;line-height:1;">${c.qty}<span style="font-size:11px;font-weight:600;opacity:.6;margin-left:1px;">×</span></div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;font-weight:800;color:#1a1a1a;line-height:1.2;">${escHtml(c.short)}</div>
+              ${sizeBits ? `<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.7px;color:#8a8a8a;margin-top:3px;">${escHtml(sizeBits)}</div>` : ''}
+            </div>
+            <div style="flex:none;text-align:right;">
+              <div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:#1B7F4F;white-space:nowrap;">✓ Approved</div>
+              ${c.when ? `<div style="font-size:9px;color:#aaa;margin-top:2px;white-space:nowrap;">${escHtml(c.when)}</div>` : ''}
+            </div>
           </div>
         </div>`
     }
