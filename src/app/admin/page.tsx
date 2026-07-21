@@ -133,6 +133,15 @@ const STATUS_COLORS: Record<string, string> = Object.fromEntries(
   Object.entries(STATUS_CONFIG).map(([k, v]) => [k, v.color])
 )
 
+// A reusable stock design (a white stage, standard backdrop, …) the admin can
+// attach to items without re-uploading. Catalogued in the design_library table.
+interface LibraryEntry {
+  id: number
+  name: string
+  path: string
+  url: string | null
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────
 export default function AdminPage() {
   const [jobs, setJobs]                 = useState<Job[]>([])
@@ -175,6 +184,10 @@ export default function AdminPage() {
   const [dragProof, setDragProof] = useState<number | null>(null)
   const [dragExample, setDragExample] = useState<number | null>(null)
   const [buildingProdSheet, setBuildingProdSheet] = useState(false)
+  const [library, setLibrary] = useState<LibraryEntry[] | null>(null)  // null = not fetched yet
+  const [libraryPicker, setLibraryPicker] = useState<{ idx: number; kind: 'proof' | 'example' } | null>(null)
+  const [libraryError, setLibraryError] = useState('')
+  const [uploadingLibrary, setUploadingLibrary] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -427,6 +440,37 @@ export default function AdminPage() {
     }
   }
 
+  // Adding proofs resets that item's approval — the proof set the client saw
+  // has changed. Shared by fresh uploads AND library picks so both follow the
+  // exact same versioning/approval-reset rules.
+  function mergeProofPaths(index: number, okPaths: string[]) {
+    setEditForm(prev => {
+      if (!prev) return prev
+      const items = [...prev.items]
+      const t = items[index]
+      const cur = itemProofs(t)
+      if (t.approval_status === 'changes_requested' && cur.length > 0) {
+        // The client asked for changes — these uploads are a NEW VERSION. The
+        // design(s) they reviewed move to history; the new ones become current.
+        items[index] = {
+          ...t,
+          proof_history: [...(t.proof_history ?? []), ...cur],
+          proof_urls: okPaths, proof_url: undefined,
+          approval_status: 'pending', approved_proof_url: undefined,
+          client_note: undefined, approved_at: undefined,
+        }
+      } else {
+        // Newest to the FRONT (first selected = hero); older slide down.
+        // Appending to an item that ALREADY had a design defaults to 'latest'
+        // (newest big, earlier ones small) — unless the admin already chose a
+        // mode explicitly. Fresh first-upload (cur empty) keeps the default.
+        const nextMode = t.designs_mode ?? (cur.length > 0 ? 'latest' : undefined)
+        items[index] = { ...t, proof_urls: [...okPaths, ...cur], proof_url: undefined, designs_mode: nextMode, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
+      }
+      return { ...prev, items }
+    })
+  }
+
   // Upload one or more design proofs at once. The newest files go to the FRONT
   // so the first selected becomes the hero preview; older designs slide down the
   // strip but stay active alternatives. If the client asked for changes, the
@@ -466,32 +510,7 @@ export default function AdminPage() {
       const okPaths = settled.flatMap(s => s.status === 'fulfilled' ? [s.value] : [])
       if (okPaths.length === 0) { setProofError('Proof upload failed — please try again.'); return }
       const failed = settled.length - okPaths.length
-      // Adding proofs resets that item's approval — the proof set the client saw has changed.
-      setEditForm(prev => {
-        if (!prev) return prev
-        const items = [...prev.items]
-        const t = items[index]
-        const cur = itemProofs(t)
-        if (t.approval_status === 'changes_requested' && cur.length > 0) {
-          // The client asked for changes — these uploads are a NEW VERSION. The
-          // design(s) they reviewed move to history; the new ones become current.
-          items[index] = {
-            ...t,
-            proof_history: [...(t.proof_history ?? []), ...cur],
-            proof_urls: okPaths, proof_url: undefined,
-            approval_status: 'pending', approved_proof_url: undefined,
-            client_note: undefined, approved_at: undefined,
-          }
-        } else {
-          // Newest to the FRONT (first selected = hero); older slide down.
-          // Appending to an item that ALREADY had a design defaults to 'latest'
-          // (newest big, earlier ones small) — unless the admin already chose a
-          // mode explicitly. Fresh first-upload (cur empty) keeps the default.
-          const nextMode = t.designs_mode ?? (cur.length > 0 ? 'latest' : undefined)
-          items[index] = { ...t, proof_urls: [...okPaths, ...cur], proof_url: undefined, designs_mode: nextMode, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
-        }
-        return { ...prev, items }
-      })
+      mergeProofPaths(index, okPaths)
       if (failed > 0) setProofError(`${failed} file${failed > 1 ? 's' : ''} couldn’t upload — the rest were added.`)
       else if (batch.length < files.length) setProofError(`Added ${batch.length} of ${files.length} — a design holds up to 6 proofs.`)
     } catch {
@@ -597,6 +616,108 @@ export default function AdminPage() {
       items[index] = { ...items[index], example_photos: itemExamplePhotos(items[index]).filter(p => p !== path) }
       return { ...prev, items }
     })
+  }
+
+  // ── Design library — reusable stock designs (white stage, backdrops, …) ──
+  function openLibrary(idx: number, kind: 'proof' | 'example') {
+    setLibraryError('')
+    setLibraryPicker({ idx, kind })
+    if (library === null) refreshLibrary()
+  }
+
+  async function refreshLibrary() {
+    try {
+      const res = await fetch('/api/admin/library')
+      if (!res.ok) { setLibraryError('Could not load the design library.'); return }
+      const { items } = await res.json()
+      setLibrary(items ?? [])
+    } catch {
+      setLibraryError('Network error loading the library.')
+    }
+  }
+
+  // Attach a library design to the item being edited — no re-upload. Proofs go
+  // through mergeProofPaths so approval-reset/versioning matches real uploads.
+  function attachFromLibrary(entry: LibraryEntry) {
+    if (!libraryPicker || !editForm) return
+    const { idx, kind } = libraryPicker
+    const item = editForm.items[idx]
+    if (!item) { setLibraryPicker(null); return }
+    if (kind === 'proof') {
+      const cur = itemProofs(item)
+      if (cur.includes(entry.path)) { setLibraryError('That design is already on this item.'); return }
+      const isRevision = item.approval_status === 'changes_requested' && cur.length > 0
+      if (!isRevision && cur.length >= 6) { setLibraryError('This design already has the maximum of 6 proofs — remove one first.'); return }
+      mergeProofPaths(idx, [entry.path])
+    } else {
+      if (itemExamplePhotos(item).includes(entry.path)) { setLibraryError('That photo is already on this item.'); return }
+      setEditForm(prev => {
+        if (!prev) return prev
+        const items = [...prev.items]
+        items[idx] = { ...items[idx], example_photos: [...itemExamplePhotos(items[idx]), entry.path] }
+        return { ...prev, items }
+      })
+    }
+    // Seed the preview from the library's signed URL — the admin/files API only
+    // signs paths already saved to a job, so this bridges until Save.
+    if (editingJob != null && entry.url) {
+      const url = entry.url
+      setFileUrls(prev => {
+        const have = prev[editingJob] ?? []
+        if (have.some(f => f.path === entry.path)) return prev
+        return { ...prev, [editingJob]: [...have, { path: entry.path, name: entry.name, url }] }
+      })
+    }
+    setLibraryPicker(null)
+  }
+
+  async function uploadToLibrary(file: File) {
+    setLibraryError('')
+    setUploadingLibrary(true)
+    try {
+      const urlRes = await fetch('/api/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: [{ name: file.name, type: file.type, size: file.size }] }),
+      })
+      if (!urlRes.ok) {
+        const { error } = await urlRes.json()
+        setLibraryError(error ?? 'Could not get upload URL')
+        return
+      }
+      const { uploads } = await urlRes.json()
+      const { path, signedUrl } = uploads[0]
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      if (!putRes.ok) { setLibraryError('Upload failed — please try again.'); return }
+      const saveRes = await fetch('/api/admin/library', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: file.name.replace(/\.[^.]+$/, ''), path }),
+      })
+      if (!saveRes.ok) { setLibraryError('Uploaded, but could not save to the library.'); return }
+      const { item } = await saveRes.json()
+      setLibrary(prev => [item, ...(prev ?? [])])
+    } catch {
+      setLibraryError('Network error during upload.')
+    } finally {
+      setUploadingLibrary(false)
+    }
+  }
+
+  async function deleteFromLibrary(id: number) {
+    if (!confirm('Remove this design from the library? Jobs already using it keep their copy.')) return
+    setLibraryError('')
+    try {
+      const res = await fetch('/api/admin/library', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      if (!res.ok) { setLibraryError('Could not remove it — please try again.'); return }
+      setLibrary(prev => (prev ?? []).filter(e => e.id !== id))
+    } catch {
+      setLibraryError('Network error — not removed.')
+    }
   }
 
   async function copyApprovalLink(jobId: number) {
@@ -2186,6 +2307,11 @@ export default function AdminPage() {
                                       <span style={{ fontSize: 28, lineHeight: 1 }}>{uploadingProof === idx ? '…' : '+'}</span>
                                       <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{uploadingProof === idx ? 'Uploading…' : dragProof === idx ? 'Drop the designs here' : 'Add new design'}</span>
                                       <span style={{ fontSize: 10.5, fontWeight: 600, color: '#b9a59d' }}>JPG · PNG · SVG · PDF · AI · EPS</span>
+                                      <button type="button" title="Attach a saved stock design (white stage, backdrop, …) without re-uploading"
+                                        onClick={e => { e.preventDefault(); e.stopPropagation(); openLibrary(idx, 'proof') }}
+                                        style={{ marginTop: 2, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: 'var(--coral)', background: '#fff', border: '1px solid var(--coral)55', borderRadius: 6, padding: '4px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
+                                        ⊞ Pick from library
+                                      </button>
                                     </label>
                                   )}
 
@@ -2226,6 +2352,13 @@ export default function AdminPage() {
                                             onChange={e => { const fs = Array.from(e.target.files ?? []); if (fs.length) { e.target.value = ''; addProofs(idx, fs) } }} />
                                           {uploadingProof === idx ? '…' : dragProof === idx ? 'Drop' : (<><span style={{ fontSize: 15, lineHeight: 1 }}>↑</span><span>New</span></>)}
                                         </label>
+                                      )}
+                                      {(proofs.length < 6 || item.approval_status === 'changes_requested') && (
+                                        <button type="button" onClick={() => openLibrary(idx, 'proof')}
+                                          title="Attach a saved stock design (white stage, backdrop, …) without re-uploading"
+                                          style={{ width: 56, height: 56, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', color: 'var(--coral)', border: '1.5px dashed var(--coral)77', borderRadius: 7, background: '#fff', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
+                                          <span style={{ fontSize: 15, lineHeight: 1 }}>⊞</span><span>Library</span>
+                                        </button>
                                       )}
                                     </div>
                                   )}
@@ -2287,6 +2420,13 @@ export default function AdminPage() {
                                             onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addExamplePhoto(idx, f) } }} />
                                           {uploadingExample === idx ? '…' : dragExample === idx ? 'Drop' : (<><span style={{ fontSize: 15, lineHeight: 1 }}>+</span><span>Example</span></>)}
                                         </label>
+                                      )}
+                                      {itemExamplePhotos(item).length < 8 && (
+                                        <button type="button" onClick={() => openLibrary(idx, 'example')}
+                                          title="Attach a saved stock photo from your library — no re-upload"
+                                          style={{ width: 54, height: 54, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', color: 'var(--coral)', border: '1.5px dashed var(--coral)77', borderRadius: 7, background: '#fff', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
+                                          <span style={{ fontSize: 15, lineHeight: 1 }}>⊞</span><span>Library</span>
+                                        </button>
                                       )}
                                     </div>
                                     {exampleError && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#dc2626' }}>{exampleError}</p>}
@@ -2445,6 +2585,64 @@ export default function AdminPage() {
           </div>
         )
       })()}
+
+      {/* ── Design library picker — attach a saved stock design, no re-upload ── */}
+      {libraryPicker && editForm && (
+        <div onClick={() => setLibraryPicker(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(20,18,16,0.5)', zIndex: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', width: 560, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', borderRadius: 8, boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#131313' }}>Design library</div>
+                <div style={{ fontSize: 12.5, color: '#777', marginTop: 3 }}>
+                  {libraryPicker.kind === 'proof'
+                    ? 'Click a design to attach it as a proof — no re-upload needed.'
+                    : 'Click a photo to attach it as an example for the client.'}
+                </div>
+              </div>
+              <label style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.3px', textTransform: 'uppercase', color: uploadingLibrary ? '#aaa' : 'var(--coral)', border: '1px dashed var(--coral)77', borderRadius: 6, padding: '7px 12px', cursor: uploadingLibrary ? 'default' : 'pointer' }}>
+                <input type="file" accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingLibrary}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; uploadToLibrary(f) } }} />
+                {uploadingLibrary ? 'Uploading…' : '+ Add to library'}
+              </label>
+            </div>
+            <div style={{ padding: 14, overflowY: 'auto' }}>
+              {library === null ? (
+                <p style={{ margin: 0, fontSize: 12.5, color: '#999' }}>Loading library…</p>
+              ) : library.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 12.5, color: '#999' }}>
+                  Nothing saved yet. Upload your reusable designs — a white stage, standard backdrops, common signage — with “+ Add to library”, then attach them to any job with one click.
+                </p>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 12 }}>
+                  {library.map(entry => (
+                    <div key={entry.id} style={{ position: 'relative' }}>
+                      <button type="button" onClick={() => attachFromLibrary(entry)} title={`Attach “${entry.name}”`}
+                        style={{ display: 'block', width: '100%', padding: 0, background: '#fafafa', border: '1px solid #e6e3dc', borderRadius: 7, cursor: 'pointer', overflow: 'hidden', fontFamily: 'var(--font-body)' }}>
+                        <span style={{ display: 'block', height: 90, background: '#f0eee9' }}>
+                          {entry.url && (
+                            <img src={entry.url} alt={entry.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                          )}
+                        </span>
+                        <span style={{ display: 'block', padding: '6px 8px', fontSize: 11, fontWeight: 700, color: '#333', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>{entry.name}</span>
+                      </button>
+                      <button type="button" onClick={() => deleteFromLibrary(entry.id)}
+                        title="Remove from library — jobs already using it keep their copy"
+                        style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {libraryError && <p style={{ margin: '10px 0 0', fontSize: 11.5, color: '#dc2626' }}>{libraryError}</p>}
+            </div>
+            <div style={{ padding: '12px 14px', borderTop: '1px solid #eee', display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setLibraryPicker(null)}
+                style={{ fontSize: 13, padding: '9px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 5, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
