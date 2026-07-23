@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { AddToJobSchema } from '@/lib/schemas'
 import { sendNtfy } from '@/lib/ntfy'
 import { sendAddedToJobNotification } from '@/lib/email'
 import { getTenantBranding } from '@/lib/tenant-settings'
+import { portalCanAccess } from '@/lib/portal-auth'
 import type { JobItem } from '@/lib/job-types'
 
 export const dynamic = 'force-dynamic'
@@ -15,16 +14,6 @@ export const dynamic = 'force-dynamic'
 // so already-approved/in-production items can't be touched. The append itself
 // is done in a row-locked RPC so it can't race with admin or approval edits.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const cookieStore = await cookies()
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  )
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
   const { id } = await params
   const jobId = parseInt(id, 10)
   if (isNaN(jobId)) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
@@ -48,7 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     .single()
 
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (job.contact_email !== user.email) {
+  if (!(await portalCanAccess(jobId, job.contact_email))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   if (!['received', 'in_progress'].includes(job.status)) {

@@ -30,7 +30,7 @@ export const ItemSchema = z.object({
 export const SubmitSchema = z.object({
   clientName: z.string().min(1, 'Client name is required'),
   companyName: z.string().min(1, 'Company name is required'),
-  contactEmail: z.string().email('Invalid email address'),
+  contactEmail: z.string().email('Invalid email address').transform(s => s.trim().toLowerCase()),
   // ISO date string (YYYY-MM-DD); stored as date type in Postgres
   dateRequired: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
   eventName: z.string().optional(),

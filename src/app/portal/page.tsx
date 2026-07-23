@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, FormEvent } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
 import { STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemExamplePhotos, designsMode } from '@/lib/job-types'
@@ -61,6 +61,13 @@ export default function PortalPage() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
+  // No-login lookup (reference # + email) — shown when there's no session/token.
+  const [needsLookup, setNeedsLookup] = useState(false)
+  const [lookupRef, setLookupRef] = useState('')
+  const [lookupEmail, setLookupEmail] = useState('')
+  const [lookupError, setLookupError] = useState('')
+  const [lookingUp, setLookingUp] = useState(false)
+  const [usingToken, setUsingToken] = useState(false)  // arrived via ref+email, not a Supabase session
   const [editingJob, setEditingJob] = useState<number | null>(null)
   const [editForm, setEditForm] = useState<EditForm | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
@@ -84,27 +91,78 @@ export default function PortalPage() {
   const [addItemUploading, setAddItemUploading] = useState<number | null>(null)
   const router = useRouter()
 
-  useEffect(() => {
+  function showJobs(list: Job[]) {
+    setJobs(list)
+    setLoading(false)
+    // Lazily sign proof URLs for any job that has design proofs attached.
+    list
+      .filter(j => j.items?.some(i => itemProofs(i).length > 0))
+      .forEach(j => loadProofs(j.id))
+  }
+
+  // Load the client's jobs by whichever path they arrived on:
+  //  • a Supabase magic-link session (legacy) → all their jobs, or
+  //  • a no-login portal token from reference # + email lookup → that one job.
+  // No credentials → show the lookup form instead of bouncing to a login page.
+  async function loadPortal() {
+    setLoading(true)
     const supabase = createClient()
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) { router.push('/login'); return }
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
       setEmail(user.email ?? '')
-      supabase
+      setUsingToken(false)
+      const { data } = await supabase
         .from('jobs')
         .select('id, reference_number, event_name, date_required, notes, status, submitted_at, items, file_paths')
         .eq('contact_email', user.email)
         .order('submitted_at', { ascending: false })
-        .then(({ data }) => {
-          const list = (data ?? []) as Job[]
-          setJobs(list)
-          setLoading(false)
-          // Lazily sign proof URLs for any job that has design proofs attached.
-          list
-            .filter(j => j.items?.some(i => itemProofs(i).length > 0))
-            .forEach(j => loadProofs(j.id))
-        })
-    })
-  }, [router])
+      setNeedsLookup(false)
+      showJobs((data ?? []) as Job[])
+      return
+    }
+    // No session — try a no-login portal token.
+    const res = await fetch('/api/portal/me')
+    if (res.ok) {
+      const { jobs: list, email } = await res.json()
+      setEmail(email ?? '')
+      setUsingToken(true)
+      setNeedsLookup(false)
+      showJobs((list ?? []) as Job[])
+    } else {
+      setNeedsLookup(true)
+      setLoading(false)
+    }
+  }
+
+  async function handleLookup(e: FormEvent) {
+    e.preventDefault()
+    if (!lookupRef.trim() || !lookupEmail.trim()) {
+      setLookupError('Enter both your reference number and email.')
+      return
+    }
+    setLookingUp(true)
+    setLookupError('')
+    try {
+      const res = await fetch('/api/portal/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference: lookupRef.trim(), email: lookupEmail.trim() }),
+      })
+      if (!res.ok) {
+        const msg = await res.json().then(b => b?.error).catch(() => null)
+        setLookupError(msg || 'We couldn’t find that job. Please check your details.')
+        return
+      }
+      setLookupRef(''); setLookupEmail('')
+      await loadPortal()
+    } catch {
+      setLookupError('Network error — please try again.')
+    } finally {
+      setLookingUp(false)
+    }
+  }
+
+  useEffect(() => { loadPortal() }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadProofs(jobId: number) {
     try {
@@ -184,12 +242,11 @@ export default function PortalPage() {
           file_paths: editForm.file_paths,
         }),
       })
-      if (res.status === 409) {
-        setEditError('This job is already in progress and cannot be edited.')
-        return
-      }
       if (!res.ok) {
-        setEditError('Failed to save changes — please try again.')
+        // Prefer the server's explanation (e.g. the brief is locked in
+        // production) so the client understands why, not just that it failed.
+        const msg = await res.json().then(b => b?.error).catch(() => null)
+        setEditError(msg || 'Failed to save changes — please try again.')
         return
       }
       setJobs(prev => prev.map(j => j.id === jobId ? {
@@ -411,6 +468,13 @@ export default function PortalPage() {
   }
 
   async function signOut() {
+    if (usingToken) {
+      // No-login session — clear the portal token and return to the lookup form.
+      await fetch('/api/portal/lookup', { method: 'DELETE' }).catch(() => {})
+      setJobs([]); setEmail(''); setUsingToken(false)
+      setNeedsLookup(true)
+      return
+    }
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login')
@@ -418,6 +482,43 @@ export default function PortalPage() {
 
   const active = jobs.filter(j => j.status === 'in_progress' || j.status === 'received').length
   const completed = jobs.filter(j => j.status === 'completed').length
+
+  // No session and no portal token — ask for reference # + email (no login).
+  if (needsLookup) {
+    return (
+      <main style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-body)', padding: 16 }}>
+        <div style={{ background: '#fff', padding: '48px 40px', width: '100%', maxWidth: 440, border: '1px solid var(--charcoal-border)' }}>
+          <img src="/logo-ddfpixel.png" alt="DDF x Pixel" style={{ height: '54px', width: 'auto', marginBottom: 16 }} />
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: 'var(--charcoal)' }}>View your job</h1>
+          <p style={{ margin: '8px 0 28px', color: 'var(--charcoal-60)', fontSize: 14, lineHeight: 1.5 }}>
+            Enter your reference number and the email you used — it&apos;s on your confirmation email. No password needed.
+          </p>
+          <form onSubmit={handleLookup}>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--charcoal)' }}>Reference number</label>
+              <input value={lookupRef} onChange={e => setLookupRef(e.target.value)} required placeholder="DDF-20260722-A1B2C3"
+                autoCapitalize="characters" autoCorrect="off" spellCheck={false}
+                style={{ width: '100%', padding: '10px 14px', border: '1.5px solid var(--charcoal-border)', fontSize: 15, outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--font-body)' }} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--charcoal)' }}>Email address</label>
+              <input type="email" value={lookupEmail} onChange={e => setLookupEmail(e.target.value)} required placeholder="you@company.com"
+                autoCapitalize="off" autoCorrect="off" spellCheck={false}
+                style={{ width: '100%', padding: '10px 14px', border: '1.5px solid var(--charcoal-border)', fontSize: 15, outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--font-body)' }} />
+            </div>
+            {lookupError && <p style={{ color: 'var(--red-err)', fontSize: 13, marginBottom: 16 }}>{lookupError}</p>}
+            <button type="submit" disabled={lookingUp}
+              style={{ width: '100%', background: lookingUp ? '#999' : 'var(--coral)', color: '#fff', border: 'none', padding: '12px', fontSize: 15, fontWeight: 700, cursor: lookingUp ? 'not-allowed' : 'pointer', letterSpacing: 0.5 }}>
+              {lookingUp ? 'Looking up…' : 'View my job'}
+            </button>
+          </form>
+          <p style={{ marginTop: 24, fontSize: 13, color: 'var(--charcoal-60)', textAlign: 'center' }}>
+            Need to submit a job? <a href="/" style={{ color: 'var(--coral)', textDecoration: 'none', fontWeight: 600 }}>Submit a brief →</a>
+          </p>
+        </div>
+      </main>
+    )
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', fontFamily: 'var(--font-body)' }}>
@@ -442,7 +543,7 @@ export default function PortalPage() {
             onClick={signOut}
             style={{ background: 'none', border: '1px solid #3a3a3a', color: '#888', padding: '6px 16px', fontSize: '12px', cursor: 'pointer', fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}
           >
-            Sign out
+            {usingToken ? 'Look up a different job' : 'Sign out'}
           </button>
         </div>
       </header>

@@ -1,25 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { itemProofs, itemExamplePhotos } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
+import { portalCanAccess } from '@/lib/portal-auth'
 
 export const dynamic = 'force-dynamic'
 
 // Sign proof URLs for a job the caller owns. Scoped to the job's own item
 // proof paths so a client can never sign an arbitrary storage path.
 export async function POST(req: NextRequest) {
-  const cookieStore = await cookies()
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  )
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
   let body: { jobId?: number }
   try { body = await req.json() } catch {
     return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
@@ -34,7 +23,7 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (job.contact_email !== user.email) {
+  if (!(await portalCanAccess(jobId, job.contact_email))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

@@ -91,6 +91,12 @@ export async function POST(req: NextRequest) {
     if (urlData?.signedUrl) signedFileUrls.push(urlData.signedUrl)
   }
 
+  // Absolute portal link for the confirmation email, from the incoming request
+  // (same convention as the review-link route) so it's correct in any env.
+  const proto = req.headers.get('x-forwarded-proto') ?? 'https'
+  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? ''
+  const portalUrl = host ? `${proto}://${host}/portal` : undefined
+
   const emailData = {
     referenceNumber,
     clientName: data.clientName,
@@ -101,6 +107,7 @@ export async function POST(req: NextRequest) {
     notes: data.notes,
     items: data.items,
     signedFileUrls,
+    portalUrl,
     submittedAt: new Date(submittedAt).toLocaleString('en-ZA', {
       dateStyle: 'medium',
       timeStyle: 'short',

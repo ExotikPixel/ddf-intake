@@ -27,8 +27,12 @@ export async function proxy(req: NextRequest) {
     }
   }
 
-  // Auth guard for /portal and /admin
-  if (pathname.startsWith('/portal') || pathname.startsWith('/admin')) {
+  // Auth guard for /admin only. /portal is public and self-gating: it shows the
+  // signed-in client's jobs (magic-link session), the one job unlocked by a
+  // no-login portal token (reference # + email), or the lookup form when there's
+  // neither. Every /api/portal route still enforces ownership via portalCanAccess,
+  // so a public /portal page leaks nothing on its own.
+  if (pathname.startsWith('/admin')) {
     const supabase = createMiddlewareClient(req, res)
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -38,12 +42,9 @@ export async function proxy(req: NextRequest) {
       return NextResponse.redirect(loginUrl)
     }
 
-    // Admin-only guard
-    if (pathname.startsWith('/admin')) {
-      const adminEmail = process.env.ADMIN_EMAIL
-      if (!adminEmail || user.email !== adminEmail) {
-        return NextResponse.redirect(new URL('/portal', req.url))
-      }
+    const adminEmail = process.env.ADMIN_EMAIL
+    if (!adminEmail || user.email !== adminEmail) {
+      return NextResponse.redirect(new URL('/portal', req.url))
     }
   }
 
@@ -51,5 +52,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/api/:path*', '/portal/:path*', '/admin/:path*'],
+  matcher: ['/api/:path*', '/admin/:path*'],
 }

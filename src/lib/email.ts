@@ -32,6 +32,7 @@ export interface JobEmailData {
   }>
   signedFileUrls: string[]
   submittedAt: string
+  portalUrl?: string   // absolute link to the client portal (/portal), if known
 }
 
 export async function sendNotificationEmail(job: JobEmailData, brand: EmailBrand = DDF_BRAND) {
@@ -135,6 +136,13 @@ export async function sendConfirmationEmail(job: JobEmailData, brand: EmailBrand
   <div style="background:#f8f6f2;padding:12px 16px;font-family:monospace;font-size:13px;white-space:pre-wrap;margin-bottom:20px">${itemList}</div>
 
   ${job.notes ? `<p><strong>Notes:</strong> ${job.notes}</p>` : ''}
+
+  ${job.portalUrl ? `
+  <hr style="border:none;border-top:1px solid #e0deda;margin:24px 0">
+  <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px">Track &amp; approve your job online</h3>
+  <p style="margin:0 0 16px;color:#444">View progress, approve designs, or add to this job anytime — no password needed. Just your reference number and this email.</p>
+  <p style="margin:0 0 8px"><a href="${job.portalUrl}" style="display:inline-block;background:${brand.brandColor};color:#fff;text-decoration:none;padding:12px 22px;font-weight:700;letter-spacing:0.5px">View my job →</a></p>
+  ` : ''}
 
   <hr style="border:none;border-top:1px solid #e0deda;margin:24px 0">
   <p>${brand.businessName} will review your brief and be in touch shortly.</p>
