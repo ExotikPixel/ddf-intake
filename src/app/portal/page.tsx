@@ -693,9 +693,9 @@ export default function PortalPage() {
                                     return (
                                       <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer"
                                          title={older ? 'Earlier design' : undefined}
-                                         style={{ display: 'block', width: dim, height: dim, background: '#f4f3f1', border: '1px solid var(--charcoal-border)', overflow: 'hidden', opacity: older ? 0.6 : 1 }}>
+                                         style={{ display: 'block', width: dim, height: dim, background: '#eceae5', border: '1px solid var(--charcoal-border)', overflow: 'hidden', opacity: older ? 0.6 : 1 }}>
                                         {u
-                                          ? <img src={u} alt={`Proof for ${it.name}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                          ? <img src={u} alt={`Proof for ${it.name}`} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 3, boxSizing: 'border-box' }} />
                                           : <span style={{ fontSize: 10, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>Loading…</span>}
                                       </a>
                                     )
@@ -722,9 +722,9 @@ export default function PortalPage() {
                                           const u = proofUrls[job.id]?.[p]
                                           return (
                                             <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer"
-                                               style={{ display: 'block', width: 64, height: 64, background: '#f4f3f1', border: '1px solid var(--charcoal-border)', overflow: 'hidden' }}>
+                                               style={{ display: 'block', width: 64, height: 64, background: '#eceae5', border: '1px solid var(--charcoal-border)', overflow: 'hidden' }}>
                                               {u
-                                                ? <img src={u} alt="Example" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                ? <img src={u} alt="Example" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 3, boxSizing: 'border-box' }} />
                                                 : <span style={{ fontSize: 9, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>…</span>}
                                             </a>
                                           )

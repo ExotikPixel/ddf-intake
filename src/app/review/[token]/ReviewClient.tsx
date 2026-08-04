@@ -302,7 +302,7 @@ export default function ReviewClient({ token }: { token: string }) {
                               return (
                                 <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer" style={{ position: 'relative', display: 'block', width: 92, height: 92, background: '#eceae5', border: '1px solid #d8d1c2', overflow: 'hidden', borderRadius: 5 }}>
                                   {u
-                                    ? <img src={u} alt="Example" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                    ? <img src={u} alt="Example" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 4, boxSizing: 'border-box', display: 'block' }} />
                                     : <span style={{ fontSize: 10, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>Loading…</span>}
                                   <span style={{ position: 'absolute', left: 0, bottom: 0, right: 0, fontSize: 8.5, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', textAlign: 'center', color: '#fff', background: 'rgba(19,19,19,0.55)', padding: '2px 0' }}>Example</span>
                                 </a>
@@ -367,7 +367,7 @@ export default function ReviewClient({ token }: { token: string }) {
                                       </span>
                                     </button>
                                   )}
-                                  <a href={u ?? undefined} target="_blank" rel="noopener noreferrer" style={{ display: 'block', background: '#f4f3f1' }}>
+                                  <a href={u ?? undefined} target="_blank" rel="noopener noreferrer" style={{ display: 'block', background: '#eceae5' }}>
                                     {u
                                       ? <img src={u} alt={`Design ${pi + 1} for ${it.name}`} style={{ width: '100%', maxHeight: 480, objectFit: 'contain', display: 'block' }} />
                                       : <div style={{ padding: '48px 0', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading proof…</div>}
@@ -385,8 +385,8 @@ export default function ReviewClient({ token }: { token: string }) {
                                     return (
                                       <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer"
                                          title={`Earlier design ${vi + 1}`}
-                                         style={{ display: 'block', width: 64, height: 64, border: '1px solid var(--charcoal-border)', background: '#f4f3f1', flexShrink: 0 }}>
-                                        {u && <img src={u} alt={`Earlier design ${vi + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.7 }} />}
+                                         style={{ display: 'block', width: 64, height: 64, border: '1px solid var(--charcoal-border)', background: '#eceae5', flexShrink: 0 }}>
+                                        {u && <img src={u} alt={`Earlier design ${vi + 1}`} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 3, boxSizing: 'border-box', display: 'block', opacity: 0.7 }} />}
                                       </a>
                                     )
                                   })}
@@ -416,8 +416,8 @@ export default function ReviewClient({ token }: { token: string }) {
                               return (
                                 <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer"
                                    title={`Version ${vi + 1}`}
-                                   style={{ display: 'block', width: 56, height: 56, border: '1px solid var(--charcoal-border)', background: '#f4f3f1', flexShrink: 0 }}>
-                                  {u && <img src={u} alt={`Version ${vi + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.7 }} />}
+                                   style={{ display: 'block', width: 56, height: 56, border: '1px solid var(--charcoal-border)', background: '#eceae5', flexShrink: 0 }}>
+                                  {u && <img src={u} alt={`Version ${vi + 1}`} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 3, boxSizing: 'border-box', display: 'block', opacity: 0.7 }} />}
                                 </a>
                               )
                             })}

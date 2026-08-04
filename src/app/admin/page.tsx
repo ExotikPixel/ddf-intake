@@ -1770,7 +1770,7 @@ export default function AdminPage() {
                                 const signed = fileUrls[job.id]?.find(f => f.path === p)
                                 return signed ? (
                                   <a key={p} href={signed.url} target="_blank" rel="noopener noreferrer" title={`Open ${signed.name}`} style={{ display: 'block', width: 64, height: 64 }}>
-                                    <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #cfe9d8', borderRadius: 6, display: 'block' }} />
+                                    <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#eceae5', padding: 3, boxSizing: 'border-box', border: '1px solid #cfe9d8', borderRadius: 6, display: 'block' }} />
                                   </a>
                                 ) : (
                                   <span key={p} style={{ width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f4f2', border: '1px solid #e7e5e1', borderRadius: 6, color: '#bbb', fontSize: 11 }}>
@@ -2290,7 +2290,7 @@ export default function AdminPage() {
                                     const heroSigned = fileUrls[job.id]?.find(f => f.path === hero)
                                     return (
                                       <a href={heroSigned?.url ?? undefined} target="_blank" rel="noopener noreferrer" title="Open full size"
-                                        style={{ display: 'block', border: '1px solid #d6f0dd', borderRadius: 8, overflow: 'hidden', background: '#f4f7f4' }}>
+                                        style={{ display: 'block', border: '1px solid #d6f0dd', borderRadius: 8, overflow: 'hidden', background: '#eceae5' }}>
                                         {heroSigned
                                           ? <img src={heroSigned.url} alt="Design proof" style={{ display: 'block', width: '100%', maxHeight: 260, objectFit: 'contain', cursor: 'zoom-in' }} />
                                           : <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ac3a8', fontSize: 12, fontWeight: 700 }}>Loading proof…</div>}
@@ -2325,7 +2325,7 @@ export default function AdminPage() {
                                           <div key={p} title={nm} style={{ position: 'relative', width: 56, height: 56, flexShrink: 0 }}>
                                             {signed ? (
                                               <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Click to view full image" style={{ display: 'block', width: '100%', height: '100%' }}>
-                                                <img src={signed.url} alt={nm} style={{ width: '100%', height: '100%', objectFit: 'cover', border: `${p === proofs[0] ? '2px' : '1px'} solid ${p === proofs[0] ? 'var(--coral)' : '#d6f0dd'}`, borderRadius: 7, display: 'block', cursor: 'zoom-in', boxSizing: 'border-box' }} />
+                                                <img src={signed.url} alt={nm} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#eceae5', padding: 3, border: `${p === proofs[0] ? '2px' : '1px'} solid ${p === proofs[0] ? 'var(--coral)' : '#d6f0dd'}`, borderRadius: 7, display: 'block', cursor: 'zoom-in', boxSizing: 'border-box' }} />
                                               </a>
                                             ) : (
                                               <span style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 7, color: '#86c8a0', fontSize: 8, fontWeight: 700 }}>IMG</span>
@@ -2402,7 +2402,7 @@ export default function AdminPage() {
                                           <div key={p} style={{ position: 'relative', width: 54, height: 54, flexShrink: 0 }}>
                                             {signed ? (
                                               <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Example photo" style={{ display: 'block', width: '100%', height: '100%' }}>
-                                                <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #e0e0e0', borderRadius: 7, display: 'block' }} />
+                                                <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#eceae5', padding: 3, boxSizing: 'border-box', border: '1px solid #e0e0e0', borderRadius: 7, display: 'block' }} />
                                               </a>
                                             ) : <span style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f4f2', border: '1px solid #e7e5e1', borderRadius: 7, color: '#bbb', fontSize: 8, fontWeight: 700 }}>IMG</span>}
                                             <button onClick={() => removeExamplePhoto(idx, p)} title="Remove example photo"
@@ -2565,7 +2565,7 @@ export default function AdminPage() {
                       style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, textAlign: 'left', background: chosen ? '#eef7f3' : '#fafafa', border: `2px solid ${chosen ? '#1B7F4F' : '#e6e3dc'}`, borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
                       <span style={{ width: 18, height: 18, borderRadius: '50%', flexShrink: 0, border: `2px solid ${chosen ? '#1B7F4F' : '#bbb'}`, background: chosen ? '#1B7F4F' : '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700 }}>{chosen ? '✓' : ''}</span>
                       <span style={{ width: 64, height: 64, flexShrink: 0, background: '#f0eee9', border: '1px solid #e6e3dc', overflow: 'hidden' }}>
-                        {u && <img src={u} alt={`Design ${pi + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                        {u && <img src={u} alt={`Design ${pi + 1}`} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 3, boxSizing: 'border-box', display: 'block' }} />}
                       </span>
                       <span style={{ fontSize: 13.5, fontWeight: 700, color: '#333' }}>Design {pi + 1}</span>
                     </button>
@@ -2622,7 +2622,7 @@ export default function AdminPage() {
                         style={{ display: 'block', width: '100%', padding: 0, background: '#fafafa', border: '1px solid #e6e3dc', borderRadius: 7, cursor: 'pointer', overflow: 'hidden', fontFamily: 'var(--font-body)' }}>
                         <span style={{ display: 'block', height: 90, background: '#f0eee9' }}>
                           {entry.url && (
-                            <img src={entry.url} alt={entry.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                            <img src={entry.url} alt={entry.name} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 5, boxSizing: 'border-box', display: 'block' }} />
                           )}
                         </span>
                         <span style={{ display: 'block', padding: '6px 8px', fontSize: 11, fontWeight: 700, color: '#333', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>{entry.name}</span>
