@@ -819,7 +819,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                       {item.artwork === 'final' ? (
                         <div className="final-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '4px', alignItems: 'start' }}>
                           {/* Print-ready file(s) */}
-                          <Field label="Print-ready file" required compact error={errors[`item-${item.id}-photos`]}>
+                          <Field label={<>Print-ready file<span style={{ color: 'var(--coral)', marginLeft: '2px' }}>*</span><span style={{ display: 'block', fontSize: '11px', fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0, marginTop: 2, lineHeight: '14px' }}>Goes straight to print — exactly as supplied</span></>} compact error={errors[`item-${item.id}-photos`]}>
                             <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 96, padding: '12px', border: `1.5px dashed ${errors[`item-${item.id}-photos`] ? 'var(--red-err)' : 'var(--charcoal-border)'}`, background: '#fff', cursor: 'pointer', textAlign: 'center' }}>
                               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--coral)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>
                               <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--charcoal)' }}>Tap to add file</span>
@@ -854,7 +854,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                             const needShot = (itemUploads[item.id] ?? []).some(u => !u.file.type.startsWith('image/'))
                             const shotErr = errors[`item-${item.id}-shot`] ?? shot?.error
                             return (
-                              <Field label="Screenshot of the design" required={needShot} compact error={shotErr}>
+                              <Field label={<>Screenshot of the design{needShot && <span style={{ color: 'var(--coral)', marginLeft: '2px' }}>*</span>}<span style={{ display: 'block', fontSize: '11px', fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0, marginTop: 2, lineHeight: '14px' }}>So our team can see the design</span></>} compact error={shotErr}>
                                 {shot ? (
                                   <div style={{ position: 'relative', border: '1px solid var(--charcoal-border)', background: '#fff' }}>
                                     <img src={URL.createObjectURL(shot.file)} alt="Design screenshot" style={{ display: 'block', width: '100%', height: 150, objectFit: 'contain', background: 'var(--bg)', opacity: shot.busy ? 0.5 : 1 }}/>
