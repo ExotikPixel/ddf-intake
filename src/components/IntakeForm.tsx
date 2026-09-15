@@ -33,6 +33,7 @@ interface JobItem {
   size: string
   material: string
   description: string
+  artwork: 'design' | 'final'   // 'design' = we design it (files are inspo); 'final' = client supplies the print-ready file
 }
 
 interface UploadedFile {
@@ -97,8 +98,11 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
 
   // Job items
   const [items, setItems] = useState<JobItem[]>([
-    { id: genId(), name: '', quantity: '', size: '', material: '', description: '' },
+    { id: genId(), name: '', quantity: '', size: '', material: '', description: '', artwork: 'design' },
   ])
+  // What the client is submitting — a design request or their own finished
+  // artwork. Sets the default for every item; each item can still be switched.
+  const [submitMode, setSubmitMode] = useState<'design' | 'final'>('design')
   // Per-item reference photos, keyed by item id (mirrors the job-level `uploads`).
   const [itemUploads, setItemUploads] = useState<Record<string, UploadedFile[]>>({})
 
@@ -162,7 +166,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
 
   function addItem() {
     if (items.length >= 10) return
-    setItems(prev => [...prev, { id: genId(), name: '', quantity: '', size: '', material: '', description: '' }])
+    setItems(prev => [...prev, { id: genId(), name: '', quantity: '', size: '', material: '', description: '', artwork: submitMode }])
   }
 
   function removeItem(id: string) {
@@ -180,12 +184,15 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
   function validateAndAddItemPhotos(itemId: string, fileList: FileList | null) {
     if (!fileList) return
     const existing = itemUploads[itemId] ?? []
+    const isFinal = items.find(i => i.id === itemId)?.artwork === 'final'
     const newFiles: File[] = []
     let err = ''
     Array.from(fileList).forEach(f => {
-      if (existing.length + newFiles.length >= MAX_ITEM_PHOTOS) { err = `Up to ${MAX_ITEM_PHOTOS} photos per item`; return }
+      if (existing.length + newFiles.length >= MAX_ITEM_PHOTOS) { err = `Up to ${MAX_ITEM_PHOTOS} files per item`; return }
       const ext = '.' + f.name.split('.').pop()?.toLowerCase()
-      if (!IMG_EXTS.includes(ext)) { err = `${f.name}: please attach an image`; return }
+      if (isFinal ? !ALLOWED_EXTS.includes(ext) : !IMG_EXTS.includes(ext)) {
+        err = isFinal ? `${f.name}: use PDF, AI, EPS, SVG, PNG or JPG` : `${f.name}: please attach an image`; return
+      }
       if (f.size > MAX_BYTES) { err = `${f.name}: exceeds 50MB`; return }
       newFiles.push(f)
     })
@@ -314,6 +321,9 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
       if (!item.quantity || parseInt(item.quantity) < 1) errs[`item-${idx}-qty`] = 'Quantity must be at least 1'
       if (!item.size.trim()) errs[`item-${idx}-size`] = 'Size is required'
       if (!item.material) errs[`item-${idx}-material`] = 'Material is required'
+      if (item.artwork === 'final' && !(itemUploads[item.id] ?? []).some(u => u.progress === 100 && !u.error)) {
+        errs[`item-${item.id}-photos`] = 'Attach your print-ready file, or switch to "Design it for me"'
+      }
     })
 
     if (!confirmed) errs.confirmed = 'Please confirm your brief before submitting'
@@ -359,7 +369,11 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
           size: i.size.trim(),
           material: i.material,
           description: i.description.trim() || undefined,
-          ref_photos: (itemUploads[i.id] ?? []).filter(u => u.progress === 100).map(u => u.path),
+          // 'final' → the files ARE the artwork: they become the proof and are approved on submit
+          // (the server stamps the approval fields). 'design' → they're reference/inspo images.
+          ...(i.artwork === 'final'
+            ? { proof_urls: (itemUploads[i.id] ?? []).filter(u => u.progress === 100).map(u => u.path), proof_source: 'client' as const }
+            : { ref_photos: (itemUploads[i.id] ?? []).filter(u => u.progress === 100).map(u => u.path) }),
         })),
         filePaths: uploads.filter(u => u.progress === 100).map(u => u.path),
         submissionId: submissionId.current,
@@ -508,6 +522,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
         }
         @media (max-width: 700px) {
           .form-col-inner { padding: 24px 16px 48px; }
+          .submit-mode-grid { grid-template-columns: 1fr !important; }
         }
         input, select, textarea {
           font-family: var(--font-body);
@@ -618,6 +633,29 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
 
             <form onSubmit={handleSubmit} noValidate>
 
+              {/* What are you submitting? — sets the whole job's default, per item still switchable */}
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-60)', marginBottom: '10px', fontFamily: 'var(--font-body)' }}>What are you submitting?</div>
+                <div className="submit-mode-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  {([
+                    ['design', '🎨', 'Design request', 'Tell us what you need and add inspo pictures. We design it and send you a proof to approve.'],
+                    ['final', '📥', 'Upload my final designs', 'You already have print-ready artwork. Attach it per item — it\'s approved for print as soon as you submit.'],
+                  ] as const).map(([val, icon, title, sub]) => {
+                    const on = submitMode === val
+                    return (
+                      <button key={val} type="button"
+                        onClick={() => { setSubmitMode(val); setItems(prev => prev.map(i => ({ ...i, artwork: val }))); setErrors(prev => { const e = { ...prev }; Object.keys(e).forEach(k => { if (k.endsWith('-photos')) delete e[k] }); return e }) }}
+                        style={{ textAlign: 'left', padding: '18px 20px', background: '#fff', border: `2px solid ${on ? 'var(--coral)' : 'var(--charcoal-border)'}`, borderTop: `3px solid ${on ? 'var(--coral)' : 'var(--charcoal-border)'}`, cursor: 'pointer', fontFamily: 'var(--font-body)', color: 'var(--charcoal)', position: 'relative', opacity: on ? 1 : 0.75 }}>
+                        {on && <span style={{ position: 'absolute', top: 10, right: 12, fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', color: '#fff', background: 'var(--coral)', padding: '2px 7px' }}>SELECTED</span>}
+                        <div style={{ fontSize: '22px', marginBottom: 6 }}>{icon}</div>
+                        <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '15px', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 4 }}>{title}</div>
+                        <div style={{ fontSize: '12px', lineHeight: 1.5, color: 'var(--charcoal-60)' }}>{sub}</div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
               {/* Section 01 — Client Info */}
               <div ref={el => { sectionRefs.current[0] = el }}>
                 <Section num="01" title="Client Info">
@@ -672,21 +710,47 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                         </Field>
                       </div>
 
+                      {/* Who makes the artwork? Decides what the files below mean. */}
+                      <div style={{ marginTop: '12px', marginBottom: '10px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                          {([
+                            ['design', 'Design it for me', 'Send inspo — we design & send you a proof'],
+                            ['final', 'I have the final file', 'Print-ready artwork — approved on submit'],
+                          ] as const).map(([val, title, sub]) => {
+                            const on = item.artwork === val
+                            return (
+                              <button key={val} type="button" onClick={() => { updateItem(item.id, 'artwork', val); setErrors(prev => { const e = { ...prev }; delete e[`item-${item.id}-photos`]; return e }) }}
+                                style={{ textAlign: 'left', padding: '9px 12px', background: on ? '#fff' : 'transparent', border: `1.5px solid ${on ? 'var(--coral)' : 'var(--charcoal-border)'}`, cursor: 'pointer', fontFamily: 'var(--font-body)', color: 'var(--charcoal)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '13px', fontWeight: 700 }}>
+                                  <span style={{ width: 12, height: 12, borderRadius: '50%', border: `1.5px solid ${on ? 'var(--coral)' : 'var(--charcoal-border)'}`, background: on ? 'var(--coral)' : 'transparent', boxShadow: on ? 'inset 0 0 0 2px #fff' : 'none', flexShrink: 0 }} />
+                                  {title}
+                                </div>
+                                <div style={{ fontSize: '11px', color: 'var(--charcoal-60)', marginTop: 2, paddingLeft: 20 }}>{sub}</div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+
                       <div style={{ marginTop: '4px' }}>
-                        <Field label={<>Image files <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— inspo pictures or images to use</span></>} compact error={errors[`item-${item.id}-photos`]}>
+                        <Field label={item.artwork === 'final'
+                            ? <>Print-ready file <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— PDF, AI, EPS, SVG, PNG or JPG · goes straight to print</span></>
+                            : <>Image files <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— inspo pictures or images to use</span></>}
+                          required={item.artwork === 'final'} compact error={errors[`item-${item.id}-photos`]}>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                             {(itemUploads[item.id] ?? []).map(u => (
-                              <div key={u.path} style={{ position: 'relative', width: 64, height: 64, border: '1px solid var(--charcoal-border)', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                              <div key={u.path} title={u.file.name} style={{ position: 'relative', width: 64, height: 64, border: '1px solid var(--charcoal-border)', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                                 {u.error ? <span style={{ fontSize: 9, color: 'var(--red-err)', padding: 2, textAlign: 'center' }}>{u.error}</span>
                                   : u.progress < 100 ? <span style={{ fontSize: 11, color: 'var(--charcoal-60)' }}>{u.progress}%</span>
-                                  : <img src={URL.createObjectURL(u.file)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>}
+                                  : u.file.type.startsWith('image/') ? <img src={URL.createObjectURL(u.file)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
+                                  : <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--charcoal-60)' }}>{u.file.name.split('.').pop()?.toUpperCase()}</span>}
                                 <button type="button" onClick={() => removeItemPhoto(item.id, u.path)} style={{ position: 'absolute', top: -1, right: -1, background: 'var(--charcoal)', color: '#fff', border: 'none', width: 18, height: 18, fontSize: 12, lineHeight: 1, cursor: 'pointer' }}>×</button>
                               </div>
                             ))}
                             {(itemUploads[item.id] ?? []).length < MAX_ITEM_PHOTOS && (
                               <label style={{ width: 64, height: 64, border: '1.5px dashed var(--charcoal-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--charcoal-60)', fontSize: 24 }}>
                                 +
-                                <input type="file" multiple accept={IMG_EXTS.join(',')} style={{ display: 'none' }} onChange={e => { validateAndAddItemPhotos(item.id, e.target.files); e.target.value = '' }}/>
+                                <input type="file" multiple accept={(item.artwork === 'final' ? ALLOWED_EXTS : IMG_EXTS).join(',')} style={{ display: 'none' }} onChange={e => { validateAndAddItemPhotos(item.id, e.target.files); e.target.value = '' }}/>
                               </label>
                             )}
                           </div>
@@ -789,12 +853,12 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', marginBottom: '12px' }}>
                       <thead>
                         <tr style={{ background: 'var(--charcoal)', color: '#fff' }}>
-                          {['#', 'Item', 'Qty', 'Size', 'Material'].map(h => <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>)}
+                          {['#', 'Item', 'Qty', 'Size', 'Material', 'Artwork'].map(h => <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>)}
                         </tr>
                       </thead>
                       <tbody>
                         {items.filter(i => i.name || i.quantity || i.size || i.material).length === 0 ? (
-                          <tr><td colSpan={5} style={{ padding: '12px 10px', color: 'var(--charcoal-60)', fontStyle: 'italic' }}>No items added yet</td></tr>
+                          <tr><td colSpan={6} style={{ padding: '12px 10px', color: 'var(--charcoal-60)', fontStyle: 'italic' }}>No items added yet</td></tr>
                         ) : items.map((item, idx) => (item.name || item.quantity || item.size || item.material) && (
                           <tr key={item.id} style={{ background: idx % 2 === 0 ? '#fff' : 'var(--bg)' }}>
                             <td style={{ padding: '8px 10px', border: '1px solid var(--charcoal-border)' }}>{idx + 1}</td>
@@ -802,6 +866,11 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                             <td style={{ padding: '8px 10px', border: '1px solid var(--charcoal-border)' }}>{item.quantity || '—'}</td>
                             <td style={{ padding: '8px 10px', border: '1px solid var(--charcoal-border)' }}>{item.size || '—'}</td>
                             <td style={{ padding: '8px 10px', border: '1px solid var(--charcoal-border)', textTransform: 'capitalize' }}>{item.material || '—'}</td>
+                            <td style={{ padding: '8px 10px', border: '1px solid var(--charcoal-border)', fontSize: '12px', whiteSpace: 'nowrap' }}>
+                              {item.artwork === 'final'
+                                ? <span style={{ color: '#1B4D3E', fontWeight: 700 }}>✓ Final file supplied</span>
+                                : <span style={{ color: 'var(--charcoal-60)' }}>Design for me</span>}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
