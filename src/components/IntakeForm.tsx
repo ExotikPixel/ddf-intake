@@ -108,6 +108,9 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
   // What the client is submitting — a design request or their own finished
   // artwork. Sets the default for every item; each item can still be switched.
   const [submitMode, setSubmitMode] = useState<'design' | 'final'>('design')
+  // Per-item screenshot of the finished design (final-file items only): what the
+  // team sees, since PDF/AI/EPS can't be shown in a browser. One per item.
+  const [itemShots, setItemShots] = useState<Record<string, { file: File; path?: string; busy: boolean; error?: string }>>({})
   // Per-item reference photos, keyed by item id (mirrors the job-level `uploads`).
   const [itemUploads, setItemUploads] = useState<Record<string, UploadedFile[]>>({})
 
@@ -249,19 +252,24 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
     set({ previewBusy: false, previewPath: previewPath ?? undefined, needsPreview: !previewPath })
   }
 
-  // Client-supplied JPG/PNG preview for a file we couldn't render (EPS etc.).
-  async function attachManualPreview(itemId: string, path: string, fileList: FileList | null) {
+  // Screenshot of the finished design for a final-file item (JPG/PNG, one per item).
+  async function setItemShot(itemId: string, fileList: FileList | null) {
     const img = fileList?.[0]
     if (!img) return
     if (!img.type.startsWith('image/')) {
-      setErrors(prev => ({ ...prev, [`item-${itemId}-photos`]: 'The preview must be a JPG or PNG image' })); return
+      setErrors(prev => ({ ...prev, [`item-${itemId}-shot`]: 'Please use a JPG or PNG screenshot' })); return
     }
-    const set = (patch: Partial<UploadedFile>) =>
-      setItemUploads(prev => ({ ...prev, [itemId]: (prev[itemId] ?? []).map(u => u.path === path ? { ...u, ...patch } : u) }))
-    set({ previewBusy: true })
-    const previewPath = await uploadPreviewFile(img)
-    set({ previewBusy: false, previewPath: previewPath ?? undefined, needsPreview: !previewPath })
-    if (previewPath) setErrors(prev => { const e = { ...prev }; delete e[`item-${itemId}-photos`]; return e })
+    if (img.size > MAX_BYTES) {
+      setErrors(prev => ({ ...prev, [`item-${itemId}-shot`]: 'Screenshot exceeds 50MB' })); return
+    }
+    setErrors(prev => { const e = { ...prev }; delete e[`item-${itemId}-shot`]; return e })
+    setItemShots(prev => ({ ...prev, [itemId]: { file: img, busy: true } }))
+    const path = await uploadPreviewFile(img)
+    setItemShots(prev => ({ ...prev, [itemId]: { file: img, path: path ?? undefined, busy: false, error: path ? undefined : 'Upload failed — try again' } }))
+  }
+
+  function removeItemShot(itemId: string) {
+    setItemShots(prev => { const n = { ...prev }; delete n[itemId]; return n })
   }
 
   function removeItemPhoto(itemId: string, path: string) {
@@ -361,7 +369,10 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
       if (item.artwork === 'final') {
         const ups = (itemUploads[item.id] ?? []).filter(u => u.progress === 100 && !u.error)
         if (ups.length === 0) errs[`item-${item.id}-photos`] = 'Attach your print-ready file, or switch to "Design it for me"'
-        else if (ups.some(u => u.needsPreview && !u.previewPath)) errs[`item-${item.id}-photos`] = 'Please add a JPG/PNG preview for each file marked "preview needed"'
+        const shot = itemShots[item.id]
+        if (ups.some(u => !u.file.type.startsWith('image/')) && !shot?.path) {
+          errs[`item-${item.id}-shot`] = shot?.busy ? 'Screenshot still uploading — one moment' : 'Add a screenshot so we can see the design'
+        }
       }
     })
 
@@ -383,7 +394,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
     }
 
     const allUploads = [...uploads, ...Object.values(itemUploads).flat()]
-    const uploading = allUploads.some(u => (u.progress < 100 && !u.error) || u.previewBusy)
+    const uploading = allUploads.some(u => (u.progress < 100 && !u.error) || u.previewBusy) || Object.values(itemShots).some(sh => sh.busy)
     if (uploading) {
       setSubmitError('Please wait for all files to finish uploading.')
       return
@@ -413,7 +424,11 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
           ...(i.artwork === 'final'
             ? {
                 proof_urls: (itemUploads[i.id] ?? []).filter(u => u.progress === 100).map(u => u.path),
-                proof_previews: Object.fromEntries((itemUploads[i.id] ?? []).filter(u => u.progress === 100 && u.previewPath).map(u => [u.path, u.previewPath!])),
+                proof_previews: Object.fromEntries(
+                  (itemUploads[i.id] ?? [])
+                    .filter(u => u.progress === 100 && !u.file.type.startsWith('image/') && (itemShots[i.id]?.path || u.previewPath))
+                    .map(u => [u.path, (itemShots[i.id]?.path ?? u.previewPath)!])
+                ),
                 proof_source: 'client' as const,
               }
             : { ref_photos: (itemUploads[i.id] ?? []).filter(u => u.progress === 100).map(u => u.path) }),
@@ -566,6 +581,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
         @media (max-width: 700px) {
           .form-col-inner { padding: 24px 16px 48px; }
           .submit-mode-grid { grid-template-columns: 1fr !important; }
+          .final-grid { grid-template-columns: 1fr !important; }
         }
         input, select, textarea {
           font-family: var(--font-body);
@@ -687,7 +703,15 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                     const on = submitMode === val
                     return (
                       <button key={val} type="button"
-                        onClick={() => { setSubmitMode(val); setItems(prev => prev.map(i => ({ ...i, artwork: val }))); setErrors(prev => { const e = { ...prev }; Object.keys(e).forEach(k => { if (k.endsWith('-photos')) delete e[k] }); return e }) }}
+                        onClick={() => {
+                          setSubmitMode(val)
+                          setItems(prev => prev.map(i => ({ ...i, artwork: val })))
+                          setErrors(prev => { const e = { ...prev }; Object.keys(e).forEach(k => { if (k.endsWith('-photos') || k.endsWith('-shot')) delete e[k] }); return e })
+                          if (val === 'design') {
+                            setItemUploads(prev => Object.fromEntries(Object.entries(prev).map(([id, ups]) => [id, ups.filter(u => u.file.type.startsWith('image/'))])))
+                            setItemShots({})
+                          }
+                        }}
                         style={{ textAlign: 'left', padding: '18px 20px', background: '#fff', border: `2px solid ${on ? 'var(--coral)' : 'var(--charcoal-border)'}`, borderTop: `3px solid ${on ? 'var(--coral)' : 'var(--charcoal-border)'}`, cursor: 'pointer', fontFamily: 'var(--font-body)', color: 'var(--charcoal)', position: 'relative', opacity: on ? 1 : 0.75 }}>
                         {on && <span style={{ position: 'absolute', top: 10, right: 12, fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', color: '#fff', background: 'var(--coral)', padding: '2px 7px' }}>SELECTED</span>}
                         <div style={{ fontSize: '22px', marginBottom: 6 }}>{icon}</div>
@@ -762,7 +786,15 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                           ] as const).map(([val, title, sub]) => {
                             const on = item.artwork === val
                             return (
-                              <button key={val} type="button" onClick={() => { updateItem(item.id, 'artwork', val); setErrors(prev => { const e = { ...prev }; delete e[`item-${item.id}-photos`]; return e }) }}
+                              <button key={val} type="button" onClick={() => {
+                                  updateItem(item.id, 'artwork', val)
+                                  setErrors(prev => { const e = { ...prev }; delete e[`item-${item.id}-photos`]; delete e[`item-${item.id}-shot`]; return e })
+                                  // Back to "design it for me": print files and the screenshot no longer apply.
+                                  if (val === 'design') {
+                                    setItemUploads(prev => ({ ...prev, [item.id]: (prev[item.id] ?? []).filter(u => u.file.type.startsWith('image/')) }))
+                                    removeItemShot(item.id)
+                                  }
+                                }}
                                 style={{ textAlign: 'left', padding: '9px 12px', background: on ? '#fff' : 'transparent', border: `1.5px solid ${on ? 'var(--coral)' : 'var(--charcoal-border)'}`, cursor: 'pointer', fontFamily: 'var(--font-body)', color: 'var(--charcoal)' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '13px', fontWeight: 700 }}>
                                   <span style={{ width: 12, height: 12, borderRadius: '50%', border: `1.5px solid ${on ? 'var(--coral)' : 'var(--charcoal-border)'}`, background: on ? 'var(--coral)' : 'transparent', boxShadow: on ? 'inset 0 0 0 2px #fff' : 'none', flexShrink: 0 }} />
@@ -775,41 +807,93 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                         </div>
                       </div>
 
+                      {item.artwork === 'final' ? (
+                        <div className="final-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '4px' }}>
+                          {/* Print-ready file(s) */}
+                          <Field label={<>Print-ready file <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— goes to print</span></>} required compact error={errors[`item-${item.id}-photos`]}>
+                            <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 96, padding: '12px', border: `1.5px dashed ${errors[`item-${item.id}-photos`] ? 'var(--red-err)' : 'var(--charcoal-border)'}`, background: '#fff', cursor: 'pointer', textAlign: 'center' }}>
+                              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--coral)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--charcoal)' }}>Tap to add file</span>
+                              <span style={{ fontSize: 11, color: 'var(--charcoal-60)' }}>PDF · AI · EPS · SVG · PNG · JPG</span>
+                              <input type="file" multiple accept={ALLOWED_EXTS.join(',')} style={{ display: 'none' }} onChange={e => { validateAndAddItemPhotos(item.id, e.target.files); e.target.value = '' }}/>
+                            </label>
+                            {(itemUploads[item.id] ?? []).length > 0 && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                                {(itemUploads[item.id] ?? []).map(u => (
+                                  <div key={u.path} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', background: '#fff', border: '1px solid var(--charcoal-border)' }}>
+                                    <div style={{ width: 40, height: 40, flexShrink: 0, border: '1px solid var(--charcoal-border)', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                                      {u.file.type.startsWith('image/')
+                                        ? <img src={URL.createObjectURL(u.file)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
+                                        : <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--charcoal-60)' }}>{u.file.name.split('.').pop()?.toUpperCase()}</span>}
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--charcoal)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.file.name}</div>
+                                      <div style={{ fontSize: 11, color: u.error ? 'var(--red-err)' : u.progress < 100 ? 'var(--charcoal-60)' : '#1B4D3E' }}>
+                                        {u.error ? u.error : u.progress < 100 ? `Uploading ${u.progress}%` : '✓ Uploaded'}
+                                      </div>
+                                    </div>
+                                    <button type="button" onClick={() => removeItemPhoto(item.id, u.path)} aria-label="Remove file" style={{ background: 'none', border: '1px solid var(--charcoal-border)', width: 26, height: 26, fontSize: 14, lineHeight: 1, cursor: 'pointer', color: 'var(--charcoal-60)', flexShrink: 0 }}>×</button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </Field>
+
+                          {/* Screenshot of the design */}
+                          {(() => {
+                            const shot = itemShots[item.id]
+                            const needShot = (itemUploads[item.id] ?? []).some(u => !u.file.type.startsWith('image/'))
+                            const shotErr = errors[`item-${item.id}-shot`] ?? shot?.error
+                            return (
+                              <Field label={<>Screenshot of the design <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— so our team sees it</span></>} required={needShot} compact error={shotErr}>
+                                {shot ? (
+                                  <div style={{ position: 'relative', border: '1px solid var(--charcoal-border)', background: '#fff' }}>
+                                    <img src={URL.createObjectURL(shot.file)} alt="Design screenshot" style={{ display: 'block', width: '100%', height: 150, objectFit: 'contain', background: 'var(--bg)', opacity: shot.busy ? 0.5 : 1 }}/>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 8px', borderTop: '1px solid var(--charcoal-border)' }}>
+                                      <span style={{ fontSize: 11, color: shot.error ? 'var(--red-err)' : shot.busy ? 'var(--charcoal-60)' : '#1B4D3E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {shot.error ? shot.error : shot.busy ? 'Uploading…' : '✓ Screenshot added'}
+                                      </span>
+                                      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--charcoal-60)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                        Replace
+                                        <input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={e => { setItemShot(item.id, e.target.files); e.target.value = '' }}/>
+                                      </label>
+                                      <button type="button" onClick={() => removeItemShot(item.id)} aria-label="Remove screenshot" style={{ background: 'none', border: '1px solid var(--charcoal-border)', width: 26, height: 26, fontSize: 14, lineHeight: 1, cursor: 'pointer', color: 'var(--charcoal-60)', flexShrink: 0 }}>×</button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 96, padding: '12px', border: `1.5px dashed ${shotErr ? 'var(--red-err)' : 'var(--charcoal-border)'}`, background: '#fff', cursor: 'pointer', textAlign: 'center' }}>
+                                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--coral)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-7 7"/><path d="m3 18 4-4 3 3"/></svg>
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--charcoal)' }}>Tap to add screenshot</span>
+                                    <span style={{ fontSize: 11, color: 'var(--charcoal-60)' }}>JPG or PNG of how it should look</span>
+                                    <input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={e => { setItemShot(item.id, e.target.files); e.target.value = '' }}/>
+                                  </label>
+                                )}
+                              </Field>
+                            )
+                          })()}
+                        </div>
+                      ) : (
                       <div style={{ marginTop: '4px' }}>
-                        <Field label={item.artwork === 'final'
-                            ? <>Print-ready file <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— PDF, AI, EPS, SVG, PNG or JPG · goes straight to print</span></>
-                            : <>Image files <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— inspo pictures or images to use</span></>}
-                          required={item.artwork === 'final'} compact error={errors[`item-${item.id}-photos`]}>
+                        <Field label={<>Image files <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— inspo pictures or images to use</span></>} compact error={errors[`item-${item.id}-photos`]}>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                             {(itemUploads[item.id] ?? []).map(u => (
                               <div key={u.path} title={u.file.name} style={{ position: 'relative', width: 64, height: 64, border: '1px solid var(--charcoal-border)', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                                 {u.error ? <span style={{ fontSize: 9, color: 'var(--red-err)', padding: 2, textAlign: 'center' }}>{u.error}</span>
                                   : u.progress < 100 ? <span style={{ fontSize: 11, color: 'var(--charcoal-60)' }}>{u.progress}%</span>
-                                  : u.file.type.startsWith('image/') ? <img src={URL.createObjectURL(u.file)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
-                                  : u.previewBusy ? <span style={{ fontSize: 9, color: 'var(--charcoal-60)', textAlign: 'center', padding: 2 }}>making preview…</span>
-                                  : u.previewPath ? <span style={{ fontSize: 9, fontWeight: 700, color: '#1B4D3E', textAlign: 'center', padding: 2, lineHeight: 1.3 }}>{u.file.name.split('.').pop()?.toUpperCase()}<br/>✓ preview</span>
-                                  : <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', color: u.needsPreview ? 'var(--red-err)' : 'var(--charcoal-60)' }}>{u.file.name.split('.').pop()?.toUpperCase()}</span>}
+                                  : <img src={URL.createObjectURL(u.file)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>}
                                 <button type="button" onClick={() => removeItemPhoto(item.id, u.path)} style={{ position: 'absolute', top: -1, right: -1, background: 'var(--charcoal)', color: '#fff', border: 'none', width: 18, height: 18, fontSize: 12, lineHeight: 1, cursor: 'pointer' }}>×</button>
                               </div>
                             ))}
                             {(itemUploads[item.id] ?? []).length < MAX_ITEM_PHOTOS && (
                               <label style={{ width: 64, height: 64, border: '1.5px dashed var(--charcoal-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--charcoal-60)', fontSize: 24 }}>
                                 +
-                                <input type="file" multiple accept={(item.artwork === 'final' ? ALLOWED_EXTS : IMG_EXTS).join(',')} style={{ display: 'none' }} onChange={e => { validateAndAddItemPhotos(item.id, e.target.files); e.target.value = '' }}/>
+                                <input type="file" multiple accept={IMG_EXTS.join(',')} style={{ display: 'none' }} onChange={e => { validateAndAddItemPhotos(item.id, e.target.files); e.target.value = '' }}/>
                               </label>
                             )}
                           </div>
-                          {(itemUploads[item.id] ?? []).filter(u => u.needsPreview && !u.previewPath && !u.previewBusy).map(u => (
-                            <div key={u.path + '-pv'} style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#fff8f6', border: '1px solid #f0c9bf', padding: '8px 12px', fontSize: '12px' }}>
-                              <span style={{ flex: 1, minWidth: 160 }}><strong>{u.file.name}</strong> can&apos;t be previewed in a browser — please add a JPG or PNG of the design so we all see the same thing.</span>
-                              <label style={{ fontSize: 11, fontWeight: 700, padding: '6px 12px', background: 'var(--charcoal)', color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                                + Add preview image
-                                <input type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" style={{ display: 'none' }} onChange={e => { attachManualPreview(item.id, u.path, e.target.files); e.target.value = '' }}/>
-                              </label>
-                            </div>
-                          ))}
                         </Field>
                       </div>
+                      )}
                     </div>
                   ))}
                   {items.length < 10 && (
@@ -922,7 +1006,10 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                             <td style={{ padding: '8px 10px', border: '1px solid var(--charcoal-border)', textTransform: 'capitalize' }}>{item.material || '—'}</td>
                             <td style={{ padding: '8px 10px', border: '1px solid var(--charcoal-border)', fontSize: '12px', whiteSpace: 'nowrap' }}>
                               {item.artwork === 'final'
-                                ? <span style={{ color: '#1B4D3E', fontWeight: 700 }}>✓ Final file supplied</span>
+                                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#1B4D3E', fontWeight: 700 }}>
+                                    {itemShots[item.id] && <img src={URL.createObjectURL(itemShots[item.id].file)} alt="" style={{ width: 28, height: 28, objectFit: 'cover', border: '1px solid var(--charcoal-border)' }}/>}
+                                    ✓ Final file supplied
+                                  </span>
                                 : <span style={{ color: 'var(--charcoal-60)' }}>Design for me</span>}
                             </td>
                           </tr>

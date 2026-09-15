@@ -243,16 +243,18 @@ export default function PortalPage() {
         if (!put.ok) { setFinalError(prev => ({ ...prev, [key]: `Upload failed for ${files[i].name} — please try again.` })); return }
         paths.push(uploads[i].path)
       }
-      // PDF / PDF-compatible AI → render a preview here in the browser. Anything
-      // else that isn't an image (EPS…) needs the client to attach a JPG/PNG.
+      // Every print file the browser can't display (PDF/AI/EPS) needs a
+      // screenshot of the design from the client — that's what the team sees.
+      // A PDF/AI page-1 render is kept as a silent fallback in case the
+      // screenshot upload fails.
       const previews: Record<string, string> = {}
       const needs: { path: string; name: string }[] = []
       for (let i = 0; i < files.length; i++) {
         if (!needsPreview(files[i].name)) continue
+        needs.push({ path: paths[i], name: files[i].name })
         const pv = await renderPrintFilePreview(files[i])
         const pvPath = pv ? await uploadPreviewFile(pv) : null
         if (pvPath) previews[paths[i]] = pvPath
-        else needs.push({ path: paths[i], name: files[i].name })
       }
       if (needs.length > 0) {
         setFinalPending(prev => ({ ...prev, [key]: { paths, previews, needs } }))
@@ -935,9 +937,9 @@ export default function PortalPage() {
                                       </label>
                                       {finalPending[key]?.needs.map(n => (
                                         <div key={n.path} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#fff8f6', border: '1px solid #f0c9bf', padding: '8px 12px', fontSize: 12 }}>
-                                          <span style={{ flex: 1, minWidth: 160 }}><strong>{n.name}</strong> uploaded — it can&apos;t be previewed in a browser, so please add a JPG or PNG of the design too.</span>
+                                          <span style={{ flex: 1, minWidth: 160 }}><strong>{n.name}</strong> uploaded ✓ — now add a <strong>screenshot of the design</strong> (JPG/PNG) so our team can see it. It&apos;s approved as soon as that&apos;s in.</span>
                                           <label style={{ fontSize: 11, fontWeight: 700, padding: '6px 12px', background: busy ? '#f0f0f0' : 'var(--charcoal)', color: busy ? '#888' : '#fff', cursor: busy ? 'default' : 'pointer', whiteSpace: 'nowrap', fontFamily: 'var(--font-body)' }}>
-                                            {busy ? 'Saving…' : '+ Add preview image'}
+                                            {busy ? 'Saving…' : '🖼️ Add screenshot'}
                                             <input type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" disabled={busy} style={{ display: 'none' }}
                                               onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; addManualFinalPreview(job.id, idx, n.path, f) }} />
                                           </label>
