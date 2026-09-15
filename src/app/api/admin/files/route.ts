@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase-server'
 import { requireAdmin } from '@/lib/admin-auth'
 import { itemProofs, itemRefPhotos, itemExamplePhotos } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
+import { signProofDisplayUrls } from '@/lib/proof-sign'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,30 +25,26 @@ export async function POST(req: NextRequest) {
     .select('file_paths, items')
     .eq('tenant_id', auth.tenantId)
   const allowed = new Set<string>()
+  const allItems: JobItem[] = []
   for (const j of tenantJobs ?? []) {
     for (const p of ((j.file_paths as string[]) ?? [])) allowed.add(p)
     for (const it of ((j.items as JobItem[]) ?? [])) {
+      allItems.push(it)
       for (const p of itemProofs(it)) allowed.add(p)
+      for (const p of (it.proof_history ?? [])) allowed.add(p)
       for (const p of itemRefPhotos(it)) allowed.add(p)
       for (const p of itemExamplePhotos(it)) allowed.add(p)
     }
   }
   const safePaths = paths.filter(p => allowed.has(p))
 
-  // Generate all signed URLs in parallel (1 hour TTL)
-  const results = await Promise.all(
-    safePaths.map(path =>
-      supabaseAdmin.storage.from('job-files').createSignedUrl(path, 60 * 60)
-    )
-  )
+  // Non-image proofs (PDF/AI/EPS) resolve to their preview image or a labelled
+  // tile in `url`; `fileUrl` is the signed original for "Open file".
+  const { urls: display, fileUrls } = await signProofDisplayUrls(allItems, safePaths)
 
-  const urls = results
-    .map((r, i) =>
-      r.data?.signedUrl
-        ? { path: safePaths[i], url: r.data.signedUrl, name: safePaths[i].split('/').pop() ?? safePaths[i] }
-        : null
-    )
-    .filter((u): u is { path: string; url: string; name: string } => u !== null)
+  const urls = safePaths
+    .filter(p => display[p])
+    .map(p => ({ path: p, url: display[p], fileUrl: fileUrls[p], name: p.split('/').pop() ?? p }))
 
   return NextResponse.json({ urls })
 }

@@ -6,11 +6,21 @@ export const dynamic = 'force-dynamic'
 const ALLOWED_TYPES = [
   'image/jpeg',
   'image/png',
+  'image/webp',
+  'image/gif',
+  'image/heic',
   'application/pdf',
-  'application/postscript',      // AI / EPS
+  'application/postscript',      // AI / EPS (Chrome, Firefox)
+  'application/illustrator',     // AI (Safari, some Windows setups)
+  'image/x-eps',                 // EPS (some browsers)
+  'application/x-eps',
   'image/svg+xml',
   'application/octet-stream',    // fallback for AI/EPS/SVG from some browsers
+  '',                            // browsers that don't know the extension send no type at all
 ]
+// Mirror of the job-files bucket's allowed_mime_types (Supabase rejects the PUT
+// otherwise) — keep both lists in sync when adding a format.
+const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'pdf', 'ai', 'eps', 'svg']
 const MAX_BYTES = 50 * 1024 * 1024
 
 interface FileRequest {
@@ -35,8 +45,9 @@ export async function POST(req: NextRequest) {
     if (f.size > MAX_BYTES) {
       return NextResponse.json({ error: `${f.name} exceeds the 50MB limit` }, { status: 400 })
     }
-    if (!ALLOWED_TYPES.includes(f.type)) {
-      return NextResponse.json({ error: `${f.name}: file type not supported` }, { status: 400 })
+    const ext = f.name.split('.').pop()?.toLowerCase() ?? ''
+    if (!ALLOWED_TYPES.includes(f.type) || !ALLOWED_EXTS.includes(ext)) {
+      return NextResponse.json({ error: `${f.name}: file type not supported (use JPG, PNG, PDF, AI, EPS or SVG)` }, { status: 400 })
     }
   }
 

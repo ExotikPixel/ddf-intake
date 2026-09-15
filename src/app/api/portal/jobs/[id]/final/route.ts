@@ -27,7 +27,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid final-design payload' }, { status: 400 })
   }
-  const { itemIndex, paths, approve } = parsed.data
+  const { itemIndex, paths, previews, approve } = parsed.data
 
   const { data: job } = await supabaseAdmin
     .from('jobs')
@@ -52,7 +52,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   // Make sure every path is a real object the client just uploaded — never
   // trust a path string blindly (it could point at another job's file).
-  for (const p of paths) {
+  const previewMap: Record<string, string> = {}
+  for (const [proof, pv] of Object.entries(previews ?? {})) if (paths.includes(proof)) previewMap[proof] = pv
+  for (const p of [...paths, ...Object.values(previewMap)]) {
     const { data, error } = await supabaseAdmin.storage.from('job-files').list('uploads', { search: p.slice('uploads/'.length), limit: 1 })
     if (error || !data?.length) {
       return NextResponse.json({ error: 'One of the uploaded files could not be found' }, { status: 400 })
@@ -65,6 +67,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     proof_urls: paths,
     proof_url: null,
     proof_history: [...(item.proof_history ?? []), ...previous.filter(p => !paths.includes(p))],
+    proof_previews: Object.keys(previewMap).length ? previewMap : null,
     proof_source: 'client',
     proof_uploaded_at: now,
     designs_mode: 'all',

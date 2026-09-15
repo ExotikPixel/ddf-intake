@@ -21,6 +21,7 @@ export interface JobItem {
   approval_status?: 'pending' | 'approved' | 'changes_requested'
   approved_proof_url?: string                         // PICK mode: the ONE design chosen out of several
   designs_mode?: 'all' | 'pick' | 'latest'            // multiple designs: all-needed (default), pick-one, or latest-only
+  proof_previews?: Record<string, string>             // proof path → job-files path of a PNG/JPG preview (for PDF/AI/EPS proofs that browsers can't render)
   proof_source?: 'shop' | 'client'                    // who supplied the current proof(s): shop-designed (default) or client's own print-ready file
   proof_uploaded_at?: string                          // ISO timestamp when the client uploaded their own final file
   messages?: ItemMessage[]                            // per-item conversation between client and shop
@@ -124,6 +125,7 @@ export function mergeItemsPreservingApproval(incoming: JobItem[], current: JobIt
         proof_urls: cur.proof_urls,
         proof_url: cur.proof_url,
         proof_history: cur.proof_history,
+        proof_previews: cur.proof_previews,
         proof_source: cur.proof_source,
         proof_uploaded_at: cur.proof_uploaded_at,
         designs_mode: cur.designs_mode,
@@ -172,3 +174,43 @@ export const STATUS_CONFIG: Record<string, { label: string; color: string; bg: s
 /** DB status values that trigger a client notification email */
 export const NOTIFICATION_STATUSES = ['in_progress', 'completed'] as const
 export type NotificationStatus = typeof NOTIFICATION_STATUSES[number]
+
+// ── Non-image proofs (PDF / AI / EPS) ─────────────────────────────────────────
+// Browsers render JPG/PNG/SVG/WebP/GIF natively. Anything else needs a preview
+// image (rendered from PDF/AI at upload, or supplied by the client for EPS).
+// Where neither exists, a labelled tile stands in so nothing shows as broken.
+
+const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|svg|avif|heic)$/i
+
+export function isImagePath(path: string): boolean {
+  return IMAGE_EXT_RE.test(path.split('?')[0])
+}
+
+/** Short uppercase label for a file's type: PDF, AI, EPS, … */
+export function fileKindLabel(path: string): string {
+  const ext = path.split('?')[0].split('.').pop()?.toUpperCase() ?? 'FILE'
+  return ext.length > 4 ? 'FILE' : ext
+}
+
+/**
+ * What to actually SHOW for a proof: the proof itself when it's an image, its
+ * preview image when one exists, otherwise null (caller renders a tile).
+ */
+export function proofPreviewPath(item: Pick<JobItem, 'proof_previews'>, proofPath: string): string | null {
+  if (isImagePath(proofPath)) return proofPath
+  const preview = item.proof_previews?.[proofPath]
+  return preview && isImagePath(preview) ? preview : null
+}
+
+/** Inline SVG tile (data URL) used as the <img> source for a proof with no preview. */
+export function fileTileDataUrl(path: string): string {
+  const label = fileKindLabel(path)
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <rect width="400" height="300" fill="#F3F1EA"/>
+  <rect x="140" y="60" width="120" height="150" rx="6" fill="#fff" stroke="#C9C4B6" stroke-width="3"/>
+  <path d="M225 60 v40 h35" fill="none" stroke="#C9C4B6" stroke-width="3"/>
+  <text x="200" y="150" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="34" font-weight="700" fill="#6E6A5E">${label}</text>
+  <text x="200" y="250" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6E6A5E">No preview — open the file to view</text>
+</svg>`
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
+}

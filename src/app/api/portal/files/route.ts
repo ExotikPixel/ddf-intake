@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase-server'
 import { itemProofs, itemExamplePhotos } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 import { portalCanAccess } from '@/lib/portal-auth'
+import { signProofDisplayUrls } from '@/lib/proof-sign'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,18 +28,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const paths = ((job.items ?? []) as JobItem[]).flatMap(it => [...itemProofs(it), ...itemExamplePhotos(it)])
+  const items = (job.items ?? []) as JobItem[]
+  const paths = items.flatMap(it => [...itemProofs(it), ...itemExamplePhotos(it)])
 
-  if (paths.length === 0) return NextResponse.json({ urls: {} })
+  if (paths.length === 0) return NextResponse.json({ urls: {}, fileUrls: {} })
 
-  const results = await Promise.all(
-    paths.map(path => supabaseAdmin.storage.from('job-files').createSignedUrl(path, 60 * 60))
-  )
+  // Non-image proofs (PDF/AI/EPS) resolve to their preview image or a labelled
+  // tile; fileUrls carries the signed original for "Open file".
+  const { urls, fileUrls } = await signProofDisplayUrls(items, paths)
 
-  const urls: Record<string, string> = {}
-  results.forEach((r, i) => {
-    if (r.data?.signedUrl) urls[paths[i]] = r.data.signedUrl
-  })
-
-  return NextResponse.json({ urls })
+  return NextResponse.json({ urls, fileUrls })
 }

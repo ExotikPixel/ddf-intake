@@ -10,6 +10,7 @@ interface ReviewData {
   date_required: string
   items: JobItem[]
   proofUrls: Record<string, string>
+  fileUrls?: Record<string, string>   // signed originals for PDF/AI/EPS proofs (thumbnail is a preview/tile)
   clientName: string
   shopName: string
 }
@@ -367,11 +368,17 @@ export default function ReviewClient({ token }: { token: string }) {
                                       </span>
                                     </button>
                                   )}
-                                  <a href={u ?? undefined} target="_blank" rel="noopener noreferrer" style={{ display: 'block', background: '#eceae5' }}>
+                                  <a href={data.fileUrls?.[p] ?? u ?? undefined} target="_blank" rel="noopener noreferrer" style={{ display: 'block', background: '#eceae5' }}>
                                     {u
                                       ? <img src={u} alt={`Design ${pi + 1} for ${it.name}`} style={{ width: '100%', maxHeight: 480, objectFit: 'contain', display: 'block' }} />
                                       : <div style={{ padding: '48px 0', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading proof…</div>}
                                   </a>
+                                  {data.fileUrls?.[p] && (
+                                    <a href={data.fileUrls[p]} target="_blank" rel="noopener noreferrer"
+                                       style={{ display: 'inline-block', margin: '6px 0 2px', fontSize: 11, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--charcoal-60)', textDecoration: 'none' }}>
+                                      Open {p.split('.').pop()?.toUpperCase()} file ↗
+                                    </a>
+                                  )}
                                 </div>
                               )
                             })}

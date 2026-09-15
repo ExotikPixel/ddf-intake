@@ -52,15 +52,21 @@ export async function POST(req: NextRequest) {
   // link. Anything else has every proof/approval field stripped so a crafted
   // payload can't pre-approve a shop-designed item.
   const items: JobItem[] = (data.items as JobItem[]).map(raw => {
-    const { proof_urls, proof_url, proof_history, proof_source, proof_uploaded_at, approval_status,
+    const { proof_urls, proof_url, proof_history, proof_previews, proof_source, proof_uploaded_at, approval_status,
       approved_at, approved_proof_url, designs_mode, messages, client_note, completed, completed_at, ...clean } = raw
     void proof_url; void proof_history; void proof_uploaded_at; void approval_status; void approved_at
     void approved_proof_url; void designs_mode; void messages; void client_note; void completed; void completed_at
     const finals = proof_source === 'client' ? (proof_urls ?? []).filter(p => /^uploads\/[A-Za-z0-9._-]+$/.test(p)) : []
     if (finals.length === 0) return clean
+    // Preview images (PNG/JPG) for PDF/AI/EPS finals — only for files we're keeping.
+    const previews: Record<string, string> = {}
+    for (const [proof, pv] of Object.entries(proof_previews ?? {})) {
+      if (finals.includes(proof) && /^uploads\/[A-Za-z0-9._-]+\.(png|jpe?g)$/i.test(pv)) previews[proof] = pv
+    }
     return {
       ...clean,
       proof_urls: finals,
+      ...(Object.keys(previews).length ? { proof_previews: previews } : {}),
       proof_source: 'client',
       proof_uploaded_at: submittedAt,
       designs_mode: 'all',

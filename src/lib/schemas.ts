@@ -18,6 +18,7 @@ export const ItemSchema = z.object({
   approval_status: z.enum(['pending', 'approved', 'changes_requested']).optional(),
   approved_proof_url: z.string().optional(),
   designs_mode: z.enum(['all', 'pick', 'latest']).optional(),
+  proof_previews: z.record(z.string(), z.string()).optional(),
   proof_source: z.enum(['shop', 'client']).optional(),
   proof_uploaded_at: z.string().optional(),
   messages: z.array(z.object({
@@ -77,6 +78,8 @@ export type ApprovalActionInput = z.infer<typeof ApprovalActionSchema>
 export const FinalDesignSchema = z.object({
   itemIndex: z.number().int().min(0),
   paths: z.array(z.string().regex(/^uploads\/[A-Za-z0-9._-]+$/)).min(1).max(8),
+  // proof path → preview image path (PNG/JPG) for PDF/AI/EPS files
+  previews: z.record(z.string(), z.string().regex(/^uploads\/[A-Za-z0-9._-]+\.(png|jpe?g)$/i)).optional(),
   approve: z.boolean().default(true),
 })
 

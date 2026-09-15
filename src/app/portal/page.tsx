@@ -3,7 +3,8 @@
 import { useEffect, useState, FormEvent } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-import { STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemExamplePhotos, designsMode } from '@/lib/job-types'
+import { STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemExamplePhotos, designsMode, isImagePath, fileKindLabel } from '@/lib/job-types'
+import { renderPrintFilePreview, uploadPreviewFile, needsPreview } from '@/lib/proof-preview'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 
 interface Job {
@@ -85,6 +86,9 @@ export default function PortalPage() {
   const [finalBusy, setFinalBusy] = useState<string | null>(null)        // `${jobId}:${idx}`
   const [finalError, setFinalError] = useState<Record<string, string>>({})
   const [finalOpen, setFinalOpen] = useState<Record<number, boolean>>({}) // per job: panel expanded
+  // Uploaded final files still waiting on a JPG/PNG preview (EPS etc.) before they're saved
+  const [finalPending, setFinalPending] = useState<Record<string, { paths: string[]; previews: Record<string, string>; needs: { path: string; name: string }[] }>>({})
+  const [proofFileUrls, setProofFileUrls] = useState<Record<number, Record<string, string>>>({}) // signed originals for PDF/AI/EPS proofs
   // Append-only "Add to Job" state (for jobs already in progress)
   const [addingJob, setAddingJob] = useState<number | null>(null)
   const [addItems, setAddItems] = useState<JobItem[]>([])
@@ -176,8 +180,9 @@ export default function PortalPage() {
         body: JSON.stringify({ jobId }),
       })
       if (!res.ok) return
-      const { urls } = await res.json()
+      const { urls, fileUrls } = await res.json()
       setProofUrls(prev => ({ ...prev, [jobId]: urls ?? {} }))
+      setProofFileUrls(prev => ({ ...prev, [jobId]: fileUrls ?? {} }))
     } catch {
       /* proofs are best-effort; the rest of the portal still works */
     }
@@ -234,28 +239,68 @@ export default function PortalPage() {
       const { uploads } = await urlRes.json() as { uploads: { path: string; signedUrl: string }[] }
       const paths: string[] = []
       for (let i = 0; i < files.length; i++) {
-        const put = await fetch(uploads[i].signedUrl, { method: 'PUT', headers: { 'Content-Type': files[i].type }, body: files[i] })
+        const put = await fetch(uploads[i].signedUrl, { method: 'PUT', headers: { 'Content-Type': files[i].type || 'application/octet-stream' }, body: files[i] })
         if (!put.ok) { setFinalError(prev => ({ ...prev, [key]: `Upload failed for ${files[i].name} — please try again.` })); return }
         paths.push(uploads[i].path)
       }
-      const res = await fetch(`/api/portal/jobs/${jobId}/final`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemIndex: idx, paths, approve: true }),
-      })
-      if (!res.ok) {
-        const { error } = await res.json().catch(() => ({ error: null }))
-        setFinalError(prev => ({ ...prev, [key]: error ?? 'Could not save — please try again.' }))
+      // PDF / PDF-compatible AI → render a preview here in the browser. Anything
+      // else that isn't an image (EPS…) needs the client to attach a JPG/PNG.
+      const previews: Record<string, string> = {}
+      const needs: { path: string; name: string }[] = []
+      for (let i = 0; i < files.length; i++) {
+        if (!needsPreview(files[i].name)) continue
+        const pv = await renderPrintFilePreview(files[i])
+        const pvPath = pv ? await uploadPreviewFile(pv) : null
+        if (pvPath) previews[paths[i]] = pvPath
+        else needs.push({ path: paths[i], name: files[i].name })
+      }
+      if (needs.length > 0) {
+        setFinalPending(prev => ({ ...prev, [key]: { paths, previews, needs } }))
         return
       }
-      const { items } = await res.json()
-      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, items } : j))
-      loadProofs(jobId)
+      await finalizeFinalDesign(jobId, idx, paths, previews)
     } catch {
       setFinalError(prev => ({ ...prev, [key]: 'Network error — not saved.' }))
     } finally {
       setFinalBusy(null)
     }
+  }
+
+  // Client picked a JPG/PNG preview for one file we couldn't render.
+  async function addManualFinalPreview(jobId: number, idx: number, proofPath: string, img: File | undefined) {
+    const key = `${jobId}:${idx}`
+    const pending = finalPending[key]
+    if (!img || !pending) return
+    if (!img.type.startsWith('image/')) { setFinalError(prev => ({ ...prev, [key]: 'The preview must be a JPG or PNG image.' })); return }
+    setFinalBusy(key)
+    setFinalError(prev => ({ ...prev, [key]: '' }))
+    try {
+      const pvPath = await uploadPreviewFile(img)
+      if (!pvPath) { setFinalError(prev => ({ ...prev, [key]: 'Preview upload failed — please try again.' })); return }
+      const next = { ...pending, previews: { ...pending.previews, [proofPath]: pvPath }, needs: pending.needs.filter(n => n.path !== proofPath) }
+      if (next.needs.length > 0) { setFinalPending(prev => ({ ...prev, [key]: next })); return }
+      setFinalPending(prev => { const p = { ...prev }; delete p[key]; return p })
+      await finalizeFinalDesign(jobId, idx, next.paths, next.previews)
+    } finally {
+      setFinalBusy(null)
+    }
+  }
+
+  async function finalizeFinalDesign(jobId: number, idx: number, paths: string[], previews: Record<string, string>) {
+    const key = `${jobId}:${idx}`
+    const res = await fetch(`/api/portal/jobs/${jobId}/final`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemIndex: idx, paths, previews, approve: true }),
+    })
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: null }))
+      setFinalError(prev => ({ ...prev, [key]: error ?? 'Could not save — please try again.' }))
+      return
+    }
+    const { items } = await res.json()
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, items } : j))
+    loadProofs(jobId)
   }
 
   function startEdit(job: Job) {
@@ -342,7 +387,7 @@ export default function PortalPage() {
       }
       const { uploads } = await urlRes.json()
       const { path, signedUrl } = uploads[0]
-      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file })
       if (!putRes.ok) { setUploadPhotoError('Upload failed — please try again.'); return }
       setEditForm(prev => {
         if (!prev) return prev
@@ -383,7 +428,7 @@ export default function PortalPage() {
       }
       const { uploads } = await urlRes.json()
       const { path, signedUrl } = uploads[0]
-      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file })
       if (!putRes.ok) { setUploadPhotoError('Upload failed — please try again.'); return }
       setEditForm(prev => prev ? { ...prev, file_paths: [...prev.file_paths, path] } : prev)
     } catch {
@@ -432,7 +477,7 @@ export default function PortalPage() {
       }
       const { uploads } = await urlRes.json()
       const { path, signedUrl } = uploads[0]
-      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file })
       if (!putRes.ok) { setAddError('Upload failed — please try again.'); return }
       setAddFiles(prev => [...prev, path])
     } catch {
@@ -459,7 +504,7 @@ export default function PortalPage() {
       }
       const { uploads } = await urlRes.json()
       const { path, signedUrl } = uploads[0]
-      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file })
       if (!putRes.ok) { setAddError('Upload failed — please try again.'); return }
       setAddItems(prev => {
         const items = [...prev]
@@ -738,16 +783,25 @@ export default function PortalPage() {
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flexShrink: 0, alignItems: 'flex-start' }}>
                                   {proofs.map((p, pi) => {
                                     const u = proofUrls[job.id]?.[p]
+                                    // PDF/AI/EPS: the thumbnail is a preview (or a tile); the link opens the real file.
+                                    const fileU = !isImagePath(p) ? proofFileUrls[job.id]?.[p] : undefined
                                     const older = proofs.length > 1 && designsMode(it) === 'latest' && pi > 0
                                     const dim = older ? 56 : 84
                                     return (
-                                      <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer"
-                                         title={older ? 'Earlier design' : undefined}
-                                         style={{ display: 'block', width: dim, height: dim, background: '#eceae5', border: '1px solid var(--charcoal-border)', overflow: 'hidden', opacity: older ? 0.6 : 1 }}>
-                                        {u
-                                          ? <img src={u} alt={`Proof for ${it.name}`} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 3, boxSizing: 'border-box' }} />
-                                          : <span style={{ fontSize: 10, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>Loading…</span>}
-                                      </a>
+                                      <div key={p} style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'center' }}>
+                                        <a href={fileU ?? u ?? undefined} target="_blank" rel="noopener noreferrer"
+                                           title={older ? 'Earlier design' : fileU ? `Open ${fileKindLabel(p)} file` : undefined}
+                                           style={{ display: 'block', width: dim, height: dim, background: '#eceae5', border: '1px solid var(--charcoal-border)', overflow: 'hidden', opacity: older ? 0.6 : 1 }}>
+                                          {u
+                                            ? <img src={u} alt={`Proof for ${it.name}`} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 3, boxSizing: 'border-box' }} />
+                                            : <span style={{ fontSize: 10, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>Loading…</span>}
+                                        </a>
+                                        {fileU && !older && (
+                                          <a href={fileU} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--charcoal-60)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                                            {fileKindLabel(p)} ↗
+                                          </a>
+                                        )}
+                                      </div>
                                     )
                                   })}
                                 </div>
@@ -879,6 +933,16 @@ export default function PortalPage() {
                                             }
                                           }} />
                                       </label>
+                                      {finalPending[key]?.needs.map(n => (
+                                        <div key={n.path} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#fff8f6', border: '1px solid #f0c9bf', padding: '8px 12px', fontSize: 12 }}>
+                                          <span style={{ flex: 1, minWidth: 160 }}><strong>{n.name}</strong> uploaded — it can&apos;t be previewed in a browser, so please add a JPG or PNG of the design too.</span>
+                                          <label style={{ fontSize: 11, fontWeight: 700, padding: '6px 12px', background: busy ? '#f0f0f0' : 'var(--charcoal)', color: busy ? '#888' : '#fff', cursor: busy ? 'default' : 'pointer', whiteSpace: 'nowrap', fontFamily: 'var(--font-body)' }}>
+                                            {busy ? 'Saving…' : '+ Add preview image'}
+                                            <input type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" disabled={busy} style={{ display: 'none' }}
+                                              onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; addManualFinalPreview(job.id, idx, n.path, f) }} />
+                                          </label>
+                                        </div>
+                                      ))}
                                       {err && <p style={{ margin: 0, width: '100%', fontSize: 11, color: '#dc2626' }}>{err}</p>}
                                     </div>
                                   )

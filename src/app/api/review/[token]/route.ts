@@ -4,6 +4,7 @@ import { verifyReviewToken } from '@/lib/review-token'
 import { itemProofs, itemExamplePhotos } from '@/lib/job-types'
 import { getTenantBranding } from '@/lib/tenant-settings'
 import type { JobItem } from '@/lib/job-types'
+import { signProofDisplayUrls } from '@/lib/proof-sign'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,13 +29,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
   // and any shop example/inspiration photos shown alongside the proofs.
   const paths = items.flatMap(it => [...itemProofs(it), ...(it.proof_history ?? []), ...itemExamplePhotos(it)])
 
-  const proofUrls: Record<string, string> = {}
-  if (paths.length > 0) {
-    const results = await Promise.all(
-      paths.map(p => supabaseAdmin.storage.from('job-files').createSignedUrl(p, 60 * 60))
-    )
-    results.forEach((r, i) => { if (r.data?.signedUrl) proofUrls[paths[i]] = r.data.signedUrl })
-  }
+  // Non-image proofs (PDF/AI/EPS) resolve to their preview image or a labelled
+  // tile; fileUrls carries the signed original for "Open file".
+  const { urls: proofUrls, fileUrls } = paths.length > 0
+    ? await signProofDisplayUrls(items, paths)
+    : { urls: {}, fileUrls: {} }
 
   const branding = await getTenantBranding(job.tenant_id)
 
@@ -44,6 +43,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
     date_required: job.date_required,
     items,
     proofUrls,
+    fileUrls,
     clientName: (job.client_name ?? '').split(' ')[0] || 'You',   // first name for thread attribution
     shopName: branding.businessName,
   })

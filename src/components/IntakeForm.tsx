@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import axios from 'axios'
+import { renderPrintFilePreview, uploadPreviewFile, needsPreview as fileNeedsPreview } from '@/lib/proof-preview'
 import { supabase } from '@/lib/supabase'
 import type { PublicBranding } from '@/lib/tenant-public'
 
@@ -41,6 +42,11 @@ interface UploadedFile {
   path: string
   progress: number
   error?: string
+  // Final print files only: PDF/AI get a preview rendered in the browser;
+  // EPS (or an AI that isn't PDF-compatible) needs the client to attach one.
+  previewPath?: string
+  previewBusy?: boolean
+  needsPreview?: boolean
 }
 
 type FormErrors = Record<string, string>
@@ -223,8 +229,40 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
         })
       } catch {
         setItemUploads(prev => ({ ...prev, [itemId]: (prev[itemId] ?? []).map(u => u.path === path ? { ...u, error: 'Upload failed — check connection' } : u) }))
+        continue
+      }
+      // Final print file that browsers can't display → make a preview now.
+      if (items.find(i => i.id === itemId)?.artwork === 'final' && fileNeedsPreview(files[i].name)) {
+        void attachAutoPreview(itemId, path, files[i])
       }
     }
+  }
+
+  // Render page 1 of a PDF / PDF-compatible AI to PNG and upload it as the
+  // proof's preview. If that's not possible (EPS…) flag the tile so the client
+  // is asked for a JPG/PNG preview before they can submit.
+  async function attachAutoPreview(itemId: string, path: string, file: File) {
+    const set = (patch: Partial<UploadedFile>) =>
+      setItemUploads(prev => ({ ...prev, [itemId]: (prev[itemId] ?? []).map(u => u.path === path ? { ...u, ...patch } : u) }))
+    set({ previewBusy: true })
+    const preview = await renderPrintFilePreview(file)
+    const previewPath = preview ? await uploadPreviewFile(preview) : null
+    set({ previewBusy: false, previewPath: previewPath ?? undefined, needsPreview: !previewPath })
+  }
+
+  // Client-supplied JPG/PNG preview for a file we couldn't render (EPS etc.).
+  async function attachManualPreview(itemId: string, path: string, fileList: FileList | null) {
+    const img = fileList?.[0]
+    if (!img) return
+    if (!img.type.startsWith('image/')) {
+      setErrors(prev => ({ ...prev, [`item-${itemId}-photos`]: 'The preview must be a JPG or PNG image' })); return
+    }
+    const set = (patch: Partial<UploadedFile>) =>
+      setItemUploads(prev => ({ ...prev, [itemId]: (prev[itemId] ?? []).map(u => u.path === path ? { ...u, ...patch } : u) }))
+    set({ previewBusy: true })
+    const previewPath = await uploadPreviewFile(img)
+    set({ previewBusy: false, previewPath: previewPath ?? undefined, needsPreview: !previewPath })
+    if (previewPath) setErrors(prev => { const e = { ...prev }; delete e[`item-${itemId}-photos`]; return e })
   }
 
   function removeItemPhoto(itemId: string, path: string) {
@@ -321,8 +359,10 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
       if (!item.quantity || parseInt(item.quantity) < 1) errs[`item-${idx}-qty`] = 'Quantity must be at least 1'
       if (!item.size.trim()) errs[`item-${idx}-size`] = 'Size is required'
       if (!item.material) errs[`item-${idx}-material`] = 'Material is required'
-      if (item.artwork === 'final' && !(itemUploads[item.id] ?? []).some(u => u.progress === 100 && !u.error)) {
-        errs[`item-${item.id}-photos`] = 'Attach your print-ready file, or switch to "Design it for me"'
+      if (item.artwork === 'final') {
+        const ups = (itemUploads[item.id] ?? []).filter(u => u.progress === 100 && !u.error)
+        if (ups.length === 0) errs[`item-${item.id}-photos`] = 'Attach your print-ready file, or switch to "Design it for me"'
+        else if (ups.some(u => u.needsPreview && !u.previewPath)) errs[`item-${item.id}-photos`] = 'Please add a JPG/PNG preview for each file marked "preview needed"'
       }
     })
 
@@ -344,7 +384,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
     }
 
     const allUploads = [...uploads, ...Object.values(itemUploads).flat()]
-    const uploading = allUploads.some(u => u.progress < 100 && !u.error)
+    const uploading = allUploads.some(u => (u.progress < 100 && !u.error) || u.previewBusy)
     if (uploading) {
       setSubmitError('Please wait for all files to finish uploading.')
       return
@@ -372,7 +412,11 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
           // 'final' → the files ARE the artwork: they become the proof and are approved on submit
           // (the server stamps the approval fields). 'design' → they're reference/inspo images.
           ...(i.artwork === 'final'
-            ? { proof_urls: (itemUploads[i.id] ?? []).filter(u => u.progress === 100).map(u => u.path), proof_source: 'client' as const }
+            ? {
+                proof_urls: (itemUploads[i.id] ?? []).filter(u => u.progress === 100).map(u => u.path),
+                proof_previews: Object.fromEntries((itemUploads[i.id] ?? []).filter(u => u.progress === 100 && u.previewPath).map(u => [u.path, u.previewPath!])),
+                proof_source: 'client' as const,
+              }
             : { ref_photos: (itemUploads[i.id] ?? []).filter(u => u.progress === 100).map(u => u.path) }),
         })),
         filePaths: uploads.filter(u => u.progress === 100).map(u => u.path),
@@ -743,7 +787,9 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                                 {u.error ? <span style={{ fontSize: 9, color: 'var(--red-err)', padding: 2, textAlign: 'center' }}>{u.error}</span>
                                   : u.progress < 100 ? <span style={{ fontSize: 11, color: 'var(--charcoal-60)' }}>{u.progress}%</span>
                                   : u.file.type.startsWith('image/') ? <img src={URL.createObjectURL(u.file)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
-                                  : <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--charcoal-60)' }}>{u.file.name.split('.').pop()?.toUpperCase()}</span>}
+                                  : u.previewBusy ? <span style={{ fontSize: 9, color: 'var(--charcoal-60)', textAlign: 'center', padding: 2 }}>making preview…</span>
+                                  : u.previewPath ? <span style={{ fontSize: 9, fontWeight: 700, color: '#1B4D3E', textAlign: 'center', padding: 2, lineHeight: 1.3 }}>{u.file.name.split('.').pop()?.toUpperCase()}<br/>✓ preview</span>
+                                  : <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', color: u.needsPreview ? 'var(--red-err)' : 'var(--charcoal-60)' }}>{u.file.name.split('.').pop()?.toUpperCase()}</span>}
                                 <button type="button" onClick={() => removeItemPhoto(item.id, u.path)} style={{ position: 'absolute', top: -1, right: -1, background: 'var(--charcoal)', color: '#fff', border: 'none', width: 18, height: 18, fontSize: 12, lineHeight: 1, cursor: 'pointer' }}>×</button>
                               </div>
                             ))}
@@ -754,6 +800,15 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                               </label>
                             )}
                           </div>
+                          {(itemUploads[item.id] ?? []).filter(u => u.needsPreview && !u.previewPath && !u.previewBusy).map(u => (
+                            <div key={u.path + '-pv'} style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#fff8f6', border: '1px solid #f0c9bf', padding: '8px 12px', fontSize: '12px' }}>
+                              <span style={{ flex: 1, minWidth: 160 }}><strong>{u.file.name}</strong> can&apos;t be previewed in a browser — please add a JPG or PNG of the design so we all see the same thing.</span>
+                              <label style={{ fontSize: 11, fontWeight: 700, padding: '6px 12px', background: 'var(--charcoal)', color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                + Add preview image
+                                <input type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" style={{ display: 'none' }} onChange={e => { attachManualPreview(item.id, u.path, e.target.files); e.target.value = '' }}/>
+                              </label>
+                            </div>
+                          ))}
                         </Field>
                       </div>
                     </div>

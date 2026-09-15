@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemRefPhotos, itemExamplePhotos, approvedProofs, itemThread, designsMode } from '@/lib/job-types'
+import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemRefPhotos, itemExamplePhotos, approvedProofs, itemThread, designsMode, fileKindLabel, fileTileDataUrl } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus, ItemMessage } from '@/lib/job-types'
+import { renderPrintFilePreview, uploadPreviewFile, needsPreview } from '@/lib/proof-preview'
 
 interface Job {
   id: number
@@ -152,7 +153,7 @@ export default function AdminPage() {
   const [openOverride, setOpenOverride] = useState<Record<number, boolean>>({})
   const [updating, setUpdating]         = useState<number | null>(null)
   const [togglingNotify, setTogglingNotify] = useState<number | null>(null)
-  const [fileUrls, setFileUrls]         = useState<Record<number, { path: string; name: string; url: string }[]>>({})
+  const [fileUrls, setFileUrls]         = useState<Record<number, { path: string; name: string; url: string; fileUrl?: string }[]>>({})
   const [loadingFiles, setLoadingFiles] = useState<number | null>(null)
   const [fileError, setFileError]       = useState<number | null>(null)
   const [openRefs, setOpenRefs]         = useState<string | null>(null) // `${jobId}:${itemIndex}` whose ref photos are revealed
@@ -278,7 +279,7 @@ export default function AdminPage() {
       })
       if (!res.ok) { setFileError(jobId); return have }
       const { urls } = await res.json()
-      const merged = [...have, ...(urls as { path: string; name: string; url: string }[])]
+      const merged = [...have, ...(urls as { path: string; name: string; url: string; fileUrl?: string }[])]
       setFileUrls(prev => ({ ...prev, [jobId]: merged }))
       return merged
     } catch {
@@ -289,11 +290,30 @@ export default function AdminPage() {
     }
   }
 
+  // A PDF / PDF-compatible AI proof gets a PNG preview rendered here in the
+  // browser and stored in the item's proof_previews, so every surface (admin,
+  // portal, review link, print sheets) shows a real thumbnail instead of a tile.
+  // Returns the preview File (for the instant local thumbnail) or null.
+  async function attachProofPreview(index: number, proofPath: string, file: File): Promise<File | null> {
+    if (!needsPreview(file.name)) return null
+    const preview = await renderPrintFilePreview(file)
+    const pvPath = preview ? await uploadPreviewFile(preview) : null
+    if (!pvPath) return null
+    setEditForm(prev => {
+      if (!prev) return prev
+      const items = [...prev.items]
+      const t = items[index]
+      items[index] = { ...t, proof_previews: { ...(t.proof_previews ?? {}), [proofPath]: pvPath } }
+      return { ...prev, items }
+    })
+    return preview
+  }
+
   // Show a just-uploaded file instantly from a local object URL. The signed-URL
   // API only signs paths already saved to a job, so a brand-new upload can't be
   // fetched until the brief is saved — this previews it in the meantime.
   function seedPreview(jobId: number, path: string, file: File) {
-    const url = URL.createObjectURL(file)
+    const url = file.type.startsWith('image/') ? URL.createObjectURL(file) : fileTileDataUrl(path)
     setFileUrls(prev => {
       const have = prev[jobId] ?? []
       if (have.some(f => f.path === path)) return prev
@@ -427,7 +447,7 @@ export default function AdminPage() {
       const { path, signedUrl } = uploads[0]
       const putRes = await fetch(signedUrl, {
         method: 'PUT',
-        headers: { 'Content-Type': file.type },
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
         body: file,
       })
       if (!putRes.ok) { setUploadPhotoError('Upload failed — please try again.'); return }
@@ -503,9 +523,10 @@ export default function AdminPage() {
       // Upload all files in parallel; keep selection order for the ones that land.
       const settled = await Promise.allSettled(batch.map(async (file, i) => {
         const { path, signedUrl } = uploads[i]
-        const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+        const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file })
         if (!putRes.ok) throw new Error(file.name)
-        if (editingJob != null) seedPreview(editingJob, path, file)  // show the proof immediately
+        const preview = await attachProofPreview(index, path, file)
+        if (editingJob != null) seedPreview(editingJob, path, preview ?? file)  // show the proof immediately
         return path
       }))
       const okPaths = settled.flatMap(s => s.status === 'fulfilled' ? [s.value] : [])
@@ -536,9 +557,10 @@ export default function AdminPage() {
       if (!urlRes.ok) { const { error } = await urlRes.json(); setProofError(error ?? 'Could not get upload URL'); return }
       const { uploads } = await urlRes.json()
       const { path, signedUrl } = uploads[0]
-      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file })
       if (!putRes.ok) { setProofError('Replace upload failed — please try again.'); return }
-      if (editingJob != null) seedPreview(editingJob, path, file)
+      const preview = await attachProofPreview(index, path, file)
+      if (editingJob != null) seedPreview(editingJob, path, preview ?? file)
       setEditForm(prev => {
         if (!prev) return prev
         const items = [...prev.items]
@@ -595,7 +617,7 @@ export default function AdminPage() {
       }
       const { uploads } = await urlRes.json()
       const { path, signedUrl } = uploads[0]
-      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file })
       if (!putRes.ok) { setExampleError('Upload failed — please try again.'); return }
       if (editingJob != null) seedPreview(editingJob, path, file)  // show the example immediately
       setEditForm(prev => {
@@ -689,7 +711,7 @@ export default function AdminPage() {
       }
       const { uploads } = await urlRes.json()
       const { path, signedUrl } = uploads[0]
-      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file })
       if (!putRes.ok) { setLibraryError('Upload failed — please try again.'); return }
       const saveRes = await fetch('/api/admin/library', {
         method: 'POST',
@@ -1067,7 +1089,7 @@ export default function AdminPage() {
       if (!urlRes.ok) { setRevisionError(prev => ({ ...prev, [key]: 'Could not get upload URL' })); return }
       const { uploads } = await urlRes.json()
       const { path, signedUrl } = uploads[0]
-      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      const putRes = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file })
       if (!putRes.ok) { setRevisionError(prev => ({ ...prev, [key]: 'Upload failed — please try again.' })); return }
       seedPreview(job.id, path, file)  // show the new version immediately
 
@@ -2294,12 +2316,20 @@ export default function AdminPage() {
                                     const hero = proofs[0]
                                     const heroSigned = fileUrls[job.id]?.find(f => f.path === hero)
                                     return (
-                                      <a href={heroSigned?.url ?? undefined} target="_blank" rel="noopener noreferrer" title="Open full size"
+                                      <>
+                                      <a href={heroSigned?.fileUrl ?? heroSigned?.url ?? undefined} target="_blank" rel="noopener noreferrer" title={heroSigned?.fileUrl ? `Open ${fileKindLabel(hero)} file` : 'Open full size'}
                                         style={{ display: 'block', border: '1px solid #d6f0dd', borderRadius: 8, overflow: 'hidden', background: '#eceae5' }}>
                                         {heroSigned
                                           ? <img src={heroSigned.url} alt="Design proof" style={{ display: 'block', width: '100%', maxHeight: 260, objectFit: 'contain', cursor: 'zoom-in' }} />
                                           : <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ac3a8', fontSize: 12, fontWeight: 700 }}>Loading proof…</div>}
                                       </a>
+                                      {heroSigned?.fileUrl && (
+                                        <a href={heroSigned.fileUrl} target="_blank" rel="noopener noreferrer" download
+                                           style={{ display: 'inline-block', marginTop: 6, fontSize: 11, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--charcoal-60)', textDecoration: 'none' }}>
+                                          ⬇ Open {fileKindLabel(hero)} file (print original)
+                                        </a>
+                                      )}
+                                      </>
                                     )
                                   })() : (
                                     <label
