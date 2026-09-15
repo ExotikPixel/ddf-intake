@@ -582,6 +582,15 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
           .form-col-inner { padding: 24px 16px 48px; }
           .submit-mode-grid { grid-template-columns: 1fr !important; }
           .final-grid { grid-template-columns: 1fr !important; }
+          .two-col { grid-template-columns: 1fr !important; }
+          .summary-meta { grid-template-columns: 1fr 1fr !important; }
+          .site-header { padding: 0 16px !important; }
+          .header-tagline { display: none; }
+          .summary-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        }
+        @media (max-width: 420px) {
+          .name-qty { grid-template-columns: 1fr 84px !important; }
+          .header-email { font-size: 12px !important; }
         }
         input, select, textarea {
           font-family: var(--font-body);
@@ -592,11 +601,11 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
       `}</style>
 
       {/* Header */}
-      <header style={{ background: 'var(--charcoal)', height: '60px', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 50, borderBottom: '2px solid var(--coral)' }}>
+      <header className="site-header" style={{ background: 'var(--charcoal)', height: '60px', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, position: 'sticky', top: 0, zIndex: 50, borderBottom: '2px solid var(--coral)' }}>
         {brandLogo(30)}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-          <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', color: '#888', textTransform: 'uppercase', fontFamily: 'var(--font-body)' }}>Print Production Studio</span>
-          {branding.replyToEmail && <a href={`mailto:${branding.replyToEmail}`} style={{ fontSize: '13px', color: 'var(--coral)', textDecoration: 'none', fontWeight: 600 }}>{branding.replyToEmail}</a>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20, minWidth: 0 }}>
+          <span className="header-tagline" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', color: '#888', textTransform: 'uppercase', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap' }}>Print Production Studio</span>
+          {branding.replyToEmail && <a href={`mailto:${branding.replyToEmail}`} className="header-email" style={{ fontSize: '13px', color: 'var(--coral)', textDecoration: 'none', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{branding.replyToEmail}</a>}
         </div>
       </header>
 
@@ -726,7 +735,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
               {/* Section 01 — Client Info */}
               <div ref={el => { sectionRefs.current[0] = el }}>
                 <Section num="01" title="Client Info">
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div className="two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <Field label="Full name" required error={errors.clientName}>
                       <input value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Jane Smith" style={inputStyle(!!errors.clientName)} data-error={errors.clientName || undefined}/>
                     </Field>
@@ -751,7 +760,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                           <button type="button" onClick={() => removeItem(item.id)} style={{ background: 'none', border: '1px solid var(--charcoal-border)', padding: '4px 12px', fontSize: '12px', cursor: 'pointer', color: 'var(--charcoal-60)', fontFamily: 'var(--font-body)' }}>Remove</button>
                         )}
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: '12px', marginBottom: '12px' }}>
+                      <div className="name-qty" style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: '12px', marginBottom: '12px' }}>
                         <Field label="Item name" required error={errors[`item-${idx}-name`]} compact>
                           <input value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} placeholder="Pull-Up Banner" style={inputStyle(!!errors[`item-${idx}-name`])}/>
                         </Field>
@@ -759,7 +768,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                           <input type="number" min="1" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} placeholder="1" style={inputStyle(!!errors[`item-${idx}-qty`])}/>
                         </Field>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div className="two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                         <Field label="Size" required error={errors[`item-${idx}-size`]} compact>
                           <input value={item.size} onChange={e => updateItem(item.id, 'size', e.target.value)} placeholder="85cm × 200cm" style={inputStyle(!!errors[`item-${idx}-size`])}/>
                         </Field>
@@ -779,7 +788,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
 
                       {/* Who makes the artwork? Decides what the files below mean. */}
                       <div style={{ marginTop: '12px', marginBottom: '10px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                        <div className="two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                           {([
                             ['design', 'Design it for me', 'Send inspo — we design & send you a proof'],
                             ['final', 'I have the final file', 'Print-ready artwork — approved on submit'],
@@ -808,9 +817,9 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                       </div>
 
                       {item.artwork === 'final' ? (
-                        <div className="final-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '4px' }}>
+                        <div className="final-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '4px', alignItems: 'start' }}>
                           {/* Print-ready file(s) */}
-                          <Field label={<>Print-ready file <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— goes to print</span></>} required compact error={errors[`item-${item.id}-photos`]}>
+                          <Field label="Print-ready file" required compact error={errors[`item-${item.id}-photos`]}>
                             <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 96, padding: '12px', border: `1.5px dashed ${errors[`item-${item.id}-photos`] ? 'var(--red-err)' : 'var(--charcoal-border)'}`, background: '#fff', cursor: 'pointer', textAlign: 'center' }}>
                               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--coral)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>
                               <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--charcoal)' }}>Tap to add file</span>
@@ -845,7 +854,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                             const needShot = (itemUploads[item.id] ?? []).some(u => !u.file.type.startsWith('image/'))
                             const shotErr = errors[`item-${item.id}-shot`] ?? shot?.error
                             return (
-                              <Field label={<>Screenshot of the design <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— so our team sees it</span></>} required={needShot} compact error={shotErr}>
+                              <Field label="Screenshot of the design" required={needShot} compact error={shotErr}>
                                 {shot ? (
                                   <div style={{ position: 'relative', border: '1px solid var(--charcoal-border)', background: '#fff' }}>
                                     <img src={URL.createObjectURL(shot.file)} alt="Design screenshot" style={{ display: 'block', width: '100%', height: 150, objectFit: 'contain', background: 'var(--bg)', opacity: shot.busy ? 0.5 : 1 }}/>
@@ -905,7 +914,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
               {/* Section 03 — Files & Deadline */}
               <div ref={el => { sectionRefs.current[2] = el }}>
                 <Section num="03" title="Files & Deadline">
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div className="two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <Field label="Date required" required error={errors.dateRequired}>
                       <input type="date" value={dateRequired} min={todayStr()} onChange={e => setDateRequired(e.target.value)} style={inputStyle(!!errors.dateRequired)}/>
                     </Field>
@@ -915,7 +924,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                   </div>
 
                   <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--charcoal-60)', margin: '8px 0 10px' }}>Setup &amp; Removal <span style={{ fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>— so our crew knows where &amp; when</span></div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div className="two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <Field label="Setup location">
                       <input value={setupLocation} onChange={e => setSetupLocation(e.target.value)} placeholder="Venue name / address" style={inputStyle(false)}/>
                     </Field>
@@ -980,7 +989,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                       <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '16px', letterSpacing: '3px', textTransform: 'uppercase' }}>PIXEL <span style={{ color: 'var(--coral)' }}>PRODUCTION</span></span>
                       <span style={{ border: '1px solid var(--charcoal-border)', color: 'var(--charcoal-60)', fontWeight: 700, fontSize: '10px', padding: '3px 10px', letterSpacing: '2px', fontFamily: 'var(--font-body)' }}>DRAFT</span>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', background: 'var(--bg)', padding: '12px 14px', marginBottom: '16px', fontSize: '13px' }}>
+                    <div className="summary-meta" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', background: 'var(--bg)', padding: '12px 14px', marginBottom: '16px', fontSize: '13px' }}>
                       {[['CLIENT', clientName || '—'], ['COMPANY', companyName || '—'], ['DATE REQUIRED', dateRequired ? new Date(dateRequired + 'T00:00:00').toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'], ['EVENT', eventName || '—']].map(([label, value]) => (
                         <div key={label}>
                           <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', color: 'var(--charcoal-60)', marginBottom: '3px' }}>{label}</div>
@@ -988,6 +997,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                         </div>
                       ))}
                     </div>
+                    <div className="summary-table-wrap">
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', marginBottom: '12px' }}>
                       <thead>
                         <tr style={{ background: 'var(--charcoal)', color: '#fff' }}>
@@ -1016,6 +1026,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                         ))}
                       </tbody>
                     </table>
+                    </div>
                     {notes && <div style={{ background: 'var(--bg)', padding: '10px 12px', fontSize: '13px', marginBottom: '10px' }}><strong>Notes:</strong> {notes}</div>}
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--charcoal-60)', paddingTop: '10px', borderTop: '1px solid var(--charcoal-border)' }}>
                       <span>{new Date().toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}</span>
