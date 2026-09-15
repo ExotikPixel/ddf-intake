@@ -18,6 +18,8 @@ export const ItemSchema = z.object({
   approval_status: z.enum(['pending', 'approved', 'changes_requested']).optional(),
   approved_proof_url: z.string().optional(),
   designs_mode: z.enum(['all', 'pick', 'latest']).optional(),
+  proof_source: z.enum(['shop', 'client']).optional(),
+  proof_uploaded_at: z.string().optional(),
   messages: z.array(z.object({
     from: z.enum(['client', 'shop']),
     text: z.string().max(2000),
@@ -68,6 +70,17 @@ export const ApprovalActionSchema = z.object({
 })
 
 export type ApprovalActionInput = z.infer<typeof ApprovalActionSchema>
+
+// Client uploads their OWN print-ready file for one item. It becomes the item's
+// proof (the shop doesn't have to re-upload it) and, when `approve` is true,
+// is approved for print in the same step.
+export const FinalDesignSchema = z.object({
+  itemIndex: z.number().int().min(0),
+  paths: z.array(z.string().regex(/^uploads\/[A-Za-z0-9._-]+$/)).min(1).max(8),
+  approve: z.boolean().default(true),
+})
+
+export type FinalDesignInput = z.infer<typeof FinalDesignSchema>
 
 // Client appends NEW items and/or NEW reference files to an existing job
 // (append-only — existing items are never sent and cannot be changed here).

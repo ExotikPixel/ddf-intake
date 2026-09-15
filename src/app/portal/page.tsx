@@ -81,6 +81,10 @@ export default function PortalPage() {
   const [noteOpen, setNoteOpen] = useState<Record<string, boolean>>({})
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({})
   const [approvalError, setApprovalError] = useState<Record<string, string>>({})
+  // Client-supplied final artwork (upload → becomes the proof → approved in one step)
+  const [finalBusy, setFinalBusy] = useState<string | null>(null)        // `${jobId}:${idx}`
+  const [finalError, setFinalError] = useState<Record<string, string>>({})
+  const [finalOpen, setFinalOpen] = useState<Record<number, boolean>>({}) // per job: panel expanded
   // Append-only "Add to Job" state (for jobs already in progress)
   const [addingJob, setAddingJob] = useState<number | null>(null)
   const [addItems, setAddItems] = useState<JobItem[]>([])
@@ -205,6 +209,52 @@ export default function PortalPage() {
       setApprovalError(prev => ({ ...prev, [key]: 'Network error — not saved.' }))
     } finally {
       setActioning(null)
+    }
+  }
+
+  // Client uploads their own print-ready file(s) for ONE item. The files become
+  // the item's proof and it is approved for print in the same request, so the
+  // shop doesn't have to re-upload them and send an approval link.
+  async function uploadFinalDesign(jobId: number, idx: number, files: File[]) {
+    const key = `${jobId}:${idx}`
+    if (!files.length) return
+    setFinalBusy(key)
+    setFinalError(prev => ({ ...prev, [key]: '' }))
+    try {
+      const urlRes = await fetch('/api/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: files.map(f => ({ name: f.name, type: f.type, size: f.size })) }),
+      })
+      if (!urlRes.ok) {
+        const { error } = await urlRes.json().catch(() => ({ error: null }))
+        setFinalError(prev => ({ ...prev, [key]: error ?? 'Could not prepare the upload.' }))
+        return
+      }
+      const { uploads } = await urlRes.json() as { uploads: { path: string; signedUrl: string }[] }
+      const paths: string[] = []
+      for (let i = 0; i < files.length; i++) {
+        const put = await fetch(uploads[i].signedUrl, { method: 'PUT', headers: { 'Content-Type': files[i].type }, body: files[i] })
+        if (!put.ok) { setFinalError(prev => ({ ...prev, [key]: `Upload failed for ${files[i].name} — please try again.` })); return }
+        paths.push(uploads[i].path)
+      }
+      const res = await fetch(`/api/portal/jobs/${jobId}/final`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemIndex: idx, paths, approve: true }),
+      })
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: null }))
+        setFinalError(prev => ({ ...prev, [key]: error ?? 'Could not save — please try again.' }))
+        return
+      }
+      const { items } = await res.json()
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, items } : j))
+      loadProofs(jobId)
+    } catch {
+      setFinalError(prev => ({ ...prev, [key]: 'Network error — not saved.' }))
+    } finally {
+      setFinalBusy(null)
     }
   }
 
@@ -706,6 +756,9 @@ export default function PortalPage() {
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
                                     <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--charcoal)' }}>{it.quantity}× {it.name}</span>
                                     <ApprovalPill status={status} />
+                                    {it.proof_source === 'client' && (
+                                      <span title="You uploaded this print-ready file yourself" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#1B4D3E', background: '#E8EFEB', border: '1px solid #b9d3c7', padding: '1px 6px', textTransform: 'uppercase' }}>Your file</span>
+                                    )}
                                   </div>
                                   {it.size && <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--charcoal-60)' }}>{it.size}</p>}
                                   {it.admin_note && (
@@ -782,6 +835,60 @@ export default function PortalPage() {
                         </div>
                       </div>
                     )}
+
+                    {/* ── Client's own final artwork ─────────────────────────── */}
+                    {(() => {
+                      const closed = job.status === 'completed' || job.status === 'cancelled'
+                      const eligible = job.items
+                        .map((it, idx) => ({ it, idx }))
+                        .filter(x => !x.it.completed && x.it.approval_status !== 'approved')
+                      if (closed || eligible.length === 0) return null
+                      const open = !!finalOpen[job.id]
+                      return (
+                        <div style={{ marginTop: 16, borderTop: '1px solid var(--charcoal-border)', paddingTop: 14 }}>
+                          <button onClick={() => setFinalOpen(prev => ({ ...prev, [job.id]: !open }))}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>Have your own print-ready artwork?</span>
+                            <span style={{ fontSize: 11, color: 'var(--charcoal-60)' }}>{open ? '▴ hide' : '▾ upload & approve it yourself'}</span>
+                          </button>
+                          {open && (
+                            <div style={{ marginTop: 10 }}>
+                              <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--charcoal-60)', lineHeight: 1.5 }}>
+                                If your designer already made the final file, upload it here and it&apos;s approved for print straight away — no need to wait for a proof from us. PDF, AI, EPS, SVG, PNG or JPG, up to 50MB.
+                              </p>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {eligible.map(({ it, idx }) => {
+                                  const key = `${job.id}:${idx}`
+                                  const busy = finalBusy === key
+                                  const err = finalError[key]
+                                  return (
+                                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: '1px solid var(--charcoal-border)', background: '#fff', padding: '8px 12px' }}>
+                                      <span style={{ flex: 1, minWidth: 140, fontSize: 13, fontWeight: 600, color: 'var(--charcoal)' }}>
+                                        {it.quantity}× {it.name} <span style={{ fontWeight: 400, color: 'var(--charcoal-60)' }}>· {it.size}</span>
+                                      </span>
+                                      <label style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', background: busy ? '#f0f0f0' : '#1B7F4F', color: busy ? '#888' : '#fff', cursor: busy ? 'default' : 'pointer', fontFamily: 'var(--font-body)', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
+                                        {busy ? 'Uploading…' : '⬆ Upload final & approve'}
+                                        <input type="file" multiple disabled={busy}
+                                          accept=".pdf,.ai,.eps,.svg,.png,.jpg,.jpeg,application/pdf,application/postscript,image/svg+xml,image/png,image/jpeg"
+                                          style={{ display: 'none' }}
+                                          onChange={e => {
+                                            const files = Array.from(e.target.files ?? []).slice(0, 8)
+                                            e.target.value = ''
+                                            if (files.length && window.confirm(`Upload ${files.length === 1 ? files[0].name : files.length + ' files'} as the FINAL print-ready artwork for "${it.name}" and approve it for print?`)) {
+                                              uploadFinalDesign(job.id, idx, files)
+                                            }
+                                          }} />
+                                      </label>
+                                      {err && <p style={{ margin: 0, width: '100%', fontSize: 11, color: '#dc2626' }}>{err}</p>}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
 
                   {/* Edit panel */}

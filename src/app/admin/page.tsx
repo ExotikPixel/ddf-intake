@@ -456,6 +456,7 @@ export default function AdminPage() {
           ...t,
           proof_history: [...(t.proof_history ?? []), ...cur],
           proof_urls: okPaths, proof_url: undefined,
+          proof_source: 'shop', proof_uploaded_at: undefined,
           approval_status: 'pending', approved_proof_url: undefined,
           client_note: undefined, approved_at: undefined,
         }
@@ -465,7 +466,7 @@ export default function AdminPage() {
         // (newest big, earlier ones small) — unless the admin already chose a
         // mode explicitly. Fresh first-upload (cur empty) keeps the default.
         const nextMode = t.designs_mode ?? (cur.length > 0 ? 'latest' : undefined)
-        items[index] = { ...t, proof_urls: [...okPaths, ...cur], proof_url: undefined, designs_mode: nextMode, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
+        items[index] = { ...t, proof_urls: [...okPaths, ...cur], proof_url: undefined, proof_source: 'shop', proof_uploaded_at: undefined, designs_mode: nextMode, approval_status: 'pending', approved_proof_url: undefined, client_note: undefined, approved_at: undefined }
       }
       return { ...prev, items }
     })
@@ -551,6 +552,7 @@ export default function AdminPage() {
           ...t,
           proof_urls: next, proof_url: undefined,
           proof_history: [...(t.proof_history ?? []), oldPath],
+          proof_source: 'shop', proof_uploaded_at: undefined,
           approval_status: 'pending', approved_at: undefined,
           approved_proof_url: t.approved_proof_url === oldPath ? path : t.approved_proof_url,
           client_note: undefined, completed: false, completed_at: undefined,
@@ -1759,6 +1761,9 @@ export default function AdminPage() {
                               item.approval_status && item.approval_status !== 'pending'
                                 ? <ApprovalPill status={item.approval_status} />
                                 : <span title="Proof attached — not yet approved for print" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#888', background: '#f0f0f0', border: '1px solid #ddd', padding: '1px 6px', textTransform: 'uppercase' }}>Awaiting Approval</span>
+                            )}
+                            {item.proof_source === 'client' && (
+                              <span title={`The client uploaded this print-ready file themselves${item.proof_uploaded_at ? ` on ${new Date(item.proof_uploaded_at).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}` : ''} — check it before production`} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#1B4D3E', background: '#E8EFEB', border: '1px solid #b9d3c7', padding: '1px 6px', textTransform: 'uppercase' }}>📥 Client File</span>
                             )}
                             {item.added_at && (
                               <span title={`Client added this after submitting, on ${new Date(item.added_at).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}`} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#9a6a00', background: '#fff6e5', border: '1px solid #f0d79a', padding: '1px 6px', textTransform: 'uppercase' }}>🆕 Added Later</span>

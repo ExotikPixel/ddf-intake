@@ -21,6 +21,8 @@ export interface JobItem {
   approval_status?: 'pending' | 'approved' | 'changes_requested'
   approved_proof_url?: string                         // PICK mode: the ONE design chosen out of several
   designs_mode?: 'all' | 'pick' | 'latest'            // multiple designs: all-needed (default), pick-one, or latest-only
+  proof_source?: 'shop' | 'client'                    // who supplied the current proof(s): shop-designed (default) or client's own print-ready file
+  proof_uploaded_at?: string                          // ISO timestamp when the client uploaded their own final file
   messages?: ItemMessage[]                            // per-item conversation between client and shop
   client_note?: string                                // LEGACY latest change-request text — read the thread via itemThread()
   approved_at?: string                                // ISO timestamp when approved
@@ -111,6 +113,21 @@ export function mergeItemsPreservingApproval(incoming: JobItem[], current: JobIt
       messages: cur.messages,
       completed: cur.completed,
       completed_at: cur.completed_at,
+    }
+    if (cur.proof_source === 'client' && inc.proof_source !== 'shop') {
+      // The client uploaded their own print-ready file (and approved it) after
+      // this form was loaded. A brief save must not silently replace it with
+      // the stale proofs the form still holds — only an explicit shop upload
+      // (which stamps proof_source: 'shop') may supersede a client file.
+      return {
+        ...merged,
+        proof_urls: cur.proof_urls,
+        proof_url: cur.proof_url,
+        proof_history: cur.proof_history,
+        proof_source: cur.proof_source,
+        proof_uploaded_at: cur.proof_uploaded_at,
+        designs_mode: cur.designs_mode,
+      }
     }
     if (!sameProofs(inc, cur)) {
       // Design changed → the client must re-approve the new proof(s).
