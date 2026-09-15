@@ -4,7 +4,6 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import axios from 'axios'
 import { renderPrintFilePreview, uploadPreviewFile, needsPreview as fileNeedsPreview } from '@/lib/proof-preview'
-import { supabase } from '@/lib/supabase'
 import type { PublicBranding } from '@/lib/tenant-public'
 
 // Derive the light/dark brand tints from a single brand colour so a tenant's
