@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { supabaseAdmin } from '@/lib/supabase-server'
 import { verifyPortalToken, PORTAL_COOKIE } from '@/lib/portal-token'
+import { publicItems } from '@/lib/job-types'
+import type { JobItem } from '@/lib/job-types'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,5 +25,6 @@ export async function GET() {
   if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   const { contact_email, ...rest } = job
-  return NextResponse.json({ jobs: [rest], email: contact_email })
+  // Strip admin-only fields (quotes) before anything reaches the client.
+  return NextResponse.json({ jobs: [{ ...rest, items: publicItems((rest.items ?? []) as JobItem[]) }], email: contact_email })
 }

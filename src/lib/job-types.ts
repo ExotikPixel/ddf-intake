@@ -30,6 +30,10 @@ export interface JobItem {
   completed?: boolean                                 // admin marked this item done (printed/produced)
   completed_at?: string                               // ISO timestamp when marked completed
   added_at?: string                                   // ISO timestamp — set when a client appended this item AFTER submitting (Add to Job)
+  // ── Admin-only quote (NEVER sent to clients — see publicItems()) ──
+  quote_price?: number | null                         // price quoted to the client for this item (job currency), as remembered by the shop
+  quote_note?: string                                 // internal note about the quote (options, assumptions, what was said)
+  quoted_at?: string                                  // ISO timestamp when the quote was last edited
 }
 
 /**
@@ -111,6 +115,11 @@ export function mergeItemsPreservingApproval(incoming: JobItem[], current: JobIt
       approved_at: cur.approved_at,
       approved_proof_url: cur.approved_proof_url,
       client_note: cur.client_note,
+      // Admin quote lives on the item but is edited inline via the RPC, so a
+      // brief save (admin or client) must never overwrite or wipe it.
+      quote_price: cur.quote_price,
+      quote_note: cur.quote_note,
+      quoted_at: cur.quoted_at,
       messages: cur.messages,
       completed: cur.completed,
       completed_at: cur.completed_at,
@@ -213,4 +222,27 @@ export function fileTileDataUrl(path: string): string {
   <text x="200" y="250" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6E6A5E">No preview — open the file to view</text>
 </svg>`
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
+}
+
+// ── Client-facing view of items ───────────────────────────────────────────────
+// Some item fields are for the shop only (quotes, internal notes). Every API
+// response that reaches a client — portal, review link — must pass items
+// through this so those fields never leave the server.
+export const ADMIN_PRIVATE_ITEM_KEYS = ['quote_price', 'quote_note', 'quoted_at'] as const
+
+export function publicItems<T extends JobItem>(items: T[]): T[] {
+  return items.map(it => {
+    const copy = { ...it }
+    for (const k of ADMIN_PRIVATE_ITEM_KEYS) delete (copy as Record<string, unknown>)[k]
+    return copy
+  })
+}
+
+/** Sum of quoted prices across items (ignores items without a quote). */
+export function jobQuoteTotal(items: JobItem[]): { total: number; quoted: number } {
+  let total = 0, quoted = 0
+  for (const it of items) {
+    if (typeof it.quote_price === 'number' && !Number.isNaN(it.quote_price)) { total += it.quote_price; quoted++ }
+  }
+  return { total, quoted }
 }

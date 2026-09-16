@@ -5,7 +5,7 @@ import { ApprovalActionSchema } from '@/lib/schemas'
 import { sendChangeRequestNotification } from '@/lib/email'
 import { getTenantBranding } from '@/lib/tenant-settings'
 import { sendNtfy } from '@/lib/ntfy'
-import { itemProofs, designsMode } from '@/lib/job-types'
+import { publicItems, itemProofs, designsMode } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 import { syncApprovedItemsToKanban } from '@/lib/kanban-sync'
 
@@ -99,5 +99,5 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     }
   }
 
-  return NextResponse.json({ success: true, items })
+  return NextResponse.json({ success: true, items: publicItems(items) })
 }

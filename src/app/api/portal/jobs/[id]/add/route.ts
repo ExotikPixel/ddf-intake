@@ -6,6 +6,7 @@ import { sendAddedToJobNotification } from '@/lib/email'
 import { getTenantBranding } from '@/lib/tenant-settings'
 import { portalCanAccess } from '@/lib/portal-auth'
 import type { JobItem } from '@/lib/job-types'
+import { publicItems } from '@/lib/job-types'
 
 export const dynamic = 'force-dynamic'
 
@@ -86,5 +87,5 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     ).catch(e => console.error('[add-to-job] email failed:', e)),
   ])
 
-  return NextResponse.json({ success: true, items, file_paths: filePaths })
+  return NextResponse.json({ success: true, items: publicItems(items), file_paths: filePaths })
 }

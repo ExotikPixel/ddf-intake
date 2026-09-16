@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 import { verifyReviewToken } from '@/lib/review-token'
-import { itemProofs, itemExamplePhotos } from '@/lib/job-types'
+import { publicItems, itemProofs, itemExamplePhotos } from '@/lib/job-types'
 import { getTenantBranding } from '@/lib/tenant-settings'
 import type { JobItem } from '@/lib/job-types'
 import { signProofDisplayUrls } from '@/lib/proof-sign'
@@ -41,7 +41,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
     reference_number: job.reference_number,
     event_name: job.event_name,
     date_required: job.date_required,
-    items,
+    items: publicItems(items),
     proofUrls,
     fileUrls,
     clientName: (job.client_name ?? '').split(' ')[0] || 'You',   // first name for thread attribution

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-server'
 import { FinalDesignSchema } from '@/lib/schemas'
 import { sendNtfy } from '@/lib/ntfy'
-import { itemProofs } from '@/lib/job-types'
+import { publicItems, itemProofs } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 import { syncApprovedItemsToKanban } from '@/lib/kanban-sync'
 import { portalCanAccess } from '@/lib/portal-auth'
@@ -119,5 +119,5 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     })
   }
 
-  return NextResponse.json({ success: true, items })
+  return NextResponse.json({ success: true, items: publicItems(items) })
 }

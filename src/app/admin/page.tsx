@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
-import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemRefPhotos, itemExamplePhotos, approvedProofs, itemThread, designsMode, fileKindLabel, fileTileDataUrl } from '@/lib/job-types'
+import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemRefPhotos, itemExamplePhotos, approvedProofs, itemThread, designsMode, fileKindLabel, fileTileDataUrl, jobQuoteTotal } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus, ItemMessage } from '@/lib/job-types'
 import { renderPrintFilePreview, uploadPreviewFile, needsPreview } from '@/lib/proof-preview'
 
@@ -154,6 +154,9 @@ export default function AdminPage() {
   const [updating, setUpdating]         = useState<number | null>(null)
   const [togglingNotify, setTogglingNotify] = useState<number | null>(null)
   const [fileUrls, setFileUrls]         = useState<Record<number, { path: string; name: string; url: string; fileUrl?: string }[]>>({})
+  // Admin-only quotes (per item). Draft is keyed `${jobId}:${idx}`; saved on blur.
+  const [quoteDraft, setQuoteDraft]     = useState<Record<string, { price: string; note: string }>>({})
+  const [quoteState, setQuoteState]     = useState<Record<string, 'saving' | 'saved' | 'error'>>({})
   const [loadingFiles, setLoadingFiles] = useState<number | null>(null)
   const [fileError, setFileError]       = useState<number | null>(null)
   const [openRefs, setOpenRefs]         = useState<string | null>(null) // `${jobId}:${itemIndex}` whose ref photos are revealed
@@ -959,6 +962,35 @@ export default function AdminPage() {
     win.document.close()
   }
 
+  // Save the admin quote for one item (price + internal note). Goes through the
+  // atomic item RPC so it can't collide with approvals; clients never receive
+  // these fields (publicItems() strips them server-side).
+  async function saveQuote(job: Job, idx: number) {
+    const key = `${job.id}:${idx}`
+    const draft = quoteDraft[key]
+    if (!draft) return
+    const it = job.items[idx]
+    const priceNum = draft.price.trim() === '' ? null : Number(draft.price.replace(/[^0-9.\-]/g, ''))
+    if (priceNum !== null && Number.isNaN(priceNum)) { setQuoteState(prev => ({ ...prev, [key]: 'error' })); return }
+    const note = draft.note.trim()
+    const unchanged = (it.quote_price ?? null) === priceNum && (it.quote_note ?? '') === note
+    if (unchanged) return
+    setQuoteState(prev => ({ ...prev, [key]: 'saving' }))
+    try {
+      const res = await fetch(`/api/admin/jobs/${job.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemPatch: { index: idx, patch: { quote_price: priceNum, quote_note: note || null, quoted_at: new Date().toISOString() } } }),
+      })
+      if (!res.ok) throw new Error('save failed')
+      const { items } = await res.json()
+      setJobs(prev => prev.map(j => j.id === job.id ? { ...j, items } : j))
+      setQuoteState(prev => ({ ...prev, [key]: 'saved' }))
+      setTimeout(() => setQuoteState(prev => (prev[key] === 'saved' ? { ...prev, [key]: undefined as never } : prev)), 2500)
+    } catch {
+      setQuoteState(prev => ({ ...prev, [key]: 'error' }))
+    }
+  }
+
   // Admin marks an item approved (or back to pending) for print — the team's call, not the client's.
   // For multi-design items the approved design is recorded (chosenProof), same as the client flow,
   // so admin- and client-approval write identical data.
@@ -1471,6 +1503,8 @@ export default function AdminPage() {
         .job-head:hover { background: #fcfbf9; }
         .job-search:focus { outline: none; border-color: var(--coral); box-shadow: 0 0 0 3px var(--coral)22; }
         @media (max-width: 640px) {
+          .quote-row { grid-template-columns: 1fr 110px !important; }
+          .quote-row > input { grid-column: 1 / -1; }
           .admin-wrap { padding: 18px 14px 56px !important; }
           .stats-grid { grid-template-columns: repeat(5, 1fr) !important; gap: 4px !important; }
           .stats-grid .stat-num { font-size: 20px !important; }
@@ -1901,6 +1935,55 @@ export default function AdminPage() {
                         <span style={{ fontSize: 12, color: '#666', lineHeight: 1.5 }}>{job.notes}</span>
                       </div>
                     )}
+
+                    {/* Quote — admin only, never sent to the client */}
+                    {(() => {
+                      const { total, quoted } = jobQuoteTotal(job.items)
+                      const fmt = (n: number) => n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 2 })
+                      return (
+                        <div style={{ padding: '9px 18px 10px', borderBottom: '1px solid #f2f2f2', background: '#fbfaf6' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--coral)' }}>Quote</span>
+                              <span style={{ fontSize: 10, color: '#aaa' }}>internal · clients never see this</span>
+                            </span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: quoted > 0 ? '#1B4D3E' : '#bbb' }}>
+                              {quoted > 0 ? `Total ${fmt(total)}` : 'Nothing quoted yet'}
+                              {quoted > 0 && quoted < job.items.length && <span style={{ fontWeight: 400, color: '#999' }}> · {quoted} of {job.items.length} items</span>}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {job.items.map((item, i) => {
+                              const key = `${job.id}:${i}`
+                              const draft = quoteDraft[key] ?? { price: item.quote_price != null ? String(item.quote_price) : '', note: item.quote_note ?? '' }
+                              const st = quoteState[key]
+                              const setDraft = (patch: Partial<{ price: string; note: string }>) => setQuoteDraft(prev => ({ ...prev, [key]: { ...draft, ...patch } }))
+                              return (
+                                <div key={i} className="quote-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1.2fr) 120px minmax(160px, 2fr) 70px', gap: 8, alignItems: 'center' }}>
+                                  <span style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.name}>
+                                    <b>{item.quantity}×</b> {item.name}
+                                  </span>
+                                  <span style={{ position: 'relative' }}>
+                                    <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#999', pointerEvents: 'none' }}>$</span>
+                                    <input inputMode="decimal" placeholder="0.00" value={draft.price}
+                                      onChange={e => setDraft({ price: e.target.value })} onBlur={() => saveQuote(job, i)}
+                                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                                      style={{ width: '100%', boxSizing: 'border-box', padding: '5px 8px 5px 18px', fontSize: 12, fontWeight: 600, border: `1px solid ${st === 'error' ? '#dc2626' : '#ddd'}`, background: '#fff', fontFamily: 'var(--font-body)', textAlign: 'right' }} />
+                                  </span>
+                                  <input placeholder="Note to self — options, assumptions, what you told them…" value={draft.note}
+                                    onChange={e => setDraft({ note: e.target.value })} onBlur={() => saveQuote(job, i)}
+                                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                                    style={{ width: '100%', boxSizing: 'border-box', padding: '5px 8px', fontSize: 12, border: '1px solid #ddd', background: '#fff', fontFamily: 'var(--font-body)' }} />
+                                  <span style={{ fontSize: 10, whiteSpace: 'nowrap', color: st === 'saving' ? '#999' : st === 'saved' ? '#1B7F4F' : st === 'error' ? '#dc2626' : '#bbb' }}>
+                                    {st === 'saving' ? 'Saving…' : st === 'saved' ? '✓ Saved' : st === 'error' ? 'Not saved' : item.quoted_at ? new Date(item.quoted_at).toLocaleDateString('en-CA', { day: 'numeric', month: 'short' }) : ''}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })()}
 
                     {/* Files */}
                     {job.file_paths.length > 0 && (
