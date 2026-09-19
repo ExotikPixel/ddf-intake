@@ -1818,9 +1818,35 @@ export default function AdminPage() {
                                 ? <ApprovalPill status={item.approval_status} />
                                 : <span title="Proof attached — not yet approved for print" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#888', background: '#f0f0f0', border: '1px solid #ddd', padding: '1px 6px', textTransform: 'uppercase' }}>Awaiting Approval</span>
                             )}
-                            {item.proof_source === 'client' && (
-                              <span title={`The client uploaded this print-ready file themselves${item.proof_uploaded_at ? ` on ${new Date(item.proof_uploaded_at).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}` : ''} — check it before production`} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#1B4D3E', background: '#E8EFEB', border: '1px solid #b9d3c7', padding: '1px 6px', textTransform: 'uppercase' }}>📥 Client File</span>
-                            )}
+                            {item.proof_source === 'client' && (() => {
+                              const proofs = itemProofs(item)
+                              const first = proofs[0]
+                              const cached = first ? fileUrls[job.id]?.find(f => f.path === first) : undefined
+                              const href = cached?.fileUrl ?? cached?.url
+                              const title = `The client uploaded this print-ready file themselves${item.proof_uploaded_at ? ` on ${new Date(item.proof_uploaded_at).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}` : ''} — click to open${first ? ` the ${fileKindLabel(first)} file` : ''}`
+                              const style = { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#1B4D3E', background: '#E8EFEB', border: '1px solid #b9d3c7', padding: '1px 6px', textTransform: 'uppercase' as const, textDecoration: 'none', cursor: first ? 'pointer' : 'default', fontFamily: 'var(--font-body)' }
+                              if (href) {
+                                return <a href={href} target="_blank" rel="noopener noreferrer" download title={title} style={style}>📥 Client File</a>
+                              }
+                              return (
+                                <button
+                                  type="button"
+                                  disabled={!first}
+                                  title={title}
+                                  style={style}
+                                  onClick={async () => {
+                                    if (!first) return
+                                    // Open the tab synchronously so Safari/Chrome popup blockers don't eat it, then point it at the signed URL once we have one.
+                                    const w = window.open('', '_blank')
+                                    const files = await loadFiles(job.id, proofs)
+                                    const signed = files.find(f => f.path === first)
+                                    const url = signed?.fileUrl ?? signed?.url
+                                    if (url) { if (w) w.location.href = url; else window.open(url, '_blank') }
+                                    else w?.close()
+                                  }}
+                                >📥 Client File</button>
+                              )
+                            })()}
                             {item.added_at && (
                               <span title={`Client added this after submitting, on ${new Date(item.added_at).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}`} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#9a6a00', background: '#fff6e5', border: '1px solid #f0d79a', padding: '1px 6px', textTransform: 'uppercase' }}>🆕 Added Later</span>
                             )}
