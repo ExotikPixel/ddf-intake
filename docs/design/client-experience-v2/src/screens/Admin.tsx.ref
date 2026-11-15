@@ -1,0 +1,167 @@
+import { useMemo, useState } from 'react'
+import { Bell, CalendarDays, Copy, Images, LayoutList, RefreshCw, Search, Send, Settings, X, CreditCard, Upload } from 'lucide-react'
+import { Logo, Pill } from '../ui'
+import { ProofArt } from '../art'
+import { ADMIN_JOBS, DIGEST, ITEMS, money } from '../data'
+import type { AdminJob } from '../data'
+
+const FILTERS = ['All', 'Needs approval', 'Next 7 days', 'In production', 'Completed'] as const
+
+export default function Admin() {
+  const [jobs, setJobs] = useState<AdminJob[]>(ADMIN_JOBS)
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]>('All')
+  const [open, setOpen] = useState<string | null>(null)
+  const [notify, setNotify] = useState(true)
+  const [copied, setCopied] = useState(false)
+
+  const shown = useMemo(() => jobs.filter(j =>
+    filter === 'All' ? j.status !== 'Completed'
+      : filter === 'Needs approval' ? j.approved < j.total && j.status !== 'Completed'
+      : filter === 'Next 7 days' ? j.days >= 0 && j.days <= 7
+      : filter === 'In production' ? j.status === 'In production'
+      : j.status === 'Completed'), [jobs, filter])
+
+  const job = jobs.find(j => j.ref === open) ?? null
+  const patch = (ref: string, p: Partial<AdminJob>) => setJobs(js => js.map(j => (j.ref === ref ? { ...j, ...p } : j)))
+  const outstanding = jobs.filter(j => j.deposit === 'sent' || j.deposit === 'none').reduce((s, j) => s + (j.depositAmt ?? 0), 0)
+
+  return (
+    <div className="admin">
+      <nav className="side" aria-label="Admin">
+        <Logo />
+        <div className="nav">
+          <button aria-current="page"><LayoutList size={16} /> Jobs</button>
+          <button><CalendarDays size={16} /> Print schedule</button>
+          <button><Images size={16} /> Design library</button>
+          <button><Settings size={16} /> Settings</button>
+        </div>
+        <div className="tiny muted" style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>Signed in as<br /><span style={{ color: 'var(--ink)' }}>tony@ddfpixel.com</span></div>
+      </nav>
+
+      <main style={{ padding: '30px 28px 40px', display: 'grid', gap: 22, alignContent: 'start', minWidth: 0 }}>
+        <div className="between stack-sm">
+          <div className="stack" style={{ gap: 10 }}><span className="eyebrow">Sunday, November 15</span><h1 className="display" style={{ margin: 0, fontSize: 48 }}>Good evening, <span className="serif">Tony.</span></h1></div>
+          <div className="row"><div className="row glass" style={{ padding: '0 14px', gap: 8, borderRadius: 999 }}><Search size={15} color="var(--muted)" /><input aria-label="Search jobs" className="input" style={{ border: 0, padding: '11px 0', boxShadow: 'none', width: 200, background: 'transparent' }} placeholder="Search client or reference" /></div></div>
+        </div>
+
+        <div className="kpis">
+          <Kpi dark label="Awaiting approval" value="6" note={<span style={{ color: '#e4c9da', fontWeight: 500 }}>2 waiting 5+ days</span>} />
+          <Kpi label="Due in next 7 days" value="5" note="4 events · 1 product order" />
+          <Kpi label="In production" value="3" note="2 due this week" />
+          <Kpi label="Deposits outstanding" value={money(outstanding).replace('.00', '')} note="3 jobs" />
+        </div>
+
+        <div className="split" style={{ gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 22 }}>
+          <section className="panel" style={{ minWidth: 0, overflow: 'hidden' }}>
+            <div className="row" style={{ padding: '14px 16px', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid var(--line)' }}>
+              {FILTERS.map(f => <button key={f} className="chip" aria-pressed={filter === f} onClick={() => setFilter(f)}>{f}</button>)}
+              <span className="tiny muted" style={{ marginLeft: 'auto' }}>Select a job to send reminders or request a deposit</span>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="table">
+                <thead><tr><th>Job</th><th>Date</th><th>Approvals</th><th className="hide-md">Deposit</th><th className="hide-md">Reminders</th><th>Status</th></tr></thead>
+                <tbody>
+                  {shown.map(j => (
+                    <tr key={j.ref} aria-selected={open === j.ref} onClick={() => setOpen(j.ref)}>
+                      <td style={{ minWidth: 230 }}><span style={{ fontWeight: 500 }}>{j.event}</span><div className="row tiny muted" style={{ gap: 6, marginTop: 4 }}><span className="type-tag">{j.type}</span>{j.client}</div></td>
+                      <td className="num" style={{ whiteSpace: 'nowrap' }}><b>{j.date}</b><div className="tiny" style={{ color: j.days >= 0 && j.days <= 4 ? 'var(--rose)' : 'var(--muted)', fontWeight: 600 }}>{j.days < 0 ? 'Done' : j.days === 0 ? 'Today' : `in ${j.days} days`}</div></td>
+                      <td><div className="row" style={{ gap: 8 }}><span className="mini-bar"><span style={{ width: `${(j.approved / j.total) * 100}%`, background: j.approved === j.total ? 'var(--sage)' : 'var(--mauve)' }} /></span><span className="num tiny">{j.approved}/{j.total}</span></div>{j.waitingDays && j.waitingDays >= 5 && <div className="tiny" style={{ color: 'var(--rose)', fontWeight: 600 }}>waiting {j.waitingDays}d</div>}</td>
+                      <td className="hide-md">{j.deposit === 'paid' ? <Pill tone="ok">Paid</Pill> : j.deposit === 'sent' ? <Pill tone="wait">Link sent</Pill> : j.deposit === 'none' ? <Pill tone="neutral">Not requested</Pill> : <span className="tiny muted">No quote yet</span>}</td>
+                      <td className="hide-md tiny">{j.nudges ? <span><b>{j.nudges}×</b> <span className="muted">· last {j.lastNudge}</span></span> : <span className="muted">—</span>}</td>
+                      <td><Pill tone={j.status === 'In production' ? 'gold' : j.status === 'Completed' ? 'ok' : j.status === 'Proofing' ? 'wait' : 'neutral'}>{j.status}</Pill></td>
+                    </tr>
+                  ))}
+                  {shown.length === 0 && <tr><td colSpan={6} className="muted small" style={{ padding: 28, textAlign: 'center' }}>No jobs in this view.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <aside className="panel" style={{ padding: '20px 20px 8px', alignSelf: 'start' }}>
+            <div className="between"><span className="label">Print schedule · next 7 days</span><Bell size={14} color="var(--mauve-deep)" /></div>
+            <p className="tiny muted" style={{ margin: '6px 0 4px' }}>Sent to your phone and inbox every morning at 7:00.</p>
+            {DIGEST.map(d => (
+              <div key={d.d} className="day">
+                <div className="d-date"><span className="tiny muted">{d.dow}</span><b>{d.d}</b></div>
+                <div className="stack" style={{ gap: 4 }}>
+                  {d.jobs.map(x => (
+                    <div key={x.name}>
+                      <b className="small">{x.name}</b><div className="tiny muted">{x.detail}</div>
+                      <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                        {x.flags.length ? x.flags.map(f => <Pill key={f} tone="alert">{f}</Pill>) : <Pill tone="ok">On track</Pill>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </aside>
+        </div>
+      </main>
+
+      {job && (
+        <aside className="drawer" aria-label={`Job ${job.ref}`}>
+          <div style={{ padding: '20px 22px', borderBottom: '1px solid var(--line)', display: 'grid', gap: 6 }}>
+            <div className="between"><span className="tiny" style={{ color: 'var(--mauve-deep)', letterSpacing: '.06em', fontWeight: 500 }}>{job.ref} · {job.type}</span><button aria-label="Close" onClick={() => setOpen(null)} style={{ background: 'none', border: 0, cursor: 'pointer' }}><X size={18} /></button></div>
+            <h2 className="display" style={{ margin: 0, fontSize: 30 }}>{job.event}</h2>
+            <span className="small muted">{job.client} · {job.date} · {job.days >= 0 ? `in ${job.days} days` : 'done'}</span>
+          </div>
+
+          <div style={{ padding: 22, display: 'grid', gap: 22 }}>
+            <section className="stack" style={{ gap: 10 }}>
+              <div className="between"><span className="label">Approval reminders</span><span className="tiny muted">{job.nudges ? `${job.nudges} sent · last ${job.lastNudge}` : 'None sent'}</span></div>
+              <p className="small" style={{ margin: 0 }}>Auto-reminds the client 2 days after a proof, then every 3 days (max 3). You get a phone alert at 5 days.</p>
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                <button className="btn btn-quiet btn-sm" onClick={() => patch(job.ref, { nudges: job.nudges + 1, lastNudge: 'just now' })}><Send size={13} /> Send reminder now</button>
+                <button className="btn btn-quiet btn-sm" onClick={() => { try { void navigator.clipboard.writeText(`https://jobs.ddfpixel.com/review/${job.ref}`) } catch { /* sandbox */ } setCopied(true); setTimeout(() => setCopied(false), 1800) }}><Copy size={13} /> {copied ? 'Copied' : 'Copy review link'}</button>
+              </div>
+            </section>
+
+            <hr className="rule" />
+            <section className="stack" style={{ gap: 10 }}>
+              <div className="between"><span className="label">Deposit</span>{job.deposit === 'paid' ? <Pill tone="ok">Paid</Pill> : job.deposit === 'sent' ? <Pill tone="wait">Link sent</Pill> : <Pill tone="neutral">Not requested</Pill>}</div>
+              {job.depositAmt ? (
+                <>
+                  <div className="row" style={{ alignItems: 'baseline', gap: 10 }}><span className="display num" style={{ fontSize: 28 }}>{money(job.depositAmt)}</span><span className="tiny muted">50% of {money(job.depositAmt * 2)} quote</span></div>
+                  {job.deposit === 'none' && <button className="btn btn-ink btn-sm" onClick={() => patch(job.ref, { deposit: 'sent' })}><CreditCard size={13} /> Request deposit via Square</button>}
+                  {job.deposit === 'sent' && <span className="small muted">Square link emailed to the client. Marked paid automatically when they pay.</span>}
+                </>
+              ) : <span className="small muted">Add a quote to the items to request a deposit.</span>}
+            </section>
+
+            <hr className="rule" />
+            <section className="stack" style={{ gap: 12 }}>
+              <span className="label">Pieces</span>
+              {ITEMS.map(it => (
+                <div key={it.name} className="row" style={{ alignItems: 'start', gap: 12 }}>
+                  <div className="thumb" style={{ width: 64, flex: 'none' }}><ProofArt kind={it.art} /></div>
+                  <div className="stack" style={{ gap: 4, flex: 1 }}>
+                    <div className="between"><b className="small">{it.name}</b>{it.approval === 'approved' ? <Pill tone="ok">Approved</Pill> : <Pill tone="wait">Waiting</Pill>}</div>
+                    <span className="tiny muted">{it.qty} × {it.size} · {it.material}</span>
+                    <button className="link tiny" style={{ justifySelf: 'start' }}><Upload size={11} style={{ display: 'inline', marginRight: 4 }} />Upload revised proof</button>
+                  </div>
+                </div>
+              ))}
+            </section>
+
+            <hr className="rule" />
+            <section className="stack" style={{ gap: 12 }}>
+              <div className="between"><span className="small"><b>Email client on status changes</b><br /><span className="tiny muted">In production · Completed</span></span><button className="switch" role="switch" aria-checked={notify} aria-label="Email client on status changes" onClick={() => setNotify(n => !n)} /></div>
+              <button className="btn btn-quiet btn-sm" style={{ justifySelf: 'start' }}><RefreshCw size={13} /> Resync to Command Centre</button>
+            </section>
+          </div>
+        </aside>
+      )}
+    </div>
+  )
+}
+
+function Kpi({ label, value, note, dark }: { label: string; value: string; note: React.ReactNode; dark?: boolean }) {
+  return (
+    <div className={`kpi${dark ? ' dark' : ''}`}>
+      <span className="label">{label}</span>
+      <span className="k-val num">{value}</span>
+      <span className="tiny muted">{note}</span>
+    </div>
+  )
+}

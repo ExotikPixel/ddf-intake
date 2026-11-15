@@ -1,0 +1,39 @@
+import { LOGO } from './logo'
+import type { ReactNode } from 'react'
+
+export function Logo({ className = 'logo' }: { className?: string }) {
+  return <img src={LOGO} alt="Pixel Production × Designer Dance Floors" className={className} />
+}
+
+export type Tone = 'ok' | 'wait' | 'alert' | 'neutral' | 'gold'
+export function Pill({ tone, children }: { tone: Tone; children: ReactNode }) {
+  return <span className={`pill pill-${tone}`}>{children}</span>
+}
+
+export function SecHead({ n, title, aside }: { n: string; title: string; aside?: ReactNode }) {
+  return (
+    <div className="sec-head">
+      <span className="sec-num">{n}</span>
+      <h2 className="sec-title" style={{ margin: 0 }}>{title}</h2>
+      {aside && <span style={{ marginLeft: 'auto' }}>{aside}</span>}
+    </div>
+  )
+}
+
+export function SiteHead({ right }: { right?: ReactNode }) {
+  return (
+    <header className="site-head">
+      <Logo />
+      <div className="row small" style={{ gap: 18 }}>{right}</div>
+    </header>
+  )
+}
+
+export function SiteFoot() {
+  return (
+    <footer className="between tiny muted stack-sm" style={{ padding: '28px 0 36px', borderTop: '1px solid var(--line)', marginTop: 56 }}>
+      <span>Pixel Production × Designer Dance Floors · Events, signage &amp; fabrication · GTA</span>
+      <span>Questions? <a className="link" href="mailto:hello@ddfevents.ca">hello@ddfevents.ca</a></span>
+    </footer>
+  )
+}

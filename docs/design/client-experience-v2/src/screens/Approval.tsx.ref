@@ -1,0 +1,135 @@
+import { useEffect, useState } from 'react'
+import { Check, Lock, MessageSquare } from 'lucide-react'
+import { SiteHead, Pill } from '../ui'
+import { ProofArt } from '../art'
+import { ITEMS, JOB, money } from '../data'
+import type { Approval as A, ArtKind } from '../data'
+
+interface Msg { from: 'shop' | 'client'; text: string; at: string }
+
+export default function Approval() {
+  const [idx, setIdx] = useState(0)
+  const [status, setStatus] = useState<A[]>(ITEMS.map(i => i.approval))
+  const [pick, setPick] = useState<ArtKind>('floor')
+  const [view, setView] = useState<'flat' | 'floor'>('floor')
+  const [note, setNote] = useState('')
+  const [asking, setAsking] = useState(false)
+  const [toast, setToast] = useState('')
+  const [threads, setThreads] = useState<Msg[][]>([
+    [{ from: 'shop', text: 'Two directions as promised: ivory with gold, or noir with gold. Pick the one you love.', at: 'Nov 12' }],
+    [{ from: 'shop', text: 'Arch shape with eucalyptus sprigs, matched to your florals.', at: 'Nov 12' }, { from: 'client', text: 'Perfect, approved!', at: 'Nov 13' }],
+    [{ from: 'shop', text: 'Gold print on black acrylic. Drink names from your email of Nov 9.', at: 'Nov 12' }],
+  ])
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 2600); return () => clearTimeout(t) }, [toast])
+
+  const it = ITEMS[idx]
+  const art: ArtKind = it.options ? pick : it.art
+  const allApproved = status.every(s => s === 'approved')
+  const setOne = (s: A) => setStatus(st => st.map((x, j) => (j === idx ? s : x)))
+
+  function approve() {
+    setOne('approved')
+    setToast(`${it.name} approved`)
+    const next = status.findIndex((s, j) => j !== idx && s !== 'approved')
+    if (next >= 0) setTimeout(() => setIdx(next), 700)
+  }
+  function requestChanges() {
+    if (!note.trim()) return
+    setThreads(t => t.map((m, j) => (j === idx ? [...m, { from: 'client', text: note.trim(), at: 'Just now' }] : m)))
+    setOne('changes'); setNote(''); setAsking(false); setToast('Sent — we’ll send a revised proof')
+  }
+
+  return (
+    <div className="paper-grain">
+      <div className="wrap">
+        <SiteHead right={<span className="muted">{JOB.event}</span>} />
+        <section style={{ padding: '34px 0 18px', display: 'grid', gap: 8 }}>
+          <span className="eyebrow">Design approval</span>
+          <h1 className="display" style={{ margin: 0, fontSize: 'clamp(34px, 5cqi, 56px)' }}>Your designs are <span className="serif">ready.</span></h1>
+          <p className="muted" style={{ margin: 0 }}>Approve each piece, or tell us what to change. We print once everything is approved.</p>
+        </section>
+
+        <div className="tabs glass" role="tablist" aria-label="Pieces">
+          {ITEMS.map((x, j) => (
+            <button key={x.name} role="tab" className="tab" aria-selected={j === idx} onClick={() => setIdx(j)}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: status[j] === 'approved' ? '#7fa487' : status[j] === 'changes' ? 'var(--rose)' : 'var(--mauve)' }} />
+              {x.name}
+            </button>
+          ))}
+        </div>
+
+        {allApproved && (
+          <div className="callout stack-sm" style={{ marginTop: 22, background: 'var(--sage-wash)' }}>
+            <div><b>Everything is approved — thank you.</b><div className="small muted">Secure your date with a {JOB.depositPct}% deposit of {money(JOB.quote * JOB.depositPct / 100)}. Production starts once it’s paid.</div></div>
+            <button className="btn btn-ink"><Lock size={14} /> Pay deposit</button>
+          </div>
+        )}
+
+        <div className="split" style={{ marginTop: 26, gridTemplateColumns: 'minmax(0,1fr) 380px' }}>
+          <div className="stack" style={{ gap: 14 }}>
+            <div className="stage">
+              <div className="floor" data-view={it.isFloor ? view : 'flat'} style={{ width: it.isFloor ? undefined : 'min(52%, 280px)' }}>
+                <ProofArt kind={art} />
+              </div>
+              <span className="stage-note muted">{it.isFloor && view === 'floor' ? 'Preview on a 16 × 16 ft floor · not to scale' : `${it.size} · ${it.material}`}</span>
+            </div>
+            <div className="between stack-sm">
+              {it.options ? (
+                <div className="row" style={{ gap: 14 }}>
+                  <span className="label">Pick one</span>
+                  <div className="optrail">
+                    {it.options.map((o, k) => (
+                      <button key={o} className="opt" aria-pressed={pick === o} onClick={() => setPick(o)} aria-label={`Option ${'AB'[k]}`}>
+                        <ProofArt kind={o} /><span>Option {'AB'[k]}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : <span className="small muted">1 design</span>}
+              {it.isFloor && (
+                <div className="seg light">
+                  <button aria-pressed={view === 'flat'} onClick={() => setView('flat')}>Flat artwork</button>
+                  <button aria-pressed={view === 'floor'} onClick={() => setView('floor')}>On the floor</button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <aside className="stack" style={{ gap: 18, alignContent: 'start' }}>
+            <div className="between"><b style={{ fontSize: 18 }}>{it.name}</b>
+              {status[idx] === 'approved' ? <Pill tone="ok">Approved</Pill> : status[idx] === 'changes' ? <Pill tone="alert">Changes requested</Pill> : <Pill tone="wait">Needs you</Pill>}
+            </div>
+            <div className="small muted">{it.qty} × {it.size} · {it.material}</div>
+
+            {status[idx] !== 'approved' && !asking && (
+              <div className="stack" style={{ gap: 10 }}>
+                <button className="btn btn-forest btn-block" onClick={approve}><Check size={15} /> {it.options ? `Approve option ${pick === 'floor' ? 'A' : 'B'}` : 'Approve this design'}</button>
+                <button className="btn btn-quiet btn-block" onClick={() => setAsking(true)}>Request changes</button>
+              </div>
+            )}
+            {asking && (
+              <div className="stack" style={{ gap: 10 }}>
+                <label className="label" htmlFor="chg">What should we change?</label>
+                <textarea id="chg" className="input" value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Make the date larger and use our full names." autoFocus />
+                <div className="row"><button className="btn btn-ink btn-sm" onClick={requestChanges}>Send to designer</button><button className="link tiny" onClick={() => setAsking(false)}>Cancel</button></div>
+              </div>
+            )}
+            {status[idx] === 'approved' && <p className="small muted" style={{ margin: 0 }}>Approved. Changed your mind? Reply below and we’ll reopen it.</p>}
+
+            <hr className="rule" />
+            <div className="row label" style={{ gap: 8 }}><MessageSquare size={13} /> Conversation</div>
+            <div className="stack" style={{ gap: 8 }}>
+              {threads[idx].map((m, k) => (
+                <div key={k} className={`msg ${m.from}`}>
+                  <div className="tiny muted" style={{ marginBottom: 3 }}>{m.from === 'shop' ? 'DDF design team' : 'You'} · {m.at}</div>{m.text}
+                </div>
+              ))}
+            </div>
+          </aside>
+        </div>
+        <div style={{ height: 56 }} />
+      </div>
+      {toast && <div className="toast" role="status">{toast}</div>}
+    </div>
+  )
+}

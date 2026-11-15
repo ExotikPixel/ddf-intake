@@ -1,0 +1,132 @@
+import { useState } from 'react'
+import { Check, Home, Lock, MessageCircle, Plus, Upload } from 'lucide-react'
+import { SiteHead, SiteFoot, SecHead, Pill } from '../ui'
+import { ProofArt } from '../art'
+import { ITEMS, JOB, STAGES, CURRENT_STAGE, money } from '../data'
+
+const approvalPill = (a: string) =>
+  a === 'approved' ? <Pill tone="ok">Approved</Pill> : a === 'waiting' ? <Pill tone="wait">Waiting for you</Pill> : a === 'changes' ? <Pill tone="alert">Changes requested</Pill> : <Pill tone="neutral">Designing</Pill>
+
+export default function Portal({ go }: { go: (v: string) => void }) {
+  const [view, setView] = useState<'job' | 'lookup'>('job')
+  const deposit = JOB.quote * JOB.depositPct / 100
+  const waiting = ITEMS.filter(i => i.approval === 'waiting').length
+
+  if (view === 'lookup') return <Lookup onFound={() => setView('job')} />
+
+  return (
+    <div className="paper-grain">
+      <div className="wrap">
+        <SiteHead right={<><span className="muted hide-sm">{JOB.client}</span><button className="btn btn-quiet btn-sm" onClick={() => setView('lookup')}>Another job</button></>} />
+
+        <section className="split" style={{ padding: '40px 0 28px', alignItems: 'end' }}>
+          <div className="stack" style={{ gap: 10 }}>
+            <span className="eyebrow">Your job</span>
+            <h1 className="display hero-title" style={{ margin: 0 }}>{JOB.event}</h1>
+            <p className="muted" style={{ margin: 0 }}>{JOB.venue} · {JOB.date}</p>
+          </div>
+          <div className="ticket">
+            <div className="between"><span className="t-label">Reference</span><span className="t-label">Countdown</span></div>
+            <div className="between" style={{ marginTop: 8 }}><span className="t-ref">{JOB.ref}</span><span className="display num" style={{ fontSize: 44, color: '#fff' }}>{JOB.daysToGo}<span className="small" style={{ marginLeft: 6, color: 'rgba(243,238,241,.65)', letterSpacing: 0 }}>days</span></span></div>
+          </div>
+        </section>
+
+        <section className="panel" style={{ padding: '24px 24px 22px', marginBottom: 22 }}>
+          <div className="between" style={{ marginBottom: 20 }}>
+            <span className="label">Progress</span>
+            <span className="tiny muted">Updates automatically from our production board</span>
+          </div>
+          <ol className="track" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            {STAGES.map((s, i) => {
+              const state = i < CURRENT_STAGE ? 'done' : i === CURRENT_STAGE ? 'current' : 'next'
+              return (
+                <li key={s.name} className="track-step" data-state={state}>
+                  <span className="dot">{state === 'done' && <Check size={12} />}</span>
+                  <span className="stack" style={{ gap: 2 }}><span className="t-name">{s.name}</span><span className="tiny muted">{s.date}</span></span>
+                </li>
+              )
+            })}
+          </ol>
+        </section>
+
+        <div className="split">
+          <div className="stack" style={{ gap: 22 }}>
+            {waiting > 0 && (
+              <div className="callout stack-sm">
+                <div><b>{waiting} designs are waiting for your approval.</b><div className="small muted">We print as soon as everything is approved.</div></div>
+                <button className="btn btn-ink" onClick={() => go('approval')}>Review designs</button>
+              </div>
+            )}
+
+            <section>
+              <SecHead n="01" title="Your pieces" aside={<span className="tiny muted">{ITEMS.filter(i => i.approval === 'approved').length} of {ITEMS.length} approved</span>} />
+              <div className="stack">
+                {ITEMS.map(it => (
+                  <article key={it.name} className="item-card">
+                    <div className="thumb"><ProofArt kind={it.art} /></div>
+                    <div className="stack" style={{ gap: 8, alignContent: 'start' }}>
+                      <div className="between" style={{ alignItems: 'start' }}><b style={{ fontSize: 16 }}>{it.name}</b>{approvalPill(it.approval)}</div>
+                      <span className="small muted">{it.qty} × {it.size} · {it.material}</span>
+                      <p className="small" style={{ margin: 0 }}>{it.note}</p>
+                      <div className="row" style={{ flexWrap: 'wrap', marginTop: 4 }}>
+                        {it.approval === 'waiting'
+                          ? <button className="btn btn-line btn-sm" onClick={() => go('approval')}>Review</button>
+                          : <button className="btn btn-quiet btn-sm">View design</button>}
+                        <button className="link tiny"><Upload size={12} style={{ display: 'inline', marginRight: 4 }} />Upload my own final</button>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+                <button className="btn btn-quiet"><Plus size={15} /> Add a piece to this job</button>
+              </div>
+            </section>
+          </div>
+
+          <aside className="sticky stack" style={{ gap: 16 }}>
+            <div className="panel" style={{ padding: 22, display: 'grid', gap: 12 }}>
+              <span className="label">Deposit</span>
+              <div className="display num" style={{ fontSize: 34 }}>{money(deposit)}</div>
+              <span className="small muted">{JOB.depositPct}% of your {money(JOB.quote)} quote. Secures your date and starts production.</span>
+              <button className="btn btn-gold btn-block"><Lock size={14} /> Pay securely with Square</button>
+              <span className="tiny muted">Card, Apple Pay or Google Pay. Balance due after install.</span>
+            </div>
+            <div className="panel" style={{ padding: 22, display: 'grid', gap: 10 }}>
+              <span className="label">Your details</span>
+              <div className="small"><b>{JOB.client}</b><br /><span className="muted">aanya.mehta@example.com</span></div>
+              <hr className="rule" />
+              <div className="small"><span className="muted">Setup</span><br />Sat Dec 12, 9:00 AM · Grand Willow Hall</div>
+              <div className="small"><span className="muted">Removal</span><br />Sun Dec 13, 1:00 AM</div>
+            </div>
+          </aside>
+        </div>
+        <SiteFoot />
+      </div>
+      <nav className="dock only-sm" aria-label="Quick actions">
+        <button className="d-btn" aria-label="Job"><Home size={18} /></button>
+        <button className="fab" aria-label="Add a piece"><Plus size={22} /></button>
+        <button className="d-btn" aria-label="Messages" onClick={() => go('approval')}><MessageCircle size={18} /></button>
+      </nav>
+    </div>
+  )
+}
+
+function Lookup({ onFound }: { onFound: () => void }) {
+  return (
+    <div className="paper-grain" style={{ minHeight: '100%' }}>
+      <div className="wrap">
+        <SiteHead />
+        <section style={{ padding: '64px 0', display: 'grid', placeItems: 'center' }}>
+          <form className="panel" style={{ padding: 32, width: '100%', maxWidth: 440, display: 'grid', gap: 18 }} onSubmit={e => { e.preventDefault(); onFound() }}>
+            <span className="eyebrow">Track your job</span>
+            <h1 className="display" style={{ margin: 0, fontSize: 34 }}>Find your job</h1>
+            <p className="small muted" style={{ margin: 0 }}>Use the reference from your confirmation email and the email you sent the brief from. No password needed.</p>
+            <div className="field"><label className="label" htmlFor="lk-ref">Reference number</label><input id="lk-ref" className="input" defaultValue="ddf-20261102-a41f7c" /></div>
+            <div className="field"><label className="label" htmlFor="lk-mail">Email</label><input id="lk-mail" className="input" defaultValue="aanya.mehta@example.com" /></div>
+            <button className="btn btn-ink btn-block" type="submit">Open my job</button>
+            <span className="tiny muted">Lost your reference? Email <a className="link" href="mailto:hello@ddfevents.ca">hello@ddfevents.ca</a></span>
+          </form>
+        </section>
+      </div>
+    </div>
+  )
+}

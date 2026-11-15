@@ -1,0 +1,247 @@
+import { useState } from 'react'
+import { Check, Plus, UploadCloud, X, Minus, CalendarHeart, Hammer } from 'lucide-react'
+import { SiteHead, SiteFoot, SecHead } from '../ui'
+import { ProofArt } from '../art'
+
+const MATERIALS = ['Vinyl', 'Fabric', 'Foam board', 'Acrylic', 'Cardstock', 'Wood', 'PVC', 'Metal', 'Other']
+const MAX_PIECES = 30
+
+interface Piece { name: string; qty: number; size: string; material: string; notes: string }
+type Kind = 'event' | 'product'
+
+const SAMPLES: Record<Kind, Piece[]> = {
+  event: [
+    { name: 'Monogram dance floor wrap', qty: 1, size: '16 × 16 ft', material: 'Vinyl', notes: 'Our initials A & R with the date. Ivory and gold to match the florals — open to a darker option too.' },
+    { name: 'Welcome sign', qty: 1, size: '24 × 36 in', material: 'Foam board', notes: '' },
+  ],
+  product: [
+    { name: 'Menu boards', qty: 3, size: '18 × 24 in', material: 'Wood', notes: 'CNC-engraved walnut, our logo top centre. Menu text attached as PDF.' },
+    { name: 'Table numbers 1–24', qty: 24, size: '4 × 6 in', material: 'Wood', notes: 'Same walnut, freestanding with a slot base.' },
+  ],
+}
+
+export default function Intake({ go }: { go: (v: string) => void }) {
+  const [kind, setKind] = useState<Kind>('event')
+  const [mode, setMode] = useState<'design' | 'final'>('design')
+  const [pieces, setPieces] = useState<Record<Kind, Piece[]>>(SAMPLES)
+  const [fulfil, setFulfil] = useState<'pickup' | 'delivery' | 'install'>('pickup')
+  const [sent, setSent] = useState(false)
+
+  const list = pieces[kind]
+  const setList = (fn: (p: Piece[]) => Piece[]) => setPieces(all => ({ ...all, [kind]: fn(all[kind]) }))
+  const update = (i: number, p: Partial<Piece>) => setList(ps => ps.map((x, j) => (j === i ? { ...x, ...p } : x)))
+  const isEvent = kind === 'event'
+
+  if (sent) return <Sent onAgain={() => setSent(false)} go={go} />
+
+  return (
+    <div className="paper-grain">
+      <div className="wrap">
+        <SiteHead right={<><span className="muted hide-sm">Already sent a brief?</span><button className="btn btn-quiet btn-sm" onClick={() => go('portal')}>Track your job</button></>} />
+
+        <section style={{ padding: '40px 0 28px', display: 'grid', gap: 16, maxWidth: 820 }}>
+          <span className="eyebrow">New brief · replies within 1 business day</span>
+          <h1 className="display hero-title" style={{ margin: 0 }}>Tell us what you’re <span className="serif">making.</span></h1>
+          <p className="muted" style={{ margin: 0, maxWidth: 580, fontSize: 17 }}>
+            Event décor, signage, displays and custom CNC wood pieces. Send us the details and we’ll come back with a quote or your first proof.
+          </p>
+        </section>
+
+        <ol className="steps glass hide-sm" style={{ listStyle: 'none', margin: '0 0 30px', padding: 6 }} aria-label="Brief progress">
+          {['About you', 'Your pieces', isEvent ? 'Event & files' : 'Delivery & files', 'Review & send'].map((s, i) => (
+            <li key={s} className="step" data-state={i === 0 ? 'done' : i === 1 ? 'current' : 'next'}>
+              <span className="s-num">{i === 0 ? <Check size={12} /> : i + 1}</span><span className="small" style={{ fontWeight: 500 }}>{s}</span>
+            </li>
+          ))}
+        </ol>
+
+        <div className="split">
+          <div className="stack" style={{ gap: 40 }}>
+            <section>
+              <SecHead n="01" title="What’s it for?" />
+              <div className="grid2">
+                <KindCard on={isEvent} onClick={() => setKind('event')} icon={<CalendarHeart size={20} />} title="An event" body="Weddings, galas, launches. Dance floors, backdrops, signage — delivered and installed for your date." />
+                <KindCard on={!isEvent} onClick={() => setKind('product')} icon={<Hammer size={20} />} title="Products & fabrication" body="CNC wood pieces, signs, displays, large-format prints. Picked up, delivered or installed." />
+              </div>
+              <div className="row" style={{ marginTop: 16, flexWrap: 'wrap', gap: 8 }}>
+                <span className="label" style={{ marginRight: 4 }}>Artwork</span>
+                <button className="chip" aria-pressed={mode === 'design'} onClick={() => setMode('design')}>Design it for me</button>
+                <button className="chip" aria-pressed={mode === 'final'} onClick={() => setMode('final')}>I have print-ready files</button>
+              </div>
+            </section>
+
+            <section>
+              <SecHead n="02" title="About you" />
+              <div className="grid2">
+                <Field id="f-name" label="Full name" value={isEvent ? 'Aanya Mehta' : 'Daniel Okafor'} />
+                <Field id="f-co" label="Company" value={isEvent ? 'Mehta–Sandhu Wedding' : 'Maple & Co. Café'} />
+                <div style={{ gridColumn: '1 / -1' }}><Field id="f-mail" label="Email" value={isEvent ? 'aanya.mehta@example.com' : 'daniel@mapleandco.example'} hint="Proofs and approval links go here." /></div>
+              </div>
+            </section>
+
+            <section>
+              <SecHead n="03" title="Your pieces" aside={<span className="tiny muted">{list.length} of {MAX_PIECES}</span>} />
+              <div className="stack" style={{ gap: 14 }}>
+                {list.map((p, i) => (
+                  <article key={`${kind}-${i}`} className="piece">
+                    <div className="between">
+                      <span className="row" style={{ gap: 10 }}><span className="piece-num">{String(i + 1).padStart(2, '0')}</span><b style={{ fontWeight: 500 }}>{p.name || 'New piece'}</b></span>
+                      {list.length > 1 && <button className="link tiny" onClick={() => setList(ps => ps.filter((_, j) => j !== i))}>Remove</button>}
+                    </div>
+                    <div className="grid2">
+                      <Field id={`p-name-${kind}-${i}`} label="What is it?" value={p.name} onChange={v => update(i, { name: v })} placeholder="e.g. Menu board" />
+                      <div className="grid2" style={{ gap: 14 }}>
+                        <div className="field"><span className="label">Quantity</span>
+                          <div className="stepper"><button aria-label="Fewer" onClick={() => update(i, { qty: Math.max(1, p.qty - 1) })}><Minus size={15} /></button><span className="num">{p.qty}</span><button aria-label="More" onClick={() => update(i, { qty: p.qty + 1 })}><Plus size={15} /></button></div>
+                        </div>
+                        <Field id={`p-size-${kind}-${i}`} label="Size" value={p.size} onChange={v => update(i, { size: v })} placeholder="24 × 36 in" />
+                      </div>
+                    </div>
+                    <div className="field"><span className="label">Material</span>
+                      <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                        {MATERIALS.map(m => <button key={m} className="chip" aria-pressed={p.material === m} onClick={() => update(i, { material: m })}>{m}</button>)}
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor={`p-notes-${kind}-${i}`}>{mode === 'design' ? 'Describe the look' : 'Anything we should know?'}</label>
+                      <textarea id={`p-notes-${kind}-${i}`} className="input" value={p.notes} onChange={e => update(i, { notes: e.target.value })} placeholder="Colours, finish, fonts, wording, inspiration…" />
+                    </div>
+                  </article>
+                ))}
+                <button className="btn btn-quiet" disabled={list.length >= MAX_PIECES} onClick={() => setList(ps => [...ps, { name: '', qty: 1, size: '', material: isEvent ? 'Vinyl' : 'Wood', notes: '' }])}><Plus size={15} /> Add another piece</button>
+              </div>
+            </section>
+
+            <section>
+              <SecHead n="04" title={isEvent ? 'Event & files' : 'Delivery & files'} />
+              <div className="stack" style={{ gap: 18 }}>
+                {isEvent ? (
+                  <div className="grid2">
+                    <Field id="f-date" label="Event date" value="2026-12-12" type="date" hint="27 days from today — plenty of time." />
+                    <Field id="f-event" label="Event name" value="Mehta–Sandhu Wedding" />
+                    <Field id="f-setup" label="Venue / setup location" value="Grand Willow Hall, Vaughan" />
+                    <Field id="f-setup-t" label="Setup time" value="Sat Dec 12, 9:00 AM" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid2">
+                      <Field id="f-need" label="Needed by" value="2026-11-27" type="date" hint="12 days from today." />
+                      <div className="field"><span className="label">How should we hand it over?</span>
+                        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                          {(['pickup', 'delivery', 'install'] as const).map(f => <button key={f} className="chip" aria-pressed={fulfil === f} onClick={() => setFulfil(f)}>{f === 'pickup' ? 'Pick up' : f === 'delivery' ? 'Deliver' : 'Install'}</button>)}
+                        </div>
+                      </div>
+                    </div>
+                    {fulfil !== 'pickup' && <Field id="f-addr" label={fulfil === 'install' ? 'Install address' : 'Delivery address'} value="214 King St W, Toronto" />}
+                  </>
+                )}
+                <div className="drop">
+                  <UploadCloud size={26} color="var(--mauve-deep)" />
+                  <b style={{ fontWeight: 500 }}>Drop {mode === 'design' ? 'inspiration photos, logos or files' : 'your print-ready files'} here</b>
+                  <span className="tiny muted">JPG, PNG, PDF, AI, EPS, SVG or DXF · up to 10 files · 95 MB each</span>
+                  <button className="btn btn-quiet btn-sm" style={{ marginTop: 6 }}>Choose files</button>
+                </div>
+                <div>
+                  {isEvent ? <>
+                    <FileRow ext="JPG" name="florals-moodboard.jpg" size="2.4 MB" pct={100} />
+                    <FileRow ext="PDF" name="venue-floorplan.pdf" size="8.1 MB" pct={64} />
+                  </> : <>
+                    <FileRow ext="AI" name="maple-logo-outlined.ai" size="3.2 MB" pct={100} />
+                    <FileRow ext="PDF" name="winter-menu-text.pdf" size="0.4 MB" pct={100} />
+                  </>}
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <aside className="sticky stack" style={{ gap: 14 }}>
+            <div className="ticket">
+              <div className="t-label">Your brief</div>
+              <div className="display" style={{ fontSize: 30, marginTop: 10, color: '#fff' }}>{isEvent ? 'Mehta–Sandhu Wedding' : 'Maple & Co. Café'}</div>
+              <div className="small" style={{ color: 'rgba(243,238,241,.7)', marginTop: 4 }}>{isEvent ? 'Grand Willow Hall, Vaughan' : fulfil === 'pickup' ? 'Pickup at our Toronto shop' : '214 King St W, Toronto'}</div>
+              <div className="tear" />
+              <div className="grid2" style={{ gap: 14 }}>
+                <div><div className="t-label">{isEvent ? 'Event' : 'Needed by'}</div><div style={{ fontWeight: 500, marginTop: 4 }}>{isEvent ? 'Sat, Dec 12' : 'Fri, Nov 27'}</div></div>
+                <div><div className="t-label">Countdown</div><div style={{ fontWeight: 500, marginTop: 4 }} className="num">{isEvent ? '27 days' : '12 days'}</div></div>
+                <div><div className="t-label">Pieces</div><div style={{ fontWeight: 500, marginTop: 4 }} className="num">{list.length} · {list.reduce((s, p) => s + p.qty, 0)} units</div></div>
+                <div><div className="t-label">Files</div><div style={{ fontWeight: 500, marginTop: 4 }} className="num">2</div></div>
+              </div>
+              {!isEvent && <div className="row" style={{ gap: 10, marginTop: 18 }}><div style={{ width: 54, borderRadius: 12, overflow: 'hidden' }}><ProofArt kind="wood" /></div><span className="tiny" style={{ color: 'rgba(243,238,241,.7)' }}>We’ll send a proof of each engraving before cutting.</span></div>}
+              <div className="tear" />
+              <div className="small" style={{ color: 'rgba(243,238,241,.82)' }}>
+                {mode === 'design' ? 'First proofs within 2–3 business days. You approve each design online.' : 'Your files go to production once we confirm sizing.'}
+              </div>
+            </div>
+            <button className="btn btn-ink btn-block" onClick={() => setSent(true)}>Send brief</button>
+            <p className="tiny muted" style={{ margin: 0, textAlign: 'center' }}>No payment now. We quote first.</p>
+          </aside>
+        </div>
+        <SiteFoot />
+      </div>
+    </div>
+  )
+}
+
+function KindCard({ on, onClick, title, body, icon }: { on: boolean; onClick: () => void; title: string; body: string; icon: React.ReactNode }) {
+  return (
+    <button className="mode" aria-pressed={on} onClick={onClick}>
+      <span className="check">{on && <Check size={13} />}</span>
+      <span style={{ width: 40, height: 40, borderRadius: 14, background: on ? 'var(--ink)' : 'var(--mauve-wash)', color: on ? '#fff' : 'var(--mauve-deep)', display: 'grid', placeItems: 'center' }}>{icon}</span>
+      <span style={{ fontSize: 20, fontWeight: 400, letterSpacing: '-0.02em', paddingRight: 30 }}>{title}</span>
+      <span className="small muted">{body}</span>
+    </button>
+  )
+}
+
+function Field({ id, label, value, onChange, placeholder, hint, type = 'text' }: { id: string; label: string; value: string; onChange?: (v: string) => void; placeholder?: string; hint?: string; type?: string }) {
+  const [v, setV] = useState(value)
+  return (
+    <div className="field">
+      <label className="label" htmlFor={id}>{label}</label>
+      <input id={id} type={type} className="input" value={onChange ? value : v} placeholder={placeholder} onChange={e => (onChange ? onChange(e.target.value) : setV(e.target.value))} />
+      {hint && <span className="hint">{hint}</span>}
+    </div>
+  )
+}
+
+function FileRow({ ext, name, size, pct }: { ext: string; name: string; size: string; pct: number }) {
+  return (
+    <div className="filerow">
+      <span className="fileicon">{ext}</span>
+      <div className="stack" style={{ gap: 6 }}>
+        <div className="between small"><span style={{ fontWeight: 500 }}>{name}</span><span className="muted num tiny">{pct === 100 ? size : `${pct}% of ${size}`}</span></div>
+        <div className="bar"><span style={{ width: `${pct}%`, background: pct === 100 ? 'var(--sage)' : undefined }} /></div>
+      </div>
+      <button aria-label={`Remove ${name}`} style={{ background: 'none', border: 0, cursor: 'pointer', color: 'var(--muted)' }}><X size={16} /></button>
+    </div>
+  )
+}
+
+function Sent({ onAgain, go }: { onAgain: () => void; go: (v: string) => void }) {
+  return (
+    <div className="paper-grain" style={{ minHeight: '100%' }}>
+      <div className="wrap">
+        <SiteHead />
+        <section style={{ padding: '56px 0', display: 'grid', gap: 18, maxWidth: 640 }}>
+          <span className="eyebrow">Brief received</span>
+          <h1 className="display hero-title" style={{ margin: 0 }}>Thank you, <span className="serif">Aanya.</span></h1>
+          <p className="muted" style={{ margin: 0, fontSize: 17 }}>We’ve emailed a copy to aanya.mehta@example.com. Your reference opens your job page any time.</p>
+          <div className="ticket" style={{ maxWidth: 440 }}>
+            <div className="t-label">Reference</div>
+            <div className="t-ref" style={{ fontSize: 18, marginTop: 8 }}>DDF-20261115-3E9B20</div>
+            <div className="tear" />
+            <ol className="stack small" style={{ margin: 0, paddingLeft: 18, gap: 8, color: 'rgba(243,238,241,.85)' }}>
+              <li>We review your brief today or next business day.</li>
+              <li>You get a quote and first proofs by email.</li>
+              <li>Approve each design online. Then we make it.</li>
+            </ol>
+          </div>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <button className="btn btn-ink" onClick={() => go('portal')}>Open my job page</button>
+            <button className="btn btn-quiet" onClick={onAgain}>Back to the form</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,77 @@
+import { useState } from 'react'
+import type { ReactNode } from 'react'
+import { LOGO } from '../logo'
+import { ProofArt } from '../art'
+import { DIGEST, JOB, money } from '../data'
+
+interface Tpl { id: string; name: string; when: string; subject: string; to: string; tag?: string; body: ReactNode }
+
+const Btn = ({ children, gold = true }: { children: ReactNode; gold?: boolean }) => (
+  <a href="#emails" onClick={e => e.preventDefault()} style={{ display: 'inline-block', background: gold ? 'var(--ink)' : 'var(--surface)', color: gold ? '#fff' : 'var(--ink)', border: gold ? '0' : '1px solid var(--line)', textDecoration: 'none', font: '500 14px var(--body)', padding: '14px 24px', borderRadius: 999, justifySelf: 'start' }}>{children}</a>
+)
+const H = ({ children }: { children: ReactNode }) => <h2 className="display" style={{ margin: 0, fontSize: 34 }}>{children}</h2>
+const RefLine = () => <div className="tiny muted" style={{ letterSpacing: '.1em' }}>REF {JOB.ref}</div>
+
+const TEMPLATES: Tpl[] = [
+  {
+    id: 'received', name: 'Brief received', when: 'Right after a client submits', subject: 'We’ve got your brief — DDF-20261115-3E9B20', to: 'aanya.mehta@example.com',
+    body: <><H>Thank you, Aanya.</H><p style={{ margin: 0 }}>Your brief for <b>Mehta–Sandhu Wedding</b> is in. We’ll reply within one business day with a quote or your first proof.</p><div className="panel" style={{ padding: 16, background: 'var(--bg)', boxShadow: 'none' }}><div className="label">Your reference</div><div style={{ font: '500 17px var(--body)', letterSpacing: '.06em', color: 'var(--mauve-deep)', marginTop: 4 }}>DDF-20261115-3E9B20</div></div><Btn gold={false}>Open my job page</Btn></>,
+  },
+  {
+    id: 'proof', name: 'Proofs ready', when: 'Admin uploads proofs', subject: 'Your designs are ready to review', to: 'aanya.mehta@example.com',
+    body: <><H>Your designs are ready.</H><p style={{ margin: 0 }}>Three pieces for <b>{JOB.event}</b> are waiting for you. Approve each one, or tell us what to change.</p><div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>{(['floor', 'welcome', 'menu'] as const).map(k => <div key={k} className="thumb"><ProofArt kind={k} /></div>)}</div><Btn>Review designs</Btn><RefLine /></>,
+  },
+  {
+    id: 'nudge', name: 'Approval reminder', tag: 'New', when: '2 days after proofs, then every 3 days (max 3)', subject: 'Reminder: 2 designs are waiting for your approval', to: 'aanya.mehta@example.com',
+    body: <><H>Two designs need your OK.</H><p style={{ margin: 0 }}>Your event is in <b>{JOB.daysToGo} days</b>. To keep your date on schedule, please review the <b>dance floor wrap</b> and <b>bar menu</b>. It takes about a minute.</p><Btn>Review now</Btn><p className="small muted" style={{ margin: 0 }}>Already discussed with us? Reply to this email and we’ll pause reminders.</p><RefLine /></>,
+  },
+  {
+    id: 'deposit', name: 'Approved + deposit', tag: 'New', when: 'Admin requests a deposit', subject: `Secure your date — ${money(JOB.quote * JOB.depositPct / 100)} deposit`, to: 'aanya.mehta@example.com',
+    body: <><H>Everything’s approved.</H><p style={{ margin: 0 }}>Thank you, Aanya. Your designs are locked in. A <b>{JOB.depositPct}% deposit</b> secures your date and starts production.</p><div className="panel" style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg)', boxShadow: 'none' }}><span className="label">Deposit due</span><span className="display num" style={{ fontSize: 26 }}>{money(JOB.quote * JOB.depositPct / 100)}</span></div><Btn>Pay securely with Square</Btn><p className="small muted" style={{ margin: 0 }}>Balance of {money(JOB.quote / 2)} due after install. Card, Apple Pay or Google Pay.</p><RefLine /></>,
+  },
+  {
+    id: 'status', name: 'In production', when: 'Production starts (Command Centre)', subject: 'Your pieces are in production', to: 'aanya.mehta@example.com',
+    body: <><H>We’re printing.</H><p style={{ margin: 0 }}>Your pieces for <b>{JOB.event}</b> are in production. We’ll confirm delivery or install timing a few days ahead.</p><Btn gold={false}>See progress</Btn><RefLine /></>,
+  },
+  {
+    id: 'digest', name: 'Morning print schedule', tag: 'New · internal', when: 'Every morning at 7:00 (also phone push)', subject: 'Print schedule: 5 jobs this week · 2 need attention', to: 'jobs@ddfpixel.com',
+    body: <><H>Good morning. 5 jobs due this week.</H><div style={{ display: 'grid' }}>{DIGEST.map(d => d.jobs.map(x => (<div key={x.name} style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 12, padding: '12px 0', borderBottom: '1px solid var(--line)' }}><b className="small">{d.dow} {d.d}</b><div><b className="small">{x.name}</b><div className="tiny muted">{x.detail}</div>{x.flags.length > 0 && <div className="tiny" style={{ color: 'var(--rose)', fontWeight: 500, marginTop: 3 }}>⚠ {x.flags.join(' · ')}</div>}</div></div>)))}</div><Btn gold={false}>Open admin</Btn></>,
+  },
+]
+
+export default function Emails() {
+  const [id, setId] = useState('nudge')
+  const t = TEMPLATES.find(x => x.id === id)!
+  return (
+    <div className="paper-grain" style={{ minHeight: '100%' }}>
+      <div className="wrap" style={{ paddingTop: 30, paddingBottom: 40 }}>
+        <div><span className="eyebrow">Client emails</span></div>
+        <h1 className="display" style={{ margin: '14px 0 24px', fontSize: 48 }}>Every message, <span className="serif">one look.</span></h1>
+        <div className="split" style={{ gridTemplateColumns: '270px minmax(0,1fr)', gap: 24 }}>
+          <nav className="panel mail-list" aria-label="Email templates">
+            {TEMPLATES.map(x => (
+              <button key={x.id} aria-current={x.id === id} onClick={() => setId(x.id)}>
+                <span className="between"><b className="small">{x.name}</b>{x.tag && <span className="pill pill-gold" style={{ padding: '3px 7px' }}>{x.tag}</span>}</span>
+                <span className="tiny muted">{x.when}</span>
+              </button>
+            ))}
+          </nav>
+          <section className="mail-chrome" aria-label={`Preview: ${t.name}`}>
+            <div className="mail-meta">
+              <div><span className="muted">From</span> DDF x Pixel &lt;hello@ddfevents.ca&gt;</div>
+              <div><span className="muted">To</span> {t.to}</div>
+              <div><b>{t.subject}</b></div>
+            </div>
+            <div className="mail-body">
+              <div className="mail-card">
+                <div className="m-head"><img src={LOGO} alt="DDF x Pixel" /><span className="tiny muted">jobs.ddfpixel.com</span></div>
+                <div className="m-content">{t.body}</div>
+                <div className="m-foot">Pixel Production × Designer Dance Floors · Greater Toronto Area · hello@ddfevents.ca</div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  )
+}

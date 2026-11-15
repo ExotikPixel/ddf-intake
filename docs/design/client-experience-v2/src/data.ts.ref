@@ -1,0 +1,83 @@
+// Fictional sample data for the mockup. "Today" is Sunday, November 15, 2026.
+
+export type Approval = 'approved' | 'waiting' | 'changes' | 'none'
+export type ArtKind = 'floor' | 'floor-noir' | 'welcome' | 'menu' | 'wood'
+
+export interface Item {
+  name: string
+  qty: number
+  size: string
+  material: string
+  approval: Approval
+  art: ArtKind
+  options?: ArtKind[]
+  note: string
+  isFloor?: boolean
+}
+
+export const JOB = {
+  ref: 'DDF-20261102-A41F7C',
+  event: 'Mehta–Sandhu Wedding',
+  client: 'Aanya Mehta',
+  company: 'Mehta–Sandhu Wedding',
+  venue: 'Grand Willow Hall, Vaughan',
+  date: 'Saturday, December 12, 2026',
+  shortDate: 'Dec 12',
+  daysToGo: 27,
+  quote: 2300,
+  depositPct: 50,
+}
+
+export const ITEMS: Item[] = [
+  { name: 'Monogram dance floor wrap', qty: 1, size: '16 × 16 ft', material: 'Vinyl', approval: 'waiting', art: 'floor', options: ['floor', 'floor-noir'], note: 'Two directions as promised: ivory with gold, or noir with gold. Pick the one you love — both print on matte anti-slip vinyl.', isFloor: true },
+  { name: 'Welcome sign', qty: 1, size: '24 × 36 in', material: 'Foam board', approval: 'approved', art: 'welcome', note: 'Arch shape with eucalyptus sprigs, matched to your florals.' },
+  { name: 'Bar menu', qty: 2, size: '18 × 24 in', material: 'Acrylic', approval: 'waiting', art: 'menu', note: 'Gold print on black acrylic. Drink names from your email of Nov 9.' },
+]
+
+export const STAGES = [
+  { name: 'Brief received', date: 'Nov 2' },
+  { name: 'Designing', date: 'Nov 4' },
+  { name: 'Proofs ready', date: 'Nov 12' },
+  { name: 'Approved', date: '1 of 3' },
+  { name: 'In production', date: 'Est. Dec 3' },
+  { name: 'Installed', date: 'Dec 12' },
+]
+export const CURRENT_STAGE = 3
+
+export interface AdminJob {
+  type: 'Event' | 'Product'
+  ref: string
+  client: string
+  event: string
+  date: string
+  days: number
+  approved: number
+  total: number
+  deposit: 'paid' | 'sent' | 'none' | 'not-quoted'
+  depositAmt?: number
+  nudges: number
+  lastNudge?: string
+  status: 'Received' | 'Proofing' | 'In production' | 'Completed'
+  waitingDays?: number
+}
+
+export const ADMIN_JOBS: AdminJob[] = [
+  { type: 'Event', ref: 'DDF-20261028-5C02E1', client: 'Halcyon Events', event: 'Halcyon Corporate Gala', date: 'Tue Nov 17', days: 2, approved: 3, total: 3, deposit: 'paid', depositAmt: 900, nudges: 0, status: 'In production' },
+  { type: 'Event', ref: 'DDF-20261030-9B7D44', client: 'Priya Sethi', event: 'Sethi Sangeet Night', date: 'Thu Nov 19', days: 4, approved: 2, total: 3, deposit: 'sent', depositAmt: 1250, nudges: 2, lastNudge: '1d ago', status: 'Proofing', waitingDays: 6 },
+  { type: 'Product', ref: 'DDF-20261111-4D8C21', client: 'Maple & Co. Café', event: 'Walnut menu boards + table numbers', date: 'Wed Nov 18', days: 3, approved: 2, total: 2, deposit: 'paid', depositAmt: 640, nudges: 0, status: 'In production' },
+  { type: 'Event', ref: 'DDF-20261021-3FA1B8', client: 'Brightwater Tech', event: 'Brightwater Tech Summit', date: 'Sat Nov 21', days: 6, approved: 6, total: 6, deposit: 'paid', depositAmt: 2400, nudges: 0, status: 'In production' },
+  { type: 'Event', ref: 'DDF-20261105-E6C390', client: 'Harleen Kaur', event: 'Kaur–Bains Wedding', date: 'Sun Nov 22', days: 7, approved: 2, total: 4, deposit: 'none', depositAmt: 1600, nudges: 1, lastNudge: '2d ago', status: 'Proofing', waitingDays: 3 },
+  { type: 'Event', ref: 'DDF-20261102-A41F7C', client: 'Aanya Mehta', event: 'Mehta–Sandhu Wedding', date: 'Sat Dec 12', days: 27, approved: 1, total: 3, deposit: 'none', depositAmt: 1150, nudges: 1, lastNudge: '1d ago', status: 'Proofing', waitingDays: 3 },
+  { type: 'Product', ref: 'DDF-20261114-07D5AA', client: 'Oakridge Realty', event: 'Open house sign kits ×12', date: 'Fri Jan 15', days: 61, approved: 0, total: 5, deposit: 'not-quoted', nudges: 0, status: 'Received' },
+  { type: 'Product', ref: 'DDF-20261019-B2E9F0', client: 'Lumen Dental', event: 'Reception wall graphics', date: 'Sat Nov 7', days: -8, approved: 4, total: 4, deposit: 'paid', depositAmt: 700, nudges: 0, status: 'Completed' },
+]
+
+export const DIGEST = [
+  { dow: 'Tue', d: '17', jobs: [{ name: 'Halcyon Corporate Gala', detail: '3 pieces · all approved', flags: [] as string[] }] },
+  { dow: 'Wed', d: '18', jobs: [{ name: 'Maple & Co. Café', detail: 'CNC walnut menus + 24 table numbers · pickup', flags: [] as string[] }] },
+  { dow: 'Thu', d: '19', jobs: [{ name: 'Sethi Sangeet Night', detail: 'Floor wrap + 2 signs', flags: ['1 not approved', 'Deposit unpaid'] }] },
+  { dow: 'Sat', d: '21', jobs: [{ name: 'Brightwater Tech Summit', detail: '6 pieces · in production', flags: [] as string[] }] },
+  { dow: 'Sun', d: '22', jobs: [{ name: 'Kaur–Bains Wedding', detail: '4 pieces', flags: ['2 not approved', 'Deposit not requested'] }] },
+]
+
+export const money = (n: number) => n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 2 })
