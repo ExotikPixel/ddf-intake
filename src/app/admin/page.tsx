@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createClient } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
 import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemRefPhotos, itemExamplePhotos, approvedProofs, itemThread, designsMode, fileKindLabel, fileTileDataUrl, jobQuoteTotal } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus, ItemMessage } from '@/lib/job-types'
@@ -195,11 +194,10 @@ export default function AdminPage() {
   const router = useRouter()
 
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) { router.push('/login'); return }
+    fetch('/api/admin/me').then(res => {
+      if (!res.ok) { router.push('/login?next=/admin'); return }
       fetchJobs()
-    })
+    }).catch(() => router.push('/login?next=/admin'))
   }, [router])
 
   // Stop the browser from opening a file if it's dropped outside a drop zone.
@@ -1465,9 +1463,8 @@ export default function AdminPage() {
   }
 
   async function signOut() {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
+    await fetch('/api/admin/logout', { method: 'POST' }).catch(() => {})
+    router.push('/login?next=/admin')
   }
 
   const filtered = useMemo(() => {
