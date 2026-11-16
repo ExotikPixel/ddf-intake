@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { signUploadPath } from '@/lib/file-tokens'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,8 +18,7 @@ const ALLOWED_TYPES = [
   'application/octet-stream',    // fallback for AI/EPS/SVG from some browsers
   '',                            // browsers that don't know the extension send no type at all
 ]
-// Mirror of the job-files bucket's allowed_mime_types (Supabase rejects the PUT
-// otherwise) — keep both lists in sync when adding a format.
+// Allowed upload extensions — keep in sync with ALLOWED_TYPES.
 const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'pdf', 'ai', 'eps', 'svg']
 const MAX_BYTES = 50 * 1024 * 1024
 
@@ -55,14 +54,8 @@ export async function POST(req: NextRequest) {
   for (const f of files) {
     const ext = f.name.split('.').pop()?.toLowerCase() ?? 'bin'
     const path = `uploads/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-    const { data, error } = await supabaseAdmin.storage
-      .from('job-files')
-      .createSignedUploadUrl(path)
-
-    if (error || !data) {
-      return NextResponse.json({ error: 'Could not create upload URL' }, { status: 500 })
-    }
-    results.push({ path, signedUrl: data.signedUrl })
+    // Sign the exact type the browser will send (they all send `type || octet-stream`).
+    results.push({ path, signedUrl: signUploadPath(path, f.type || 'application/octet-stream', f.size) })
   }
 
   return NextResponse.json({ uploads: results })
