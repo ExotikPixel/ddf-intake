@@ -1489,298 +1489,10 @@ export default function AdminPage() {
     if (chatItem && chatBodyRef.current) chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight
   }, [chatItem, jobs])
 
-  return (
-    <main style={{ minHeight: '100vh', background: '#f2f1ef', fontFamily: 'var(--font-body)' }}>
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .stat-btn:hover { opacity: 0.85; }
-        .filter-btn:hover { background: #f5f5f5 !important; }
-        .job-action-btn:hover:not(:disabled) { filter: brightness(0.95); }
-        .invoice-btn:hover:not(:disabled) { background: #dcfce7 !important; }
-        .file-link:hover { opacity: 0.8; }
-        .job-head:hover { background: #fcfbf9; }
-        .job-search:focus { outline: none; border-color: var(--coral); box-shadow: 0 0 0 3px var(--coral)22; }
-        @media (max-width: 640px) {
-          .quote-row { grid-template-columns: 1fr 110px !important; }
-          .quote-row > input { grid-column: 1 / -1; }
-          .admin-wrap { padding: 18px 14px 56px !important; }
-          .stats-grid { grid-template-columns: repeat(5, 1fr) !important; gap: 4px !important; }
-          .stats-grid .stat-num { font-size: 20px !important; }
-          .stats-grid .stat-lbl { font-size: 8px !important; letter-spacing: 1px !important; }
-          .filter-row { justify-content: flex-start !important; }
-        }
-        @keyframes chatIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .chat-backdrop { position: fixed; inset: 0; background: rgba(20,18,16,0.45); z-index: 200; animation: fadeIn 0.2s ease; }
-        .chat-drawer { position: fixed; top: 0; right: 0; height: 100dvh; width: 420px; max-width: 100%; background: #faf9f7; z-index: 201; display: flex; flex-direction: column; box-shadow: -10px 0 30px rgba(0,0,0,0.18); animation: chatIn 0.22s ease; }
-        .chat-head { background: #131313; color: #fff; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 2px solid var(--coral); flex-shrink: 0; }
-        .chat-head-title { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .chat-head-sub { font-size: 11px; color: #b9b4ad; margin-top: 2px; }
-        .chat-close { background: rgba(255,255,255,0.14); color: #fff; border: none; width: 32px; height: 32px; border-radius: 50%; font-size: 14px; cursor: pointer; flex-shrink: 0; }
-        .chat-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-        .chat-empty { text-align: center; color: #888; font-size: 13.5px; line-height: 1.6; margin: auto 0; padding: 24px; }
-        .chat-row { display: flex; flex-direction: column; max-width: 84%; }
-        .chat-row.me { align-self: flex-end; align-items: flex-end; }
-        .chat-row.them { align-self: flex-start; align-items: flex-start; }
-        .chat-bubble { padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
-        .chat-row.me .chat-bubble { background: #131313; color: #fff; border-bottom-right-radius: 4px; }
-        .chat-row.them .chat-bubble { background: #fff; color: #2a2a2a; border: 1px solid #e6e3dc; border-bottom-left-radius: 4px; }
-        .chat-meta { font-size: 10.5px; color: #999; margin-top: 4px; padding: 0 4px; }
-        .chat-foot { border-top: 1px solid #e6e3dc; padding: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom)); background: #fff; flex-shrink: 0; }
-        .chat-compose { display: flex; gap: 8px; align-items: flex-end; }
-        .chat-input { flex: 1; padding: 10px 14px; border: 1px solid #d8d5cd; border-radius: 20px; font-size: 15px; font-family: var(--font-body); resize: none; max-height: 120px; box-sizing: border-box; outline: none; }
-        .chat-input:focus { border-color: var(--coral); }
-        .chat-send { background: var(--coral); color: #fff; border: none; border-radius: 20px; padding: 11px 18px; font-weight: 700; font-size: 14px; cursor: pointer; font-family: var(--font-body); flex-shrink: 0; }
-        .chat-send:disabled { opacity: 0.5; cursor: default; }
-        .chat-revise { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; margin-top: 10px; padding: 11px; border: 1px dashed #d6a85e; border-radius: 6px; background: #fff8ef; color: #9a6a00; font-size: 13px; font-weight: 700; cursor: pointer; font-family: var(--font-body); }
-        .chat-err { font-size: 12px; color: #dc2626; margin-bottom: 6px; }
-        @media (max-width: 560px) { .chat-drawer { width: 100%; } }
-      `}</style>
-
-      {/* Header */}
-      <header style={{
-        background: '#1a1a1a',
-        height: 54,
-        padding: '0 28px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        borderBottom: '2px solid var(--coral)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 50,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img src="/logo-ddfpixel.png" alt="DDF x Pixel" style={{ height: 30, width: 'auto', filter: 'brightness(0) invert(1)' }} />
-          <span style={{ fontSize: 9, background: 'var(--coral)', color: '#fff', padding: '2px 7px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase' }}>
-            ADMIN
-          </span>
-        </div>
-        <button
-          onClick={signOut}
-          style={{ background: 'none', border: '1px solid #3a3a3a', color: '#777', padding: '5px 14px', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}
-        >
-          Sign out
-        </button>
-      </header>
-
-      <div className="admin-wrap" style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 64px' }}>
-
-        {/* Page title */}
-        <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-          <div>
-            <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>
-              DDF x Pixel
-            </p>
-            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#1a1a1a' }}>
-              Job Dashboard
-            </h1>
-          </div>
-          <button
-            onClick={printProductionSheet}
-            disabled={buildingProdSheet}
-            title="Print all approved designs across jobs, grouped by event date"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, padding: '9px 16px', background: '#1a1a1a', color: '#fff', border: 'none', cursor: buildingProdSheet ? 'default' : 'pointer', opacity: buildingProdSheet ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px', textTransform: 'uppercase' }}
-          >
-            <PrintIcon /> {buildingProdSheet ? 'Building…' : 'Production Sheet'}
-          </button>
-        </div>
-
-        {/* ── Loading ────────────────────────────────────────────────────────── */}
-        {loading ? (
-          <div style={{ padding: '80px 0', textAlign: 'center' }}>
-            <div style={{ width: 32, height: 32, border: '3px solid #e0e0e0', borderTopColor: 'var(--coral)', borderRadius: '50%', margin: '0 auto 14px', animation: 'spin 0.8s linear infinite' }} />
-            <p style={{ color: '#999', fontSize: 13, margin: 0 }}>Loading jobs…</p>
-          </div>
-
-        ) : loadError ? (
-          <div style={{ background: '#fff0f0', border: '1px solid #fca5a5', padding: '14px 18px', color: '#b91c1c', fontSize: 13 }}>
-            {loadError}
-          </div>
-
-        ) : (
-          <>
-            {/* ── Stats bar ───────────────────────────────────────────────────── */}
-            <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginBottom: 24 }}>
-              {STATUSES.map(s => (
-                <button
-                  key={s}
-                  className="stat-btn"
-                  onClick={() => setFilter(prev => prev === s ? 'all' : s)}
-                  style={{
-                    background: filter === s ? STATUS_CONFIG[s].bg : '#fff',
-                    border: `1px solid ${filter === s ? STATUS_CONFIG[s].color + '55' : '#e0e0e0'}`,
-                    borderTop: `3px solid ${STATUS_CONFIG[s].color}`,
-                    padding: '14px 14px 12px',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font-body)',
-                    transition: 'opacity 0.15s',
-                  }}
-                >
-                  <div className="stat-num" style={{ fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-heading)', color: STATUS_CONFIG[s].color, lineHeight: 1, letterSpacing: '-0.5px' }}>
-                    {statCounts[s] ?? 0}
-                  </div>
-                  <div className="stat-lbl" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: '#999', marginTop: 5 }}>
-                    {STATUS_LABELS[s]}
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {/* ── Search ──────────────────────────────────────────────────────── */}
-            <div style={{ position: 'relative', marginBottom: 12 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
-                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
-              </svg>
-              <input
-                type="search"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search client, company, ref or event…"
-                aria-label="Search jobs"
-                className="job-search"
-                style={{ width: '100%', boxSizing: 'border-box', height: 44, padding: '0 14px 0 38px', fontSize: 14, border: '1px solid #ddd', background: '#fff', fontFamily: 'var(--font-body)', color: '#1a1a1a' }}
-              />
-              {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  aria-label="Clear search"
-                  style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#999', fontSize: 18, lineHeight: 1, cursor: 'pointer', padding: 6 }}
-                >×</button>
-              )}
-            </div>
-
-            {/* ── Toolbar ─────────────────────────────────────────────────────── */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
-              <p style={{ margin: 0, fontSize: 12, color: '#999' }}>
-                {search
-                  ? `${filtered.length} match${filtered.length !== 1 ? 'es' : ''}`
-                  : filter === 'all'
-                    ? `${jobs.length} job${jobs.length !== 1 ? 's' : ''} total`
-                    : `${filtered.length} ${STATUS_LABELS[filter]?.toLowerCase()}`}
-              </p>
-              <div className="filter-row" style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                {(['all', ...STATUSES] as string[]).map(s => (
-                  <button
-                    key={s}
-                    className="filter-btn"
-                    onClick={() => setFilter(s)}
-                    style={{
-                      padding: '4px 11px',
-                      fontSize: 11,
-                      fontWeight: filter === s ? 700 : 500,
-                      background: filter === s ? '#1a1a1a' : '#fff',
-                      color: filter === s ? '#fff' : '#666',
-                      border: `1px solid ${filter === s ? '#1a1a1a' : '#ddd'}`,
-                      cursor: 'pointer',
-                      fontFamily: 'var(--font-body)',
-                      letterSpacing: '0.3px',
-                    }}
-                  >
-                    {s === 'all' ? 'All' : STATUS_LABELS[s]}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* ── Empty state ──────────────────────────────────────────────────── */}
-            {filtered.length === 0 ? (
-              <div style={{ background: '#fff', border: '1px solid #e0e0e0', padding: '48px 32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>
-                {search
-                  ? `No jobs match “${search}”.`
-                  : `No ${filter !== 'all' ? STATUS_LABELS[filter]?.toLowerCase() + ' ' : ''}jobs.`}
-              </div>
-            ) : (
-
-              /* ── Job list ──────────────────────────────────────────────────── */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {filtered.map(job => {
-                  const proofed = job.items.filter(it => itemProofs(it).length > 0)
-                  const approvedCount = proofed.filter(it => it.approval_status === 'approved').length
-                  // "Needs attention": a proof is attached but not yet approved, or the client asked for changes.
-                  const needsAttention = proofed.some(it =>
-                    it.approval_status === 'changes_requested' ||
-                    !it.approval_status || it.approval_status === 'pending'
-                  )
-                  // Always start collapsed — the amber dot still flags jobs that need attention.
-                  const baseOpen = job.id in openOverride ? openOverride[job.id] : false
-                  const open = baseOpen || editingJob === job.id
-                  return (
-                  <div
-                    key={job.id}
-                    style={{
-                      background: '#fff',
-                      border: '1px solid #e0e0e0',
-                      borderLeft: `4px solid ${STATUS_COLORS[job.status] ?? '#ccc'}`,
-                    }}
-                  >
-                    {/* Card top: identity + date — click to expand/collapse */}
-                    <div
-                      className="job-head"
-                      onClick={() => setOpenOverride(prev => ({ ...prev, [job.id]: !open }))}
-                      style={{ padding: '15px 18px 13px', borderBottom: open ? '1px solid #f2f2f2' : 'none', cursor: 'pointer' }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          {/* Ref + status + file badge */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
-                            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 14, color: 'var(--coral)', letterSpacing: '0.5px' }}>
-                              {job.reference_number}
-                            </span>
-                            <StatusPill status={job.status} />
-                            {job.file_paths.length > 0 && (
-                              <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.8px', color: '#999', background: '#f5f5f5', border: '1px solid #e0e0e0', padding: '1px 6px' }}>
-                                {job.file_paths.length} FILE{job.file_paths.length !== 1 ? 'S' : ''}
-                              </span>
-                            )}
-                            {proofed.length > 0 && (
-                              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', padding: '1px 7px', border: '1px solid', color: approvedCount === proofed.length ? '#15803d' : '#9a6a00', background: approvedCount === proofed.length ? '#dcfce7' : '#fff7e6', borderColor: approvedCount === proofed.length ? '#86efac' : '#f0d28a' }}>
-                                {approvedCount}/{proofed.length} approved
-                              </span>
-                            )}
-                          </div>
-                          {/* Client name + company */}
-                          <p style={{ margin: '0 0 3px', fontWeight: 700, fontSize: 14, color: '#1a1a1a' }}>
-                            {job.client_name}
-                            {job.company_name && (
-                              <span style={{ fontWeight: 400, color: '#888', fontSize: 13 }}> — {job.company_name}</span>
-                            )}
-                          </p>
-                          {/* Meta row */}
-                          <div style={{ fontSize: 12, color: '#999', display: 'flex', flexWrap: 'wrap', columnGap: 14, rowGap: 2, marginTop: 1 }}>
-                            <a href={`mailto:${job.contact_email}`} onClick={e => e.stopPropagation()} style={{ color: '#999', textDecoration: 'none' }}>
-                              {job.contact_email}
-                            </a>
-                            <span>
-                              Due&nbsp;
-                              <strong style={{ color: '#1a1a1a', fontWeight: 700 }}>{job.date_required}</strong>
-                            </span>
-                            {job.event_name && <span>{job.event_name}</span>}
-                          </div>
-                        </div>
-                        {/* Submitted date + expand chevron */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, paddingTop: 1 }}>
-                          {!open && needsAttention && (
-                            <span title="Needs attention" aria-label="Needs attention" style={{ width: 7, height: 7, borderRadius: '50%', background: '#C8702A', display: 'inline-block' }} />
-                          )}
-                          <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
-                            {new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}
-                          </span>
-                          <button
-                            onClick={e => { e.stopPropagation(); setOpenOverride(prev => ({ ...prev, [job.id]: !open })) }}
-                            aria-label={open ? 'Collapse job' : 'Expand job'}
-                            aria-expanded={open}
-                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, background: 'none', border: 'none', cursor: 'pointer', color: '#999', flexShrink: 0 }}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.18s' }}>
-                              <path d="m6 9 6 6 6-6" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    {open && (<>
+  // Everything a job shows once opened (tools, approvals, quotes, edit panel).
+  function renderJobDetail(job: Job) {
+    return (
+      <>
 
 
                     {/* Items */}
@@ -2604,7 +2316,302 @@ export default function AdminPage() {
                         </div>
                       </div>
                     )}
-                    </>)}
+      </>
+    )
+  }
+
+  return (
+    <main style={{ minHeight: '100vh', background: '#f2f1ef', fontFamily: 'var(--font-body)' }}>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .stat-btn:hover { opacity: 0.85; }
+        .filter-btn:hover { background: #f5f5f5 !important; }
+        .job-action-btn:hover:not(:disabled) { filter: brightness(0.95); }
+        .invoice-btn:hover:not(:disabled) { background: #dcfce7 !important; }
+        .file-link:hover { opacity: 0.8; }
+        .job-head:hover { background: #fcfbf9; }
+        .job-search:focus { outline: none; border-color: var(--coral); box-shadow: 0 0 0 3px var(--coral)22; }
+        @media (max-width: 640px) {
+          .quote-row { grid-template-columns: 1fr 110px !important; }
+          .quote-row > input { grid-column: 1 / -1; }
+          .admin-wrap { padding: 18px 14px 56px !important; }
+          .stats-grid { grid-template-columns: repeat(5, 1fr) !important; gap: 4px !important; }
+          .stats-grid .stat-num { font-size: 20px !important; }
+          .stats-grid .stat-lbl { font-size: 8px !important; letter-spacing: 1px !important; }
+          .filter-row { justify-content: flex-start !important; }
+        }
+        @keyframes chatIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .chat-backdrop { position: fixed; inset: 0; background: rgba(20,18,16,0.45); z-index: 200; animation: fadeIn 0.2s ease; }
+        .chat-drawer { position: fixed; top: 0; right: 0; height: 100dvh; width: 420px; max-width: 100%; background: #faf9f7; z-index: 201; display: flex; flex-direction: column; box-shadow: -10px 0 30px rgba(0,0,0,0.18); animation: chatIn 0.22s ease; }
+        .chat-head { background: #131313; color: #fff; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 2px solid var(--coral); flex-shrink: 0; }
+        .chat-head-title { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chat-head-sub { font-size: 11px; color: #b9b4ad; margin-top: 2px; }
+        .chat-close { background: rgba(255,255,255,0.14); color: #fff; border: none; width: 32px; height: 32px; border-radius: 50%; font-size: 14px; cursor: pointer; flex-shrink: 0; }
+        .chat-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+        .chat-empty { text-align: center; color: #888; font-size: 13.5px; line-height: 1.6; margin: auto 0; padding: 24px; }
+        .chat-row { display: flex; flex-direction: column; max-width: 84%; }
+        .chat-row.me { align-self: flex-end; align-items: flex-end; }
+        .chat-row.them { align-self: flex-start; align-items: flex-start; }
+        .chat-bubble { padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+        .chat-row.me .chat-bubble { background: #131313; color: #fff; border-bottom-right-radius: 4px; }
+        .chat-row.them .chat-bubble { background: #fff; color: #2a2a2a; border: 1px solid #e6e3dc; border-bottom-left-radius: 4px; }
+        .chat-meta { font-size: 10.5px; color: #999; margin-top: 4px; padding: 0 4px; }
+        .chat-foot { border-top: 1px solid #e6e3dc; padding: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom)); background: #fff; flex-shrink: 0; }
+        .chat-compose { display: flex; gap: 8px; align-items: flex-end; }
+        .chat-input { flex: 1; padding: 10px 14px; border: 1px solid #d8d5cd; border-radius: 20px; font-size: 15px; font-family: var(--font-body); resize: none; max-height: 120px; box-sizing: border-box; outline: none; }
+        .chat-input:focus { border-color: var(--coral); }
+        .chat-send { background: var(--coral); color: #fff; border: none; border-radius: 20px; padding: 11px 18px; font-weight: 700; font-size: 14px; cursor: pointer; font-family: var(--font-body); flex-shrink: 0; }
+        .chat-send:disabled { opacity: 0.5; cursor: default; }
+        .chat-revise { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; margin-top: 10px; padding: 11px; border: 1px dashed #d6a85e; border-radius: 6px; background: #fff8ef; color: #9a6a00; font-size: 13px; font-weight: 700; cursor: pointer; font-family: var(--font-body); }
+        .chat-err { font-size: 12px; color: #dc2626; margin-bottom: 6px; }
+        @media (max-width: 560px) { .chat-drawer { width: 100%; } }
+      `}</style>
+
+      {/* Header */}
+      <header style={{
+        background: '#1a1a1a',
+        height: 54,
+        padding: '0 28px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        borderBottom: '2px solid var(--coral)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 50,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <img src="/logo-ddfpixel.png" alt="DDF x Pixel" style={{ height: 30, width: 'auto', filter: 'brightness(0) invert(1)' }} />
+          <span style={{ fontSize: 9, background: 'var(--coral)', color: '#fff', padding: '2px 7px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase' }}>
+            ADMIN
+          </span>
+        </div>
+        <button
+          onClick={signOut}
+          style={{ background: 'none', border: '1px solid #3a3a3a', color: '#777', padding: '5px 14px', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}
+        >
+          Sign out
+        </button>
+      </header>
+
+      <div className="admin-wrap" style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 64px' }}>
+
+        {/* Page title */}
+        <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div>
+            <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>
+              DDF x Pixel
+            </p>
+            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#1a1a1a' }}>
+              Job Dashboard
+            </h1>
+          </div>
+          <button
+            onClick={printProductionSheet}
+            disabled={buildingProdSheet}
+            title="Print all approved designs across jobs, grouped by event date"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, padding: '9px 16px', background: '#1a1a1a', color: '#fff', border: 'none', cursor: buildingProdSheet ? 'default' : 'pointer', opacity: buildingProdSheet ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px', textTransform: 'uppercase' }}
+          >
+            <PrintIcon /> {buildingProdSheet ? 'Building…' : 'Production Sheet'}
+          </button>
+        </div>
+
+        {/* ── Loading ────────────────────────────────────────────────────────── */}
+        {loading ? (
+          <div style={{ padding: '80px 0', textAlign: 'center' }}>
+            <div style={{ width: 32, height: 32, border: '3px solid #e0e0e0', borderTopColor: 'var(--coral)', borderRadius: '50%', margin: '0 auto 14px', animation: 'spin 0.8s linear infinite' }} />
+            <p style={{ color: '#999', fontSize: 13, margin: 0 }}>Loading jobs…</p>
+          </div>
+
+        ) : loadError ? (
+          <div style={{ background: '#fff0f0', border: '1px solid #fca5a5', padding: '14px 18px', color: '#b91c1c', fontSize: 13 }}>
+            {loadError}
+          </div>
+
+        ) : (
+          <>
+            {/* ── Stats bar ───────────────────────────────────────────────────── */}
+            <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginBottom: 24 }}>
+              {STATUSES.map(s => (
+                <button
+                  key={s}
+                  className="stat-btn"
+                  onClick={() => setFilter(prev => prev === s ? 'all' : s)}
+                  style={{
+                    background: filter === s ? STATUS_CONFIG[s].bg : '#fff',
+                    border: `1px solid ${filter === s ? STATUS_CONFIG[s].color + '55' : '#e0e0e0'}`,
+                    borderTop: `3px solid ${STATUS_CONFIG[s].color}`,
+                    padding: '14px 14px 12px',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-body)',
+                    transition: 'opacity 0.15s',
+                  }}
+                >
+                  <div className="stat-num" style={{ fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-heading)', color: STATUS_CONFIG[s].color, lineHeight: 1, letterSpacing: '-0.5px' }}>
+                    {statCounts[s] ?? 0}
+                  </div>
+                  <div className="stat-lbl" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: '#999', marginTop: 5 }}>
+                    {STATUS_LABELS[s]}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* ── Search ──────────────────────────────────────────────────────── */}
+            <div style={{ position: 'relative', marginBottom: 12 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+              </svg>
+              <input
+                type="search"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search client, company, ref or event…"
+                aria-label="Search jobs"
+                className="job-search"
+                style={{ width: '100%', boxSizing: 'border-box', height: 44, padding: '0 14px 0 38px', fontSize: 14, border: '1px solid #ddd', background: '#fff', fontFamily: 'var(--font-body)', color: '#1a1a1a' }}
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch('')}
+                  aria-label="Clear search"
+                  style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#999', fontSize: 18, lineHeight: 1, cursor: 'pointer', padding: 6 }}
+                >×</button>
+              )}
+            </div>
+
+            {/* ── Toolbar ─────────────────────────────────────────────────────── */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+              <p style={{ margin: 0, fontSize: 12, color: '#999' }}>
+                {search
+                  ? `${filtered.length} match${filtered.length !== 1 ? 'es' : ''}`
+                  : filter === 'all'
+                    ? `${jobs.length} job${jobs.length !== 1 ? 's' : ''} total`
+                    : `${filtered.length} ${STATUS_LABELS[filter]?.toLowerCase()}`}
+              </p>
+              <div className="filter-row" style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                {(['all', ...STATUSES] as string[]).map(s => (
+                  <button
+                    key={s}
+                    className="filter-btn"
+                    onClick={() => setFilter(s)}
+                    style={{
+                      padding: '4px 11px',
+                      fontSize: 11,
+                      fontWeight: filter === s ? 700 : 500,
+                      background: filter === s ? '#1a1a1a' : '#fff',
+                      color: filter === s ? '#fff' : '#666',
+                      border: `1px solid ${filter === s ? '#1a1a1a' : '#ddd'}`,
+                      cursor: 'pointer',
+                      fontFamily: 'var(--font-body)',
+                      letterSpacing: '0.3px',
+                    }}
+                  >
+                    {s === 'all' ? 'All' : STATUS_LABELS[s]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── Empty state ──────────────────────────────────────────────────── */}
+            {filtered.length === 0 ? (
+              <div style={{ background: '#fff', border: '1px solid #e0e0e0', padding: '48px 32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>
+                {search
+                  ? `No jobs match “${search}”.`
+                  : `No ${filter !== 'all' ? STATUS_LABELS[filter]?.toLowerCase() + ' ' : ''}jobs.`}
+              </div>
+            ) : (
+
+              /* ── Job list ──────────────────────────────────────────────────── */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {filtered.map(job => {
+                  const proofed = job.items.filter(it => itemProofs(it).length > 0)
+                  const approvedCount = proofed.filter(it => it.approval_status === 'approved').length
+                  // "Needs attention": a proof is attached but not yet approved, or the client asked for changes.
+                  const needsAttention = proofed.some(it =>
+                    it.approval_status === 'changes_requested' ||
+                    !it.approval_status || it.approval_status === 'pending'
+                  )
+                  // Always start collapsed — the amber dot still flags jobs that need attention.
+                  const baseOpen = job.id in openOverride ? openOverride[job.id] : false
+                  const open = baseOpen || editingJob === job.id
+                  return (
+                  <div
+                    key={job.id}
+                    style={{
+                      background: '#fff',
+                      border: '1px solid #e0e0e0',
+                      borderLeft: `4px solid ${STATUS_COLORS[job.status] ?? '#ccc'}`,
+                    }}
+                  >
+                    {/* Card top: identity + date — click to expand/collapse */}
+                    <div
+                      className="job-head"
+                      onClick={() => setOpenOverride(prev => ({ ...prev, [job.id]: !open }))}
+                      style={{ padding: '15px 18px 13px', borderBottom: open ? '1px solid #f2f2f2' : 'none', cursor: 'pointer' }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          {/* Ref + status + file badge */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
+                            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 14, color: 'var(--coral)', letterSpacing: '0.5px' }}>
+                              {job.reference_number}
+                            </span>
+                            <StatusPill status={job.status} />
+                            {job.file_paths.length > 0 && (
+                              <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.8px', color: '#999', background: '#f5f5f5', border: '1px solid #e0e0e0', padding: '1px 6px' }}>
+                                {job.file_paths.length} FILE{job.file_paths.length !== 1 ? 'S' : ''}
+                              </span>
+                            )}
+                            {proofed.length > 0 && (
+                              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', padding: '1px 7px', border: '1px solid', color: approvedCount === proofed.length ? '#15803d' : '#9a6a00', background: approvedCount === proofed.length ? '#dcfce7' : '#fff7e6', borderColor: approvedCount === proofed.length ? '#86efac' : '#f0d28a' }}>
+                                {approvedCount}/{proofed.length} approved
+                              </span>
+                            )}
+                          </div>
+                          {/* Client name + company */}
+                          <p style={{ margin: '0 0 3px', fontWeight: 700, fontSize: 14, color: '#1a1a1a' }}>
+                            {job.client_name}
+                            {job.company_name && (
+                              <span style={{ fontWeight: 400, color: '#888', fontSize: 13 }}> — {job.company_name}</span>
+                            )}
+                          </p>
+                          {/* Meta row */}
+                          <div style={{ fontSize: 12, color: '#999', display: 'flex', flexWrap: 'wrap', columnGap: 14, rowGap: 2, marginTop: 1 }}>
+                            <a href={`mailto:${job.contact_email}`} onClick={e => e.stopPropagation()} style={{ color: '#999', textDecoration: 'none' }}>
+                              {job.contact_email}
+                            </a>
+                            <span>
+                              Due&nbsp;
+                              <strong style={{ color: '#1a1a1a', fontWeight: 700 }}>{job.date_required}</strong>
+                            </span>
+                            {job.event_name && <span>{job.event_name}</span>}
+                          </div>
+                        </div>
+                        {/* Submitted date + expand chevron */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, paddingTop: 1 }}>
+                          {!open && needsAttention && (
+                            <span title="Needs attention" aria-label="Needs attention" style={{ width: 7, height: 7, borderRadius: '50%', background: '#C8702A', display: 'inline-block' }} />
+                          )}
+                          <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
+                            {new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </span>
+                          <button
+                            onClick={e => { e.stopPropagation(); setOpenOverride(prev => ({ ...prev, [job.id]: !open })) }}
+                            aria-label={open ? 'Collapse job' : 'Expand job'}
+                            aria-expanded={open}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, background: 'none', border: 'none', cursor: 'pointer', color: '#999', flexShrink: 0 }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.18s' }}>
+                              <path d="m6 9 6 6 6-6" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {open && renderJobDetail(job)}
 
                   </div>
                   )
