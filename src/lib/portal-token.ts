@@ -10,8 +10,10 @@ import { createHmac, timingSafeEqual } from 'crypto'
 // Distinct `portal:` prefix so it can never be confused with a review token,
 // even though both sign a job id with the same secret.
 function secret(): string {
-  const s = process.env.REVIEW_LINK_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!s) throw new Error('No signing secret available for portal tokens')
+  // Must stay equal to the value that signed links already in clients' inboxes
+  // (historically the Supabase service-role key). Rotating it invalidates all links.
+  const s = process.env.REVIEW_LINK_SECRET
+  if (!s) throw new Error('REVIEW_LINK_SECRET is not set')
   return s
 }
 

@@ -4,13 +4,11 @@ import { createHmac, timingSafeEqual } from 'crypto'
 // Stateless, unguessable public approval links. A token embeds the job id and
 // is signed with a server-only secret (HMAC-SHA256) — no DB column needed.
 // "Unsharing" a link means rotating REVIEW_LINK_SECRET (invalidates all links).
-//
-// Falls back to the service-role key so the feature works in any environment
-// that already has Supabase configured; set REVIEW_LINK_SECRET for a dedicated,
-// independently-rotatable secret.
 function secret(): string {
-  const s = process.env.REVIEW_LINK_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!s) throw new Error('No signing secret available for review links')
+  // Must stay equal to the value that signed links already in clients' inboxes
+  // (historically the Supabase service-role key). Rotating it invalidates all links.
+  const s = process.env.REVIEW_LINK_SECRET
+  if (!s) throw new Error('REVIEW_LINK_SECRET is not set')
   return s
 }
 
