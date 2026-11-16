@@ -315,3 +315,15 @@
 .cx .check-row { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--ink-soft); cursor: pointer; }
 .cx .check-row input { margin-top: 3px; accent-color: var(--ink); }
 .cx .alert { background: var(--rose-wash); color: var(--rose); border-radius: var(--r-md); padding: 12px 16px; font-size: 13.5px; }
+
+/* ── Plan C additions: real proof images, app-sized drawer ───────────── */
+.cx a.floor { display: block; }
+.cx .floor img { display: block; width: 100%; height: auto; border-radius: 6px; background: #fff; }
+.cx .opt img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: #fff; }
+.cx .item-card .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.cx .drawer { position: fixed; z-index: 100; overflow-y: auto; }
+.cx .drawer-backdrop { position: fixed; inset: 0; z-index: 99; background: rgba(18,18,18,.18); }
+.cx .earlier { display: flex; gap: 8px; flex-wrap: wrap; }
+.cx .earlier a { width: 64px; height: 64px; border-radius: 12px; overflow: hidden; opacity: .75; border: 1px solid var(--line); background: #fff; }
+.cx .earlier img { width: 100%; height: 100%; object-fit: cover; }
+.cx .admin-main { padding: 22px 22px 60px; display: grid; gap: 22px; align-content: start; min-width: 0; }
