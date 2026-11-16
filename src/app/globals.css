@@ -11,7 +11,7 @@
   --coral-dark: #9d7d4d;
   --green-ok: #1B7F4F;
   --red-err: #C62828;
-  /* Oswald/Montserrat retired (client experience v2). Pages not yet restyled use Geist too. */
+  /* Old heading/body fonts retired (client experience v2). Pages not yet restyled use Geist too. */
   --font-heading: var(--font-geist-sans), 'Helvetica Neue', Arial, sans-serif;
   --font-body: var(--font-geist-sans), 'Helvetica Neue', Arial, sans-serif;
   --background: #f8f7f4;
