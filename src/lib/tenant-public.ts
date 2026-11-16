@@ -1,5 +1,5 @@
 import 'server-only'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { db } from '@/lib/db'
 import { getTenantIdBySlug } from '@/lib/tenant'
 
 // Branding for the PUBLIC, client-facing pages (intake / proof / portal).
@@ -30,11 +30,15 @@ export const DDF_DEFAULT_BRANDING: PublicBranding = {
 export async function getPublicTenant(slug: string): Promise<PublicBranding | null> {
   const id = await getTenantIdBySlug(slug)
   if (!id) return null
-  const { data } = await supabaseAdmin
-    .from('tenant_settings')
-    .select('business_name, brand_color, reply_to_email, logo_url')
-    .eq('tenant_id', id)
-    .maybeSingle()
+  type Settings = { business_name: string | null; brand_color: string | null; reply_to_email: string | null; logo_url: string | null }
+  let data: Settings | null = null
+  try {
+    const rows = await db()<Settings[]>`
+      select business_name, brand_color, reply_to_email, logo_url from tenant_settings where tenant_id = ${id}`
+    data = rows[0] ?? null
+  } catch (e) {
+    console.error('[tenant-public] settings lookup failed:', e)
+  }
   const logoUrl = data?.logo_url ?? null
   return {
     slug,

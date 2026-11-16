@@ -1,5 +1,5 @@
 import 'server-only'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { db } from '@/lib/db'
 
 // Per-tenant branding, read from the tenant_settings table. Every customer
 // workspace gets its own name, colour, logo and contact details. Falls back to
@@ -23,11 +23,15 @@ const DEFAULTS: TenantBranding = {
 
 /** Branding for a workspace, with DDF defaults filling any gaps. */
 export async function getTenantBranding(tenantId: string): Promise<TenantBranding> {
-  const { data } = await supabaseAdmin
-    .from('tenant_settings')
-    .select('business_name, brand_color, reply_to_email, ntfy_topic, logo_url')
-    .eq('tenant_id', tenantId)
-    .maybeSingle()
+  type Settings = { business_name: string | null; brand_color: string | null; reply_to_email: string | null; ntfy_topic: string | null; logo_url: string | null }
+  let data: Settings | null = null
+  try {
+    const rows = await db()<Settings[]>`
+      select business_name, brand_color, reply_to_email, ntfy_topic, logo_url from tenant_settings where tenant_id = ${tenantId}`
+    data = rows[0] ?? null
+  } catch (e) {
+    console.error('[tenant-settings] lookup failed:', e)
+  }
 
   if (!data) return DEFAULTS
   return {
