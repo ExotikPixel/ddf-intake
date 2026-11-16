@@ -50,7 +50,11 @@ interface UploadedFile {
   previewPath?: string
   previewBusy?: boolean
   needsPreview?: boolean
+  // Object URL for showing an image upload as a thumbnail (revoked on remove/unmount).
+  previewUrl?: string
 }
+
+type ItemShot = { file: File; path?: string; busy: boolean; error?: string; previewUrl?: string }
 
 type FormErrors = Record<string, string>
 
@@ -67,6 +71,11 @@ const MATERIAL_LABELS: Record<string, string> = {
 const FULFILL_LABELS = { pickup: 'Pick up', delivery: 'Deliver', install: 'Install' } as const
 type JobType = 'event' | 'product'
 type Fulfillment = keyof typeof FULFILL_LABELS
+
+// Decide image-ness by extension: DXF arrives as image/vnd.dxf but isn't a picture.
+function isImageName(name: string) {
+  return IMG_EXTS.includes('.' + (name.split('.').pop() ?? '').toLowerCase())
+}
 
 function genId() {
   return Math.random().toString(36).slice(2)
@@ -105,7 +114,8 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
 
   // Job items
   const [items, setItems] = useState<JobItem[]>([
-    { id: genId(), name: '', quantity: '1', size: '', material: '', description: '', artwork: 'design' },
+    // Fixed id for the first piece so server and client render the same field ids.
+    { id: 'item-1', name: '', quantity: '1', size: '', material: '', description: '', artwork: 'design' },
   ])
   // What the client is submitting — a design request or their own finished
   // artwork. Sets the default for every item; each item can still be switched.
@@ -115,7 +125,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
   const [fulfillment, setFulfillment] = useState<Fulfillment>('pickup')
   // Per-item screenshot of the finished design (final-file items only): what the
   // team sees, since PDF/AI/EPS can't be shown in a browser. One per item.
-  const [itemShots, setItemShots] = useState<Record<string, { file: File; path?: string; busy: boolean; error?: string }>>({})
+  const [itemShots, setItemShots] = useState<Record<string, ItemShot>>({})
   // Per-item reference photos, keyed by item id (mirrors the job-level `uploads`).
   const [itemUploads, setItemUploads] = useState<Record<string, UploadedFile[]>>({})
 
@@ -151,16 +161,31 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
 
   useEffect(() => {
     const dirty = clientName || companyName || contactEmail || dateRequired || notes ||
-      items.some(i => i.name || i.quantity || i.size || i.material)
+      items.some(i => i.name || i.size || i.material)
     setHasInput(Boolean(dirty))
   }, [clientName, companyName, contactEmail, dateRequired, notes, items])
 
   useEffect(() => {
-    if (!hasInput) return
+    if (!hasInput || refNumber) return
     const handler = (e: BeforeUnloadEvent) => { e.preventDefault() }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [hasInput])
+  }, [hasInput, refNumber])
+
+  // Thumbnail object URLs: one per image upload/screenshot, revoked when removed or on unmount.
+  const blobUrls = useRef(new Set<string>())
+  function makeUrl(file: File) {
+    const url = URL.createObjectURL(file)
+    blobUrls.current.add(url)
+    return url
+  }
+  function dropUrl(url?: string) {
+    if (url && blobUrls.current.delete(url)) URL.revokeObjectURL(url)
+  }
+  useEffect(() => {
+    const urls = blobUrls.current
+    return () => { urls.forEach(u => URL.revokeObjectURL(u)); urls.clear() }
+  }, [])
 
   // Sections 0–2 are tracked by scroll position. 3 is the sticky summary card,
   // which is always near the top on desktop, so it lights up at the page end.
@@ -186,8 +211,12 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
 
   function removeItem(id: string) {
     if (items.length <= 1) return
+    for (const u of itemUploads[id] ?? []) dropUrl(u.previewUrl)
+    dropUrl(itemShots[id]?.previewUrl)
     setItems(prev => prev.filter(i => i.id !== id))
     setItemUploads(prev => { const next = { ...prev }; delete next[id]; return next })
+    setItemShots(prev => { const next = { ...prev }; delete next[id]; return next })
+    setErrors(prev => { const e = { ...prev }; delete e[`item-${id}-photos`]; delete e[`item-${id}-shot`]; return e })
   }
 
   function updateItem(id: string, field: keyof Omit<JobItem, 'id'>, value: string) {
@@ -200,7 +229,8 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
     setItems(prev => prev.map(i => ({ ...i, artwork: val })))
     setErrors(prev => { const e = { ...prev }; Object.keys(e).forEach(k => { if (k.endsWith('-photos') || k.endsWith('-shot')) delete e[k] }); return e })
     if (val === 'design') {
-      setItemUploads(prev => Object.fromEntries(Object.entries(prev).map(([id, ups]) => [id, ups.filter(u => u.file.type.startsWith('image/'))])))
+      setItemUploads(prev => Object.fromEntries(Object.entries(prev).map(([id, ups]) => [id, ups.filter(u => isImageName(u.file.name))])))
+      Object.values(itemShots).forEach(sh => dropUrl(sh.previewUrl))
       setItemShots({})
     }
   }
@@ -210,7 +240,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
     setErrors(prev => { const e = { ...prev }; delete e[`item-${itemId}-photos`]; delete e[`item-${itemId}-shot`]; return e })
     // Back to "design it for me": print files and the screenshot no longer apply.
     if (val === 'design') {
-      setItemUploads(prev => ({ ...prev, [itemId]: (prev[itemId] ?? []).filter(u => u.file.type.startsWith('image/')) }))
+      setItemUploads(prev => ({ ...prev, [itemId]: (prev[itemId] ?? []).filter(u => isImageName(u.file.name)) }))
       removeItemShot(itemId)
     }
   }
@@ -227,7 +257,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
       if (existing.length + newFiles.length >= MAX_ITEM_FILES) { err = `Up to ${MAX_ITEM_FILES} files per item`; return }
       const ext = '.' + f.name.split('.').pop()?.toLowerCase()
       if (isFinal ? !ALLOWED_EXTS.includes(ext) : !IMG_EXTS.includes(ext)) {
-        err = isFinal ? `${f.name}: use PDF, AI, EPS, SVG, PNG or JPG` : `${f.name}: please attach an image`; return
+        err = isFinal ? `${f.name}: use PDF, AI, EPS, SVG, DXF, PNG or JPG` : `${f.name}: please attach an image`; return
       }
       if (f.size > MAX_FILE_BYTES) { err = `${f.name}: over ${MAX_FILE_MB} MB`; return }
       newFiles.push(f)
@@ -245,7 +275,9 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
       setErrors(prev => ({ ...prev, [`item-${itemId}-photos`]: 'Could not prepare upload. Try again.' }))
       return
     }
-    const entries: UploadedFile[] = files.map((file, i) => ({ file, path: presigned[i].path, progress: 0 }))
+    const entries: UploadedFile[] = files.map((file, i) => ({
+      file, path: presigned[i].path, progress: 0, previewUrl: isImageName(file.name) ? makeUrl(file) : undefined,
+    }))
     setItemUploads(prev => ({ ...prev, [itemId]: [...(prev[itemId] ?? []), ...entries] }))
     for (let i = 0; i < files.length; i++) {
       const { signedUrl, path } = presigned[i]
@@ -284,23 +316,29 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
   async function setItemShot(itemId: string, fileList: FileList | null) {
     const img = fileList?.[0]
     if (!img) return
-    if (!img.type.startsWith('image/')) {
+    if (!img.type.startsWith('image/') || !isImageName(img.name)) {
       setErrors(prev => ({ ...prev, [`item-${itemId}-shot`]: 'Please use a JPG or PNG screenshot' })); return
     }
     if (img.size > MAX_FILE_BYTES) {
       setErrors(prev => ({ ...prev, [`item-${itemId}-shot`]: `Screenshot is over ${MAX_FILE_MB} MB` })); return
     }
     setErrors(prev => { const e = { ...prev }; delete e[`item-${itemId}-shot`]; return e })
-    setItemShots(prev => ({ ...prev, [itemId]: { file: img, busy: true } }))
+    dropUrl(itemShots[itemId]?.previewUrl)
+    const previewUrl = makeUrl(img)
+    setItemShots(prev => ({ ...prev, [itemId]: { file: img, busy: true, previewUrl } }))
     const path = await uploadPreviewFile(img)
-    setItemShots(prev => ({ ...prev, [itemId]: { file: img, path: path ?? undefined, busy: false, error: path ? undefined : 'Upload failed — try again' } }))
+    // Skip if the screenshot was removed or replaced while uploading.
+    setItemShots(prev => prev[itemId]?.file !== img ? prev
+      : ({ ...prev, [itemId]: { file: img, previewUrl, path: path ?? undefined, busy: false, error: path ? undefined : 'Upload failed — try again' } }))
   }
 
   function removeItemShot(itemId: string) {
+    dropUrl(itemShots[itemId]?.previewUrl)
     setItemShots(prev => { const n = { ...prev }; delete n[itemId]; return n })
   }
 
   function removeItemPhoto(itemId: string, path: string) {
+    dropUrl((itemUploads[itemId] ?? []).find(u => u.path === path)?.previewUrl)
     setItemUploads(prev => ({ ...prev, [itemId]: (prev[itemId] ?? []).filter(u => u.path !== path) }))
   }
 
@@ -402,7 +440,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
         const ups = (itemUploads[item.id] ?? []).filter(u => u.progress === 100 && !u.error)
         if (ups.length === 0) errs[`item-${item.id}-photos`] = 'Attach your print-ready file, or switch to "Design it for me"'
         const shot = itemShots[item.id]
-        if (ups.some(u => !u.file.type.startsWith('image/')) && !shot?.path) {
+        if (ups.some(u => !isImageName(u.file.name)) && !shot?.path) {
           errs[`item-${item.id}-shot`] = shot?.busy ? 'Screenshot still uploading — one moment' : 'Add a screenshot so we can see the design'
         }
       }
@@ -461,7 +499,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                 proof_urls: (itemUploads[i.id] ?? []).filter(u => u.progress === 100).map(u => u.path),
                 proof_previews: Object.fromEntries(
                   (itemUploads[i.id] ?? [])
-                    .filter(u => u.progress === 100 && !u.file.type.startsWith('image/') && (itemShots[i.id]?.path || u.previewPath))
+                    .filter(u => u.progress === 100 && !isImageName(u.file.name) && (itemShots[i.id]?.path || u.previewPath))
                     .map(u => [u.path, (itemShots[i.id]?.path ?? u.previewPath)!])
                 ),
                 proof_source: 'client' as const,
@@ -678,14 +716,14 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                         </Field>
                         {(() => {
                           const shot = itemShots[item.id]
-                          const needShot = ups.some(u => !u.file.type.startsWith('image/'))
+                          const needShot = ups.some(u => !isImageName(u.file.name))
                           const shotErr = errors[`item-${item.id}-shot`] ?? shot?.error
                           return (
                             <Field label={needShot ? 'Screenshot of the design (needed)' : 'Screenshot of the design'} error={shotErr}
                               hint="So our team can see it. PDF, AI and EPS don’t preview in a browser.">
                               {shot ? (
                                 <div className="row" style={{ gap: 12 }}>
-                                  <div className="thumb sm"><img src={URL.createObjectURL(shot.file)} alt="Design screenshot" /></div>
+                                  <div className="thumb sm">{shot.previewUrl && <img src={shot.previewUrl} alt="Design screenshot" />}</div>
                                   <div className="stack" style={{ gap: 6 }}>
                                     <span className="small">{shot.busy ? 'Uploading…' : shot.error ? '' : 'Screenshot added'}</span>
                                     <div className="row" style={{ gap: 12 }}>
@@ -715,7 +753,8 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                             <div key={u.path} className="thumb" title={u.file.name}>
                               {u.error ? <span className="err" style={{ padding: 6, textAlign: 'center' }}>{u.error}</span>
                                 : u.progress < 100 ? <span className="num">{u.progress}%</span>
-                                : <img src={URL.createObjectURL(u.file)} alt="" />}
+                                : u.previewUrl ? <img src={u.previewUrl} alt="" />
+                                : <span className="tiny muted">{u.file.name.split('.').pop()?.toUpperCase()}</span>}
                               <button type="button" className="x" aria-label={`Remove ${u.file.name}`} onClick={() => removeItemPhoto(item.id, u.path)}><X size={12} /></button>
                             </div>
                           ))}
