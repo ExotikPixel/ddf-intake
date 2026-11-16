@@ -653,19 +653,22 @@ export default function PortalPage() {
                             const older = proofs.length > 1 && designsMode(it) === 'latest' && pi > 0
                             return { u, fileU, older }
                           }
-                          const main = proofLink(proofs[0], 0)
+                          // Pick-one pieces: once approved, the chosen design is the big thumbnail.
+                          const chosen = designsMode(it) === 'pick' && it.approved_proof_url && proofs.includes(it.approved_proof_url) ? it.approved_proof_url : null
+                          const shown = chosen ? [chosen, ...proofs.filter(p => p !== chosen)] : proofs
+                          const main = proofLink(shown[0], 0)
                           return (
                             <article key={idx} className="item-card">
                               {/* Thumbnails (one or more proofs) — latest-only keeps the newest big, earlier ones small/dim */}
                               <div className="stack" style={{ gap: 6, alignContent: 'start', minWidth: 0 }}>
                                 <a className="thumb" href={main.fileU ?? main.u ?? undefined} target="_blank" rel="noopener noreferrer"
-                                   title={main.fileU ? `Open ${fileKindLabel(proofs[0])} file` : undefined} style={{ background: '#fff' }}>
+                                   title={main.fileU ? `Open ${fileKindLabel(shown[0])} file` : undefined} style={{ background: '#fff' }}>
                                   {main.u
                                     ? <img src={main.u} alt={`Proof for ${it.name}`} style={{ objectFit: 'contain', padding: 4 }} />
                                     : <span className="tiny muted">Loading…</span>}
                                 </a>
                                 {main.fileU && (
-                                  <a className="link tiny" href={main.fileU} target="_blank" rel="noopener noreferrer" style={{ textAlign: 'center' }}>{fileKindLabel(proofs[0])} ↗</a>
+                                  <a className="link tiny" href={main.fileU} target="_blank" rel="noopener noreferrer" style={{ textAlign: 'center' }}>{fileKindLabel(shown[0])} ↗</a>
                                 )}
                               </div>
                               {/* Body */}
@@ -682,9 +685,9 @@ export default function PortalPage() {
                                     <ApprovalPill status={status} />
                                   </span>
                                 </div>
-                                {proofs.length > 1 && (
+                                {shown.length > 1 && (
                                   <div className="earlier">
-                                    {proofs.slice(1).map((p, i) => {
+                                    {shown.slice(1).map((p, i) => {
                                       const { u, fileU, older } = proofLink(p, i + 1)
                                       return (
                                         <span key={p} className="stack" style={{ gap: 3, justifyItems: 'center' }}>
