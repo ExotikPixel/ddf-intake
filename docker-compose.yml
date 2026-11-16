@@ -31,6 +31,12 @@ services:
       - ${DDF_DATA_DIR:?set DDF_DATA_DIR in .env}/files:/data/files
     ports:
       - "127.0.0.1:3000:3000"   # localhost only — the public path is the tunnel
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
     depends_on:
       db:
         condition: service_healthy
@@ -53,14 +59,15 @@ services:
         condition: service_healthy
 
   tunnel:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2025.11.1
     profiles: ["public"]        # started by deploy.sh only when TUNNEL_TOKEN is set
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
     depends_on:
-      - app
+      app:
+        condition: service_healthy
 
 volumes:
   ddf_pgdata:

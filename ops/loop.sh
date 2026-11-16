@@ -50,7 +50,7 @@ check_health() {
 do_dump() {
   local f
   f="$BACK/db-$(date -u +%Y-%m-%d-%H%M).sql.gz"
-  if pg_dump --no-owner --no-privileges | gzip > "$f.tmp" && mv "$f.tmp" "$f"; then
+  if timeout 30m pg_dump --no-owner --no-privileges | gzip > "$f.tmp" && mv "$f.tmp" "$f"; then
     ls -1t "$BACK"/db-*.sql.gz 2>/dev/null | tail -n +15 | xargs -r rm -f   # keep newest 14
     mark dump; log "dump ok: $(basename "$f")"
   else
@@ -63,12 +63,12 @@ do_offsite() {
   if ! offsite_configured; then
     log "off-site skipped (not configured)"; mark offsite; return
   fi
-  if rclone copy "$BACK" "$REMOTE/db" --include 'db-*.sql.gz' --max-age 25h \
-     && rclone copy "$FILES" "$REMOTE/files" --ignore-existing; then
+  if timeout 3h rclone copy "$BACK" "$REMOTE/db" --include 'db-*.sql.gz' --max-age 25h \
+     && timeout 3h rclone copy "$FILES" "$REMOTE/files" --ignore-existing; then
     mark offsite; log "off-site ok"
   else
-    log "off-site FAILED"
-    ntfy 5 "DDF off-site backup FAILED" "rclone to $REMOTE failed at $(date)." offsite
+    log "off-site FAILED (error or 3 h timeout)"
+    ntfy 5 "DDF off-site backup FAILED" "rclone to $REMOTE failed or timed out at $(date)." offsite
   fi
 }
 
@@ -78,6 +78,15 @@ do_kanban() {
   else
     log "kanban retry call failed"
     ntfy 4 "Kanban retry run failed" "The 6-hourly Kanban retry call failed at $(date)." kanban
+  fi
+}
+
+free_gb() { df -Pk "$DATA" | awk 'NR==2 { printf "%.0f", $4 / 1048576 }'; }
+check_disk() {
+  local f; f=$(free_gb)
+  if (( f < 20 )); then
+    log "low disk: ${f} GB free"
+    ntfy 4 "DDF disk space low" "Only ${f} GB free on the shop PC at $(date)." disk
   fi
 }
 
@@ -92,7 +101,7 @@ do_digest() {
   if offsite_configured; then
     r2_bytes=$(rclone size "$REMOTE" --json 2>/dev/null | sed -nE 's/.*"bytes":([0-9]+).*/\1/p'); r2_bytes=${r2_bytes:-0}
   fi
-  free_gb=$(df -Pk "$DATA" | awk 'NR==2 { printf "%.0f", $4 / 1048576 }')
+  free_gb=$(free_gb)
   if (( r2_bytes > 8 * 1073741824 )); then pri=4; warn+=" ⚠️ Off-site copy is over 8 GB (free tier is 10 GB)."; fi
   if (( free_gb < 20 )); then pri=4; warn+=" ⚠️ Less than 20 GB disk free."; fi
   ntfy "$pri" "DDF weekly report" "DB ${db_mb} MB · files $(gb "$files_bytes") GB (${files_n}) · off-site $(gb "$r2_bytes") GB · disk free ${free_gb} GB.${warn}"
@@ -103,6 +112,7 @@ log "ops loop starting"
 sleep 60   # let the app finish starting
 while true; do
   check_health
+  check_disk
   if (( $(age dump)    > 72000  )); then do_dump;    fi   # 20 h
   if (( $(age offsite) > 72000  )); then do_offsite; fi   # 20 h
   if (( $(age kanban)  > 21600  )); then do_kanban;  fi   # 6 h

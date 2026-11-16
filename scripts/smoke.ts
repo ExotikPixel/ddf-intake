@@ -17,6 +17,7 @@ const approve = process.argv.includes('--approve')
 const createdKeys: string[] = []
 let createdJobId: number | null = null
 let createdLibraryId: number | null = null
+let ref: string | null = null
 
 function env(k: string): string {
   const v = process.env[k]
@@ -63,7 +64,7 @@ async function main() {
     items: [{ name: 'Smoke item', quantity: 1, size: '1x1 ft', material: 'vinyl' }],
     filePaths: [key], submissionId: randomUUID(),
   }), 'submit')).json() as { referenceNumber: string }
-  const ref = sub.referenceNumber
+  ref = sub.referenceNumber
 
   step('admin login')
   const adminCookie = cookie(await ok(await call('POST', '/api/admin/login', { email: env('SMOKE_ADMIN_EMAIL'), password: env('SMOKE_ADMIN_PASSWORD') }), 'admin login'), 'ddf_admin')
@@ -106,14 +107,19 @@ async function main() {
 async function cleanup() {
   const dbUrl = process.env.SMOKE_DATABASE_URL
   const filesDir = process.env.SMOKE_FILES_DIR
-  if (dbUrl && (createdJobId !== null || createdLibraryId !== null)) {
+  if (dbUrl && (createdJobId !== null || createdLibraryId !== null || ref)) {
     const sql = postgres(dbUrl, { max: 1, onnotice: () => {} })
     if (createdLibraryId !== null) await sql`delete from design_library where id = ${createdLibraryId}`
     if (createdJobId !== null) await sql`delete from jobs where id = ${createdJobId}`   // queue row cascades
+    else if (ref) {
+      // Submitted but the run failed before we learned the id: remove exactly that reference.
+      const gone = await sql`delete from jobs where reference_number = ${ref} returning id`
+      console.log(`cleanup by reference ${ref}: removed ${gone.length} job(s)${gone.length ? ` (id ${gone[0].id})` : ''}`)
+    }
     await sql.end()
   }
   if (filesDir) for (const k of createdKeys) await rm(path.join(filesDir, k), { force: true })
-  console.log(`🧹 removed job ${createdJobId ?? '—'} and ${createdKeys.length} file(s)`)
+  console.log(`🧹 removed job ${createdJobId ?? ref ?? '—'} and ${createdKeys.length} file(s)`)
 }
 
 main()

@@ -7,8 +7,7 @@ set -a; source .env; set +a
 mkdir -p "$DDF_DATA_DIR"/files "$DDF_DATA_DIR"/backups "$DDF_DATA_DIR"/ops-state
 git pull --ff-only
 
-docker compose up -d db
-docker compose exec -T db sh -c 'until pg_isready -U ddf -d ddf; do sleep 1; done'
+docker compose up -d --wait db   # healthcheck is TCP, so first boot waits for init scripts
 docker compose exec -T db psql -U ddf -d ddf -v ON_ERROR_STOP=1 -q < db/schema.sql
 
 docker compose build app ops
