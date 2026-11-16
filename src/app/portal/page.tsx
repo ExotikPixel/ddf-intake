@@ -882,7 +882,7 @@ export default function PortalPage() {
                           {open && (
                             <div style={{ marginTop: 10 }}>
                               <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--charcoal-60)', lineHeight: 1.5 }}>
-                                If your designer already made the final file, upload it here and it&apos;s approved for print straight away — no need to wait for a proof from us. PDF, AI, EPS, SVG, PNG or JPG, up to 50MB.
+                                If your designer already made the final file, upload it here and it&apos;s approved for print straight away — no need to wait for a proof from us. PDF, AI, EPS, SVG, PNG or JPG, up to 95 MB.
                               </p>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                 {eligible.map(({ it, idx }) => {
