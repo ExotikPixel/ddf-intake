@@ -11,7 +11,7 @@ describe('POST /api/upload-url size validation', () => {
   }))
 
   it('rejects missing, non-numeric, negative, fractional and oversize sizes', async () => {
-    for (const bad of [undefined, 'abc', '5', null, -1, 1.5, 50 * 1024 * 1024 + 1, Infinity]) {
+    for (const bad of [undefined, 'abc', '5', null, -1, 1.5, 95 * 1024 * 1024 + 1, Infinity]) {
       expect((await call(bad)).status).toBe(400)
     }
   })

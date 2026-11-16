@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemRefPhotos, itemExamplePhotos, approvedProofs, itemThread, designsMode, fileKindLabel, fileTileDataUrl, jobQuoteTotal } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus, ItemMessage } from '@/lib/job-types'
 import { renderPrintFilePreview, uploadPreviewFile, needsPreview } from '@/lib/proof-preview'
+import { MAX_FILES } from '@/lib/limits'
 
 interface Job {
   id: number
@@ -2279,11 +2280,11 @@ export default function AdminPage() {
                                 </div>
                               )
                             })}
-                            {editForm.file_paths.length < 3 && (
+                            {editForm.file_paths.length < MAX_FILES && (
                               <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: uploadingPhoto ? '#aaa' : 'var(--coral)', background: 'none', border: '1px dashed var(--coral)66', padding: '5px 12px', cursor: uploadingPhoto ? 'default' : 'pointer' }}>
                                 <input
                                   type="file"
-                                  accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
+                                  accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
                                   style={{ display: 'none' }}
                                   disabled={uploadingPhoto}
                                   onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addPhoto(f) } }}
@@ -2369,7 +2370,7 @@ export default function AdminPage() {
                                 <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#8a857c' }}>Material
                                   <select value={item.material} onChange={e => updateEditItem(idx, 'material', e.target.value)}
                                     style={{ width: 140, padding: '6px 8px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', boxSizing: 'border-box' }}>
-                                    {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','other'].map(m => (<option key={m} value={m}>{m}</option>))}
+                                    {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','metal','other'].map(m => (<option key={m} value={m}>{m}</option>))}
                                   </select>
                                 </label>
                               </div>

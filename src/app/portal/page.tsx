@@ -4,6 +4,7 @@ import { useEffect, useState, FormEvent } from 'react'
 import { STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemExamplePhotos, designsMode, isImagePath, fileKindLabel } from '@/lib/job-types'
 import { renderPrintFilePreview, uploadPreviewFile, needsPreview } from '@/lib/proof-preview'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
+import { MAX_FILES, MAX_PIECES, MAX_FILE_MB } from '@/lib/limits'
 
 interface Job {
   id: number
@@ -882,7 +883,7 @@ export default function PortalPage() {
                           {open && (
                             <div style={{ marginTop: 10 }}>
                               <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--charcoal-60)', lineHeight: 1.5 }}>
-                                If your designer already made the final file, upload it here and it&apos;s approved for print straight away — no need to wait for a proof from us. PDF, AI, EPS, SVG, PNG or JPG, up to 50MB.
+                                If your designer already made the final file, upload it here and it&apos;s approved for print straight away — no need to wait for a proof from us. PDF, AI, EPS, DXF, SVG, PNG or JPG, up to {MAX_FILE_MB} MB.
                               </p>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                 {eligible.map(({ it, idx }) => {
@@ -897,7 +898,7 @@ export default function PortalPage() {
                                       <label style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', background: busy ? '#f0f0f0' : '#1B7F4F', color: busy ? '#888' : '#fff', cursor: busy ? 'default' : 'pointer', fontFamily: 'var(--font-body)', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
                                         {busy ? 'Uploading…' : '⬆ Upload final & approve'}
                                         <input type="file" multiple disabled={busy}
-                                          accept=".pdf,.ai,.eps,.svg,.png,.jpg,.jpeg,application/pdf,application/postscript,image/svg+xml,image/png,image/jpeg"
+                                          accept=".pdf,.ai,.eps,.dxf,.svg,.png,.jpg,.jpeg,application/pdf,application/postscript,image/svg+xml,image/png,image/jpeg"
                                           style={{ display: 'none' }}
                                           onChange={e => {
                                             const files = Array.from(e.target.files ?? []).slice(0, 8)
@@ -974,11 +975,11 @@ export default function PortalPage() {
                               </div>
                             )
                           })}
-                          {editForm.file_paths.length < 3 && (
+                          {editForm.file_paths.length < MAX_FILES && (
                             <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: uploadingPhoto ? 'var(--charcoal-60)' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '5px 12px', cursor: uploadingPhoto ? 'default' : 'pointer' }}>
                               <input
                                 type="file"
-                                accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
+                                accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
                                 style={{ display: 'none' }}
                                 disabled={uploadingPhoto}
                                 onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addPhoto(f) } }}
@@ -1013,7 +1014,7 @@ export default function PortalPage() {
                               <select value={item.material}
                                 onChange={e => updateEditItem(idx, 'material', e.target.value)}
                                 style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}>
-                                {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','other'].map(m => (
+                                {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','metal','other'].map(m => (
                                   <option key={m} value={m}>{m}</option>
                                 ))}
                               </select>
@@ -1042,7 +1043,7 @@ export default function PortalPage() {
                                 <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: uploading ? 'var(--charcoal-60)' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '4px 10px', cursor: uploading ? 'default' : 'pointer' }}>
                                   <input
                                     type="file"
-                                    accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
+                                    accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
                                     style={{ display: 'none' }}
                                     disabled={uploading}
                                     onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addEditItemFile(idx, f) } }}
@@ -1054,7 +1055,7 @@ export default function PortalPage() {
                           </div>
                           )
                         })}
-                        {editForm.items.length < 10 && (
+                        {editForm.items.length < MAX_PIECES && (
                           <button onClick={() => setEditForm(prev => prev ? { ...prev, items: [...prev.items, { name: '', quantity: 1, size: '', material: 'vinyl' }] } : prev)}
                             style={{ fontSize: 11, fontWeight: 600, color: 'var(--coral)', background: 'none', border: '1px dashed var(--coral)66', padding: '5px 14px', cursor: 'pointer', fontFamily: 'var(--font-body)', marginTop: 4 }}>
                             + Add Item
@@ -1104,7 +1105,7 @@ export default function PortalPage() {
                               <select value={item.material}
                                 onChange={e => updateAddItem(idx, 'material', e.target.value)}
                                 style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}>
-                                {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','other'].map(m => (
+                                {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','metal','other'].map(m => (
                                   <option key={m} value={m}>{m}</option>
                                 ))}
                               </select>
@@ -1132,7 +1133,7 @@ export default function PortalPage() {
                                 <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: uploading ? 'var(--charcoal-60)' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '4px 10px', cursor: uploading ? 'default' : 'pointer' }}>
                                   <input
                                     type="file"
-                                    accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
+                                    accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
                                     style={{ display: 'none' }}
                                     disabled={uploading}
                                     onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addItemFile(idx, f) } }}
@@ -1144,7 +1145,7 @@ export default function PortalPage() {
                           </div>
                           )
                         })}
-                        {addItems.length < 10 && (
+                        {addItems.length < MAX_PIECES && (
                           <button onClick={() => setAddItems(prev => [...prev, { name: '', quantity: 1, size: '', material: 'vinyl' }])}
                             style={{ fontSize: 11, fontWeight: 600, color: 'var(--coral)', background: 'none', border: '1px dashed var(--coral)66', padding: '5px 14px', cursor: 'pointer', fontFamily: 'var(--font-body)', marginTop: 4 }}>
                             + Add Item
@@ -1168,11 +1169,11 @@ export default function PortalPage() {
                               </div>
                             )
                           })}
-                          {addFiles.length < 3 && (
+                          {addFiles.length < MAX_FILES && (
                             <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: addUploading ? 'var(--charcoal-60)' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '5px 12px', cursor: addUploading ? 'default' : 'pointer' }}>
                               <input
                                 type="file"
-                                accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps"
+                                accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
                                 style={{ display: 'none' }}
                                 disabled={addUploading}
                                 onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addExtraFile(f) } }}

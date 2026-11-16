@@ -1,13 +1,17 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import axios from 'axios'
 import { renderPrintFilePreview, uploadPreviewFile, needsPreview as fileNeedsPreview } from '@/lib/proof-preview'
 import type { PublicBranding } from '@/lib/tenant-public'
+import { Check, Copy, Plus, X, UploadCloud, ImageIcon, CalendarHeart, Hammer } from 'lucide-react'
+import { Page, SiteHead, SiteFoot, SecHead, Field, Chip, Stepper, FileRow } from '@/components/cx/kit'
+import { MAX_PIECES, MAX_FILES, MAX_ITEM_FILES, MAX_FILE_BYTES, MAX_FILE_MB } from '@/lib/limits'
+import { daysUntil, countdownLabel, prettyDate } from '@/lib/countdown'
 
 // Derive the light/dark brand tints from a single brand colour so a tenant's
-// whole intake page re-themes by overriding the --coral CSS variables.
+// whole intake page re-themes by overriding the --mauve CSS variables.
 function hexToRgb(h: string): [number, number, number] {
   const n = parseInt(h.replace('#', ''), 16)
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
@@ -46,20 +50,35 @@ interface UploadedFile {
   previewPath?: string
   previewBusy?: boolean
   needsPreview?: boolean
+  // Object URL for showing an image upload as a thumbnail (revoked on remove/unmount).
+  previewUrl?: string
 }
+
+type ItemShot = { file: File; path?: string; busy: boolean; error?: string; previewUrl?: string }
 
 type FormErrors = Record<string, string>
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const ALLOWED_EXTS = ['.jpg', '.jpeg', '.png', '.pdf', '.ai', '.eps', '.svg']
+const ALLOWED_EXTS = ['.jpg', '.jpeg', '.png', '.pdf', '.ai', '.eps', '.svg', '.dxf']
 const IMG_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.gif']
-const MAX_FILES = 3
-const MAX_ITEM_PHOTOS = 8
-const MAX_BYTES = 50 * 1024 * 1024
-const MATERIALS = ['vinyl', 'fabric', 'foam-board', 'acrylic', 'cardstock', 'wood', 'pvc', 'other']
+const SHOT_ACCEPT = '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp'
+const MATERIALS = ['vinyl', 'fabric', 'foam-board', 'acrylic', 'cardstock', 'wood', 'pvc', 'metal', 'other'] as const
+const MATERIAL_LABELS: Record<string, string> = {
+  vinyl: 'Vinyl', fabric: 'Fabric', 'foam-board': 'Foam board', acrylic: 'Acrylic', cardstock: 'Cardstock',
+  wood: 'Wood', pvc: 'PVC', metal: 'Metal', other: 'Other',
+}
+const FULFILL_LABELS = { pickup: 'Pick up', delivery: 'Deliver', install: 'Install' } as const
+type JobType = 'event' | 'product'
+type Fulfillment = keyof typeof FULFILL_LABELS
 
-const STEPS = ['Client Info', 'Job Items', 'Files & Deadline', 'Summary', 'Submit']
+// Decide image-ness by extension: DXF arrives as image/vnd.dxf but isn't a picture.
+// Files a browser can show as-is (SVG too), decided by extension: DXF can arrive
+// as image/vnd.dxf but never previews, so it always needs a screenshot.
+function isImageName(name: string) {
+  const ext = '.' + (name.split('.').pop() ?? '').toLowerCase()
+  return ext === '.svg' || IMG_EXTS.includes(ext)
+}
 
 function genId() {
   return Math.random().toString(36).slice(2)
@@ -84,18 +103,13 @@ function todayStr() {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function IntakeForm({ branding, slug }: { branding: PublicBranding; slug: string }) {
-  // DDF (logoInvert) keeps the exact globals.css palette; tenants override the
-  // brand colour and its derived tints so the page wears their colour.
+  // DDF keeps the stock mauve; other shops (/s/{slug}) tint the accent with their brand colour.
   const theme: CSSProperties = branding.logoInvert ? {} : ({
-    ['--coral']: branding.brandColor,
-    ['--coral-light']: tint(branding.brandColor, 0.92),
-    ['--coral-dark']: shade(branding.brandColor, 0.18),
+    ['--mauve']: branding.brandColor,
+    ['--mauve-deep']: shade(branding.brandColor, 0.18),
+    ['--mauve-wash']: tint(branding.brandColor, 0.92),
   } as CSSProperties)
 
-  // Logo on the dark header/footer: the shop's logo if set, else its name in white.
-  const brandLogo = (h: number) => branding.logoUrl
-    ? <img src={branding.logoUrl} alt={branding.businessName} style={{ height: h, width: 'auto', ...(branding.logoInvert ? { filter: 'brightness(0) invert(1)' } : {}) }} />
-    : <span style={{ color: '#fff', fontWeight: 800, fontSize: h >= 30 ? 17 : 14, letterSpacing: '1px', fontFamily: 'var(--font-heading)' }}>{branding.businessName}</span>
   // Client info
   const [clientName, setClientName] = useState('')
   const [companyName, setCompanyName] = useState('')
@@ -103,14 +117,18 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
 
   // Job items
   const [items, setItems] = useState<JobItem[]>([
-    { id: genId(), name: '', quantity: '', size: '', material: '', description: '', artwork: 'design' },
+    // Fixed id for the first piece so server and client render the same field ids.
+    { id: 'item-1', name: '', quantity: '1', size: '', material: '', description: '', artwork: 'design' },
   ])
   // What the client is submitting — a design request or their own finished
   // artwork. Sets the default for every item; each item can still be switched.
   const [submitMode, setSubmitMode] = useState<'design' | 'final'>('design')
+  // Event (date + venue) or products & fabrication (needed-by date + hand-over).
+  const [jobType, setJobType] = useState<JobType>('event')
+  const [fulfillment, setFulfillment] = useState<Fulfillment>('pickup')
   // Per-item screenshot of the finished design (final-file items only): what the
   // team sees, since PDF/AI/EPS can't be shown in a browser. One per item.
-  const [itemShots, setItemShots] = useState<Record<string, { file: File; path?: string; busy: boolean; error?: string }>>({})
+  const [itemShots, setItemShots] = useState<Record<string, ItemShot>>({})
   // Per-item reference photos, keyed by item id (mirrors the job-level `uploads`).
   const [itemUploads, setItemUploads] = useState<Record<string, UploadedFile[]>>({})
 
@@ -137,7 +155,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
 
   // Active sidebar step
   const [activeStep, setActiveStep] = useState(0)
-  const sectionRefs = useRef<(HTMLDivElement | null)[]>([])
+  const sectionRefs = useRef<(HTMLElement | null)[]>([])
 
   // Draft loss warning
   const [hasInput, setHasInput] = useState(false)
@@ -146,24 +164,41 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
 
   useEffect(() => {
     const dirty = clientName || companyName || contactEmail || dateRequired || notes ||
-      items.some(i => i.name || i.quantity || i.size || i.material)
+      items.some(i => i.name || i.size || i.material)
     setHasInput(Boolean(dirty))
   }, [clientName, companyName, contactEmail, dateRequired, notes, items])
 
   useEffect(() => {
-    if (!hasInput) return
+    if (!hasInput || refNumber) return
     const handler = (e: BeforeUnloadEvent) => { e.preventDefault() }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [hasInput])
+  }, [hasInput, refNumber])
 
+  // Thumbnail object URLs: one per image upload/screenshot, revoked when removed or on unmount.
+  const blobUrls = useRef(new Set<string>())
+  function makeUrl(file: File) {
+    const url = URL.createObjectURL(file)
+    blobUrls.current.add(url)
+    return url
+  }
+  function dropUrl(url?: string) {
+    if (url && blobUrls.current.delete(url)) URL.revokeObjectURL(url)
+  }
+  useEffect(() => {
+    const urls = blobUrls.current
+    return () => { urls.forEach(u => URL.revokeObjectURL(u)); urls.clear() }
+  }, [])
+
+  // Sections 0–2 are tracked by scroll position. 3 is the sticky summary card,
+  // which is always near the top on desktop, so it lights up at the page end.
   useEffect(() => {
     function onScroll() {
-      const offsets = sectionRefs.current.map(el => el?.getBoundingClientRect().top ?? 9999)
       let active = 0
-      for (let i = 0; i < offsets.length; i++) {
-        if (offsets[i] < 200) active = i
-      }
+      sectionRefs.current.slice(0, 3).forEach((el, i) => {
+        if ((el?.getBoundingClientRect().top ?? 9999) < 200) active = i
+      })
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 80) active = 3
       setActiveStep(prev => prev === active ? prev : active)
     }
     window.addEventListener('scroll', onScroll, { passive: true })
@@ -173,18 +208,44 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
   // ── Item management ───────────────────────────────────────────────────────
 
   function addItem() {
-    if (items.length >= 10) return
-    setItems(prev => [...prev, { id: genId(), name: '', quantity: '', size: '', material: '', description: '', artwork: submitMode }])
+    if (items.length >= MAX_PIECES) return
+    setItems(prev => [...prev, { id: genId(), name: '', quantity: '1', size: '', material: '', description: '', artwork: submitMode }])
   }
 
   function removeItem(id: string) {
     if (items.length <= 1) return
+    for (const u of itemUploads[id] ?? []) dropUrl(u.previewUrl)
+    dropUrl(itemShots[id]?.previewUrl)
     setItems(prev => prev.filter(i => i.id !== id))
     setItemUploads(prev => { const next = { ...prev }; delete next[id]; return next })
+    setItemShots(prev => { const next = { ...prev }; delete next[id]; return next })
+    setErrors(prev => { const e = { ...prev }; delete e[`item-${id}-photos`]; delete e[`item-${id}-shot`]; return e })
   }
 
   function updateItem(id: string, field: keyof Omit<JobItem, 'id'>, value: string) {
     setItems(prev => prev.map(i => i.id === id ? { ...i, [field]: value } : i))
+  }
+
+  // Job-wide default: sets every piece; each piece can still be switched.
+  function chooseSubmitMode(val: 'design' | 'final') {
+    setSubmitMode(val)
+    setItems(prev => prev.map(i => ({ ...i, artwork: val })))
+    setErrors(prev => { const e = { ...prev }; Object.keys(e).forEach(k => { if (k.endsWith('-photos') || k.endsWith('-shot')) delete e[k] }); return e })
+    if (val === 'design') {
+      setItemUploads(prev => Object.fromEntries(Object.entries(prev).map(([id, ups]) => [id, ups.filter(u => isImageName(u.file.name))])))
+      Object.values(itemShots).forEach(sh => dropUrl(sh.previewUrl))
+      setItemShots({})
+    }
+  }
+
+  function chooseItemArtwork(itemId: string, val: 'design' | 'final') {
+    updateItem(itemId, 'artwork', val)
+    setErrors(prev => { const e = { ...prev }; delete e[`item-${itemId}-photos`]; delete e[`item-${itemId}-shot`]; return e })
+    // Back to "design it for me": print files and the screenshot no longer apply.
+    if (val === 'design') {
+      setItemUploads(prev => ({ ...prev, [itemId]: (prev[itemId] ?? []).filter(u => isImageName(u.file.name)) }))
+      removeItemShot(itemId)
+    }
   }
 
   // ── Per-item reference photos ───────────────────────────────────────────────
@@ -196,12 +257,12 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
     const newFiles: File[] = []
     let err = ''
     Array.from(fileList).forEach(f => {
-      if (existing.length + newFiles.length >= MAX_ITEM_PHOTOS) { err = `Up to ${MAX_ITEM_PHOTOS} files per item`; return }
+      if (existing.length + newFiles.length >= MAX_ITEM_FILES) { err = `Up to ${MAX_ITEM_FILES} files per item`; return }
       const ext = '.' + f.name.split('.').pop()?.toLowerCase()
       if (isFinal ? !ALLOWED_EXTS.includes(ext) : !IMG_EXTS.includes(ext)) {
-        err = isFinal ? `${f.name}: use PDF, AI, EPS, SVG, PNG or JPG` : `${f.name}: please attach an image`; return
+        err = isFinal ? `${f.name}: use PDF, AI, EPS, SVG, DXF, PNG or JPG` : `${f.name}: please attach an image`; return
       }
-      if (f.size > MAX_BYTES) { err = `${f.name}: exceeds 50MB`; return }
+      if (f.size > MAX_FILE_BYTES) { err = `${f.name}: over ${MAX_FILE_MB} MB`; return }
       newFiles.push(f)
     })
     setErrors(prev => { const e = { ...prev }; if (err) e[`item-${itemId}-photos`] = err; else delete e[`item-${itemId}-photos`]; return e })
@@ -217,7 +278,9 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
       setErrors(prev => ({ ...prev, [`item-${itemId}-photos`]: 'Could not prepare upload. Try again.' }))
       return
     }
-    const entries: UploadedFile[] = files.map((file, i) => ({ file, path: presigned[i].path, progress: 0 }))
+    const entries: UploadedFile[] = files.map((file, i) => ({
+      file, path: presigned[i].path, progress: 0, previewUrl: isImageName(file.name) ? makeUrl(file) : undefined,
+    }))
     setItemUploads(prev => ({ ...prev, [itemId]: [...(prev[itemId] ?? []), ...entries] }))
     for (let i = 0; i < files.length; i++) {
       const { signedUrl, path } = presigned[i]
@@ -256,23 +319,29 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
   async function setItemShot(itemId: string, fileList: FileList | null) {
     const img = fileList?.[0]
     if (!img) return
-    if (!img.type.startsWith('image/')) {
+    if (!img.type.startsWith('image/') || !isImageName(img.name)) {
       setErrors(prev => ({ ...prev, [`item-${itemId}-shot`]: 'Please use a JPG or PNG screenshot' })); return
     }
-    if (img.size > MAX_BYTES) {
-      setErrors(prev => ({ ...prev, [`item-${itemId}-shot`]: 'Screenshot exceeds 50MB' })); return
+    if (img.size > MAX_FILE_BYTES) {
+      setErrors(prev => ({ ...prev, [`item-${itemId}-shot`]: `Screenshot is over ${MAX_FILE_MB} MB` })); return
     }
     setErrors(prev => { const e = { ...prev }; delete e[`item-${itemId}-shot`]; return e })
-    setItemShots(prev => ({ ...prev, [itemId]: { file: img, busy: true } }))
+    dropUrl(itemShots[itemId]?.previewUrl)
+    const previewUrl = makeUrl(img)
+    setItemShots(prev => ({ ...prev, [itemId]: { file: img, busy: true, previewUrl } }))
     const path = await uploadPreviewFile(img)
-    setItemShots(prev => ({ ...prev, [itemId]: { file: img, path: path ?? undefined, busy: false, error: path ? undefined : 'Upload failed — try again' } }))
+    // Skip if the screenshot was removed or replaced while uploading.
+    setItemShots(prev => prev[itemId]?.file !== img ? prev
+      : ({ ...prev, [itemId]: { file: img, previewUrl, path: path ?? undefined, busy: false, error: path ? undefined : 'Upload failed — try again' } }))
   }
 
   function removeItemShot(itemId: string) {
+    dropUrl(itemShots[itemId]?.previewUrl)
     setItemShots(prev => { const n = { ...prev }; delete n[itemId]; return n })
   }
 
   function removeItemPhoto(itemId: string, path: string) {
+    dropUrl((itemUploads[itemId] ?? []).find(u => u.path === path)?.previewUrl)
     setItemUploads(prev => ({ ...prev, [itemId]: (prev[itemId] ?? []).filter(u => u.path !== path) }))
   }
 
@@ -293,8 +362,8 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
         fileErrs.push(`${f.name}: type not supported`)
         return
       }
-      if (f.size > MAX_BYTES) {
-        fileErrs.push(`${f.name}: exceeds 50MB`)
+      if (f.size > MAX_FILE_BYTES) {
+        fileErrs.push(`${f.name}: over ${MAX_FILE_MB} MB`)
         return
       }
       newFiles.push(f)
@@ -358,8 +427,12 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
     if (!contactEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
       errs.contactEmail = 'A valid email address is required'
     }
-    if (!dateRequired) errs.dateRequired = 'Date required is needed'
-    if (dateRequired && dateRequired <= todayStr()) errs.dateRequired = 'Date must be in the future'
+    const dateWord = jobType === 'event' ? 'Event date' : 'Needed-by date'
+    if (!dateRequired) errs.dateRequired = `${dateWord} is needed`
+    if (dateRequired && dateRequired <= todayStr()) errs.dateRequired = `${dateWord} must be in the future`
+    if (jobType === 'product' && fulfillment !== 'pickup' && !setupLocation.trim()) {
+      errs.setupLocation = fulfillment === 'install' ? 'Add the install address' : 'Add the delivery address'
+    }
 
     items.forEach((item, idx) => {
       if (!item.name.trim()) errs[`item-${idx}-name`] = 'Item name is required'
@@ -370,7 +443,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
         const ups = (itemUploads[item.id] ?? []).filter(u => u.progress === 100 && !u.error)
         if (ups.length === 0) errs[`item-${item.id}-photos`] = 'Attach your print-ready file, or switch to "Design it for me"'
         const shot = itemShots[item.id]
-        if (ups.some(u => !u.file.type.startsWith('image/')) && !shot?.path) {
+        if (ups.some(u => !isImageName(u.file.name)) && !shot?.path) {
           errs[`item-${item.id}-shot`] = shot?.busy ? 'Screenshot still uploading — one moment' : 'Add a screenshot so we can see the design'
         }
       }
@@ -409,10 +482,13 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
         dateRequired,
         eventName: eventName.trim() || undefined,
         notes: notes.trim() || undefined,
-        setupLocation: setupLocation.trim() || undefined,
-        setupTime: setupTime.trim() || undefined,
-        removalLocation: removalLocation.trim() || undefined,
-        removalTime: removalTime.trim() || undefined,
+        jobType,
+        fulfillment: jobType === 'product' ? fulfillment : undefined,
+        // Events: venue + setup/removal. Products: delivery/install address + time (none for pickup).
+        setupLocation: jobType === 'product' && fulfillment === 'pickup' ? undefined : setupLocation.trim() || undefined,
+        setupTime: jobType === 'product' && fulfillment === 'pickup' ? undefined : setupTime.trim() || undefined,
+        removalLocation: jobType === 'event' ? removalLocation.trim() || undefined : undefined,
+        removalTime: jobType === 'event' ? removalTime.trim() || undefined : undefined,
         items: items.map(i => ({
           name: i.name.trim(),
           quantity: parseInt(i.quantity),
@@ -426,7 +502,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
                 proof_urls: (itemUploads[i.id] ?? []).filter(u => u.progress === 100).map(u => u.path),
                 proof_previews: Object.fromEntries(
                   (itemUploads[i.id] ?? [])
-                    .filter(u => u.progress === 100 && !u.file.type.startsWith('image/') && (itemShots[i.id]?.path || u.previewPath))
+                    .filter(u => u.progress === 100 && !isImageName(u.file.name) && (itemShots[i.id]?.path || u.previewPath))
                     .map(u => [u.path, (itemShots[i.id]?.path ?? u.previewPath)!])
                 ),
                 proof_source: 'client' as const,
@@ -469,648 +545,390 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
   }
 
   // ── Success screen ────────────────────────────────────────────────────────
-
   if (refNumber) {
+    const first = clientName.trim().split(/\s+/)[0] || 'there'
+    const anyFinal = items.some(i => i.artwork === 'final')
     return (
-      <div style={{ background: 'var(--bg)', minHeight: '100vh', fontFamily: 'var(--font-body)', ...theme }}>
-        {/* Header */}
-        <header style={{ background: 'var(--charcoal)', height: '60px', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '2px solid var(--coral)' }}>
-          {brandLogo(30)}
-          <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', color: '#888', textTransform: 'uppercase' }}>Print Production Studio</span>
-        </header>
-
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 24px', minHeight: 'calc(100vh - 60px)' }}>
-          <div style={{ maxWidth: '520px', width: '100%' }}>
-
-            {/* Success card */}
-            <div style={{ background: '#fff', padding: '48px 40px', border: '1px solid var(--charcoal-border)', textAlign: 'center', marginBottom: '16px' }}>
-              <div style={{ width: 56, height: 56, background: 'var(--charcoal)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
-                <svg viewBox="0 0 24 24" width="28" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              </div>
-              <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: '32px', fontWeight: 700, textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '1px' }}>Brief Received</h1>
-              <p style={{ color: 'var(--charcoal-60)', marginBottom: '28px', fontSize: '14px' }}>Your reference number — keep this safe</p>
-
-              <div style={{ background: 'var(--coral-light)', border: '2px solid var(--coral)', padding: '20px', fontSize: '26px', fontWeight: 800, letterSpacing: '3px', color: 'var(--coral)', marginBottom: '14px', fontFamily: 'var(--font-heading)' }}>{refNumber}</div>
-              <button onClick={copyRef} style={{ background: copied ? '#1B7F4F' : 'var(--charcoal)', color: '#fff', border: 'none', padding: '12px 24px', fontFamily: 'var(--font-body)', fontWeight: 700, cursor: 'pointer', marginBottom: '32px', width: '100%', fontSize: '13px', letterSpacing: '1px', textTransform: 'uppercase' }}>
-                {copied ? '✓ Copied to clipboard!' : 'Copy Reference Number'}
+      <Page style={theme}>
+        <SiteHead brand={branding} />
+        <section style={{ padding: '56px 0', display: 'grid', gap: 18, maxWidth: 640 }}>
+          <span className="eyebrow">Brief received</span>
+          <h1 className="display hero-title" style={{ margin: 0 }}>Thank you, <span className="serif">{first}.</span></h1>
+          <p className="muted" style={{ margin: 0, fontSize: 17 }}>
+            We’ve emailed a copy to {contactEmail.trim()}. Your reference opens your job page any time.
+          </p>
+          <div className="ticket" style={{ maxWidth: 440 }}>
+            <div className="t-label">Reference</div>
+            <div className="between" style={{ marginTop: 8 }}>
+              <span className="t-ref" style={{ fontSize: 18 }}>{refNumber}</span>
+              <button type="button" className="btn btn-sm" style={{ background: 'rgba(255,255,255,.12)', color: '#fff' }} onClick={copyRef}>
+                {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy</>}
               </button>
-
-              {/* What happens next */}
-              <div style={{ background: 'var(--bg)', border: '1px solid var(--charcoal-border)', padding: '20px 24px', textAlign: 'left', marginBottom: '24px' }}>
-                <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-60)', marginBottom: '14px' }}>What happens next</div>
-                {[
-                  ['A confirmation email has been sent to you', 'with a full copy of your brief attached.'],
-                  ['We\'ll review and quote within 24 hours', 'reply to the email to ask any questions.'],
-                  ['Production begins once you approve the quote', 'standard turnaround is 48 hours from approval.'],
-                ].map(([bold, rest], i) => (
-                  <div key={i} style={{ display: 'flex', gap: '12px', marginBottom: i < 2 ? '12px' : 0 }}>
-                    <span style={{ flexShrink: 0, width: '20px', height: '20px', background: 'var(--coral)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, borderRadius: '50%' }}>{i + 1}</span>
-                    <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.55, color: 'var(--charcoal)' }}>
-                      <strong>{bold}</strong>{' '}{rest}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              <p style={{ color: '#C62828', fontSize: '12px', fontWeight: 700, margin: 0 }}>Do not re-submit — your job has been saved.</p>
             </div>
-
-            {/* Action links */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <a href="/portal" style={{ display: 'block', background: 'var(--charcoal)', color: '#fff', padding: '14px 20px', textAlign: 'center', textDecoration: 'none', fontWeight: 700, fontSize: '12px', letterSpacing: '1px', textTransform: 'uppercase', fontFamily: 'var(--font-body)' }}>
-                Track Your Jobs →
-              </a>
-              <a href="/" style={{ display: 'block', background: '#fff', color: 'var(--charcoal)', border: '1px solid var(--charcoal-border)', padding: '14px 20px', textAlign: 'center', textDecoration: 'none', fontWeight: 700, fontSize: '12px', letterSpacing: '1px', textTransform: 'uppercase', fontFamily: 'var(--font-body)' }}>
-                Submit Another Brief
-              </a>
-            </div>
+            <div className="tear" />
+            <ol className="stack small" style={{ margin: 0, paddingLeft: 18, gap: 8, color: 'rgba(243,238,241,.85)' }}>
+              <li>We review your brief today or next business day.</li>
+              <li>You get a quote{anyFinal ? '' : ' and first proofs'} by email.</li>
+              <li>{anyFinal ? 'Your print-ready files go to production once we confirm sizing.' : 'Approve each design online. Then we make it.'}</li>
+            </ol>
           </div>
-        </div>
-      </div>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <a className="btn btn-ink" href="/portal">Open my job page</a>
+            <a className="btn btn-quiet" href={slug === 'ddf' ? '/' : `/s/${slug}`}>Send another brief</a>
+          </div>
+          <p className="tiny muted" style={{ margin: 0 }}>Your brief is saved. No need to send it again.</p>
+        </section>
+        <SiteFoot brand={branding} />
+      </Page>
     )
   }
 
   // ── Main layout ───────────────────────────────────────────────────────────
+  const isEvent = jobType === 'event'
+  const units = items.reduce((s, i) => s + (parseInt(i.quantity) || 0), 0)
+  const fileCount = uploads.filter(u => !u.error).length + Object.values(itemUploads).flat().filter(u => !u.error).length
+  const days = dateRequired ? daysUntil(dateRequired) : null
+  const steps = ['About the job', 'Your pieces', isEvent ? 'Event & files' : 'Delivery & files', 'Review & send']
+  const named = items.filter(i => i.name.trim())
+  const placeLine = isEvent
+    ? (setupLocation.trim() || 'Venue to be confirmed')
+    : fulfillment === 'pickup' ? 'Pickup at our shop' : (setupLocation.trim() || `${fulfillment === 'install' ? 'Install' : 'Delivery'} address needed`)
 
   return (
-    <div style={theme}>
-      <style>{`
-        .layout-grid {
-          display: grid;
-          grid-template-columns: 280px 1fr;
-          min-height: calc(100vh - 60px);
-        }
-        @media (max-width: 900px) {
-          .layout-grid { grid-template-columns: 1fr; }
-          .sidebar { display: none !important; }
-          .mobile-steps { display: flex !important; }
-        }
-        .mobile-steps {
-          display: none;
-          background: var(--charcoal);
-          padding: 10px 16px;
-          align-items: center;
-          justify-content: space-between;
-          border-bottom: 1px solid #2a2a2a;
-          position: sticky;
-          top: 60px;
-          z-index: 40;
-        }
-        .mobile-steps-dots {
-          display: flex;
-          gap: 6px;
-          align-items: center;
-        }
-        .mobile-step-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: #333;
-        }
-        .mobile-step-dot.active {
-          background: var(--coral);
-        }
-        .mobile-step-dot.done {
-          background: #555;
-        }
-        .form-col-inner {
-          max-width: 700px;
-          margin: 0 auto;
-          padding: 48px 40px 80px;
-        }
-        @media (max-width: 700px) {
-          .form-col-inner { padding: 24px 16px 48px; }
-          .submit-mode-grid { grid-template-columns: 1fr !important; }
-          .final-grid { grid-template-columns: 1fr !important; }
-          .two-col { grid-template-columns: 1fr !important; }
-          .summary-meta { grid-template-columns: 1fr 1fr !important; }
-          .site-header { padding: 0 16px !important; }
-          .header-tagline { display: none; }
-          .summary-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-        }
-        @media (max-width: 420px) {
-          .name-qty { grid-template-columns: 1fr 84px !important; }
-          .header-email { font-size: 12px !important; }
-        }
-        input, select, textarea {
-          font-family: var(--font-body);
-        }
-        @media print {
-          .sidebar, header, .intro-bar, .form-actions { display: none !important; }
-        }
-      `}</style>
+    <Page style={theme}>
+      <SiteHead
+        brand={branding}
+        right={<><span className="muted hide-sm">Already sent a brief?</span><a className="btn btn-quiet btn-sm" href="/portal">Track your job</a></>}
+      />
 
-      {/* Header */}
-      <header className="site-header" style={{ background: 'var(--charcoal)', height: '60px', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, position: 'sticky', top: 0, zIndex: 50, borderBottom: '2px solid var(--coral)' }}>
-        {brandLogo(30)}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20, minWidth: 0 }}>
-          <span className="header-tagline" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', color: '#888', textTransform: 'uppercase', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap' }}>Print Production Studio</span>
-          {branding.replyToEmail && <a href={`mailto:${branding.replyToEmail}`} className="header-email" style={{ fontSize: '13px', color: 'var(--coral)', textDecoration: 'none', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{branding.replyToEmail}</a>}
+      <section style={{ padding: '40px 0 28px', display: 'grid', gap: 16, maxWidth: 900 }}>
+        <span className="eyebrow">New brief · replies within 1 business day</span>
+        <h1 className="display hero-title" style={{ margin: 0 }}>Tell us what you’re <span className="serif">making.</span></h1>
+        <p className="muted" style={{ margin: 0, maxWidth: 580, fontSize: 17 }}>
+          Event décor, signage, displays and custom fabrication. Send the details and we’ll come back with a quote or your first proof.
+        </p>
+      </section>
+
+      <ol className="steps glass hide-sm no-print" style={{ listStyle: 'none', margin: '0 0 30px' }} aria-label="Brief sections">
+        {steps.map((s, i) => (
+          <li key={s} className="step" data-state={i < activeStep ? 'done' : i === activeStep ? 'current' : 'next'}>
+            <button type="button" onClick={() => scrollToSection(i)} style={{ all: 'unset', display: 'flex', gap: 10, alignItems: 'center', cursor: 'pointer' }}>
+              <span className="s-num">{i < activeStep ? <Check size={12} /> : i + 1}</span>
+              <span className="small" style={{ fontWeight: 500 }}>{s}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+
+      <form onSubmit={handleSubmit} noValidate className="split">
+        <div className="stack" style={{ gap: 40 }}>
+          {/* 01 + 02 — what it's for, who you are */}
+          <div ref={el => { sectionRefs.current[0] = el }} className="stack" style={{ gap: 40 }}>
+            <section>
+              <SecHead n="01" title="What’s it for?" />
+              <div className="grid2">
+                <KindCard on={isEvent} onClick={() => setJobType('event')} icon={<CalendarHeart size={20} />}
+                  title="An event" body="Weddings, galas, launches. Dance floors, backdrops and signage, delivered and installed for your date." />
+                <KindCard on={!isEvent} onClick={() => setJobType('product')} icon={<Hammer size={20} />}
+                  title="Products & fabrication" body="CNC wood pieces, signs, displays and large-format prints. Picked up, delivered or installed." />
+              </div>
+              <div className="row" style={{ marginTop: 16, flexWrap: 'wrap', gap: 8 }}>
+                <span className="label" style={{ marginRight: 4 }}>Artwork</span>
+                <Chip on={submitMode === 'design'} onClick={() => chooseSubmitMode('design')}>Design it for me</Chip>
+                <Chip on={submitMode === 'final'} onClick={() => chooseSubmitMode('final')}>I have print-ready files</Chip>
+              </div>
+            </section>
+
+            <section>
+              <SecHead n="02" title="About you" />
+              <div className="grid2">
+                <Field id="f-name" label="Full name" error={errors.clientName}>
+                  <input id="f-name" className="input" autoComplete="name" value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Jane Smith" aria-invalid={!!errors.clientName} />
+                </Field>
+                <Field id="f-co" label="Company" error={errors.companyName}>
+                  <input id="f-co" className="input" autoComplete="organization" value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="Acme Events" aria-invalid={!!errors.companyName} />
+                </Field>
+                <Field id="f-mail" label="Email" error={errors.contactEmail} hint="Proofs and approval links go here." full>
+                  <input id="f-mail" type="email" className="input" autoComplete="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="jane@acmeevents.com" aria-invalid={!!errors.contactEmail} />
+                </Field>
+              </div>
+            </section>
+          </div>
+
+          {/* 03 — pieces */}
+          <section ref={el => { sectionRefs.current[1] = el }}>
+            <SecHead n="03" title="Your pieces" aside={<span className="tiny muted">{items.length} of {MAX_PIECES}</span>} />
+            <div className="stack" style={{ gap: 14 }}>
+              {items.map((item, idx) => {
+                const ups = itemUploads[item.id] ?? []
+                return (
+                  <article key={item.id} className="piece">
+                    <div className="between">
+                      <span className="row" style={{ gap: 10 }}>
+                        <span className="piece-num">{String(idx + 1).padStart(2, '0')}</span>
+                        <b style={{ fontWeight: 500 }}>{item.name.trim() || 'New piece'}</b>
+                      </span>
+                      {items.length > 1 && <button type="button" className="link tiny" onClick={() => removeItem(item.id)}>Remove</button>}
+                    </div>
+
+                    <div className="grid2">
+                      <Field id={`p-name-${item.id}`} label="What is it?" error={errors[`item-${idx}-name`]}>
+                        <input id={`p-name-${item.id}`} className="input" value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)}
+                          placeholder={isEvent ? 'e.g. Welcome sign' : 'e.g. Menu board'} aria-invalid={!!errors[`item-${idx}-name`]} />
+                      </Field>
+                      <div className="grid2" style={{ gap: 14 }}>
+                        <Field label="Quantity" error={errors[`item-${idx}-qty`]}>
+                          <Stepper label={`quantity of piece ${idx + 1}`} value={item.quantity} onChange={v => updateItem(item.id, 'quantity', v)} />
+                        </Field>
+                        <Field id={`p-size-${item.id}`} label="Size" error={errors[`item-${idx}-size`]}>
+                          <input id={`p-size-${item.id}`} className="input" value={item.size} onChange={e => updateItem(item.id, 'size', e.target.value)}
+                            placeholder="24 × 36 in" aria-invalid={!!errors[`item-${idx}-size`]} />
+                        </Field>
+                      </div>
+                    </div>
+
+                    <Field label="Material" error={errors[`item-${idx}-material`]}>
+                      <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                        {MATERIALS.map(m => <Chip key={m} on={item.material === m} onClick={() => updateItem(item.id, 'material', m)}>{MATERIAL_LABELS[m]}</Chip>)}
+                      </div>
+                    </Field>
+
+                    <Field id={`p-desc-${item.id}`} label={item.artwork === 'design' ? 'Describe the look' : 'Anything we should know?'}>
+                      <textarea id={`p-desc-${item.id}`} className="input" value={item.description} onChange={e => updateItem(item.id, 'description', e.target.value)}
+                        placeholder="Colours, finish, fonts, wording, inspiration…" />
+                    </Field>
+
+                    <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                      <span className="label" style={{ marginRight: 4 }}>Artwork</span>
+                      <Chip on={item.artwork === 'design'} onClick={() => chooseItemArtwork(item.id, 'design')}>Design it for me</Chip>
+                      <Chip on={item.artwork === 'final'} onClick={() => chooseItemArtwork(item.id, 'final')}>I have the final file</Chip>
+                    </div>
+
+                    {item.artwork === 'final' ? (
+                      <div className="grid2">
+                        <Field label="Print-ready file" error={errors[`item-${item.id}-photos`]} hint="Goes straight to print, exactly as supplied.">
+                          <label className="drop" style={{ padding: 18, cursor: 'pointer' }}>
+                            <UploadCloud size={22} color="var(--mauve-deep)" />
+                            <b style={{ fontWeight: 500 }}>Add file</b>
+                            <span className="tiny muted">PDF · AI · EPS · SVG · DXF · PNG · JPG</span>
+                            <input type="file" multiple hidden accept={ALLOWED_EXTS.join(',')} onChange={e => { validateAndAddItemPhotos(item.id, e.target.files); e.target.value = '' }} />
+                          </label>
+                          {ups.map(u => (
+                            <FileRow key={u.path} name={u.file.name} size={fmtBytes(u.file.size)} progress={u.progress} error={u.error} onRemove={() => removeItemPhoto(item.id, u.path)} />
+                          ))}
+                        </Field>
+                        {(() => {
+                          const shot = itemShots[item.id]
+                          const needShot = ups.some(u => !isImageName(u.file.name))
+                          const shotErr = errors[`item-${item.id}-shot`] ?? shot?.error
+                          return (
+                            <Field label={needShot ? 'Screenshot of the design (needed)' : 'Screenshot of the design'} error={shotErr}
+                              hint="So our team can see it. PDF, AI and EPS don’t preview in a browser.">
+                              {shot ? (
+                                <div className="row" style={{ gap: 12 }}>
+                                  <div className="thumb sm">{shot.previewUrl && <img src={shot.previewUrl} alt="Design screenshot" />}</div>
+                                  <div className="stack" style={{ gap: 6 }}>
+                                    <span className="small">{shot.busy ? 'Uploading…' : shot.error ? '' : 'Screenshot added'}</span>
+                                    <div className="row" style={{ gap: 12 }}>
+                                      <label className="link tiny" style={{ cursor: 'pointer' }}>
+                                        Replace<input type="file" hidden accept={SHOT_ACCEPT} onChange={e => { setItemShot(item.id, e.target.files); e.target.value = '' }} />
+                                      </label>
+                                      <button type="button" className="link tiny" onClick={() => removeItemShot(item.id)}>Remove</button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <label className="drop" style={{ padding: 18, cursor: 'pointer' }}>
+                                  <ImageIcon size={22} color="var(--mauve-deep)" />
+                                  <b style={{ fontWeight: 500 }}>Add screenshot</b>
+                                  <span className="tiny muted">JPG or PNG of how it should look</span>
+                                  <input type="file" hidden accept={SHOT_ACCEPT} onChange={e => { setItemShot(item.id, e.target.files); e.target.value = '' }} />
+                                </label>
+                              )}
+                            </Field>
+                          )
+                        })()}
+                      </div>
+                    ) : (
+                      <Field label="Inspiration or images to use (optional)" error={errors[`item-${item.id}-photos`]}>
+                        <div className="thumbs">
+                          {ups.map(u => (
+                            <div key={u.path} className="thumb" title={u.file.name}>
+                              {u.error ? <span className="err" style={{ padding: 6, textAlign: 'center' }}>{u.error}</span>
+                                : u.progress < 100 ? <span className="num">{u.progress}%</span>
+                                : u.previewUrl ? <img src={u.previewUrl} alt="" />
+                                : <span className="tiny muted">{u.file.name.split('.').pop()?.toUpperCase()}</span>}
+                              <button type="button" className="x" aria-label={`Remove ${u.file.name}`} onClick={() => removeItemPhoto(item.id, u.path)}><X size={12} /></button>
+                            </div>
+                          ))}
+                          {ups.length < MAX_ITEM_FILES && (
+                            <label className="thumb thumb-add" aria-label="Add images">
+                              +<input type="file" multiple hidden accept={IMG_EXTS.join(',')} onChange={e => { validateAndAddItemPhotos(item.id, e.target.files); e.target.value = '' }} />
+                            </label>
+                          )}
+                        </div>
+                      </Field>
+                    )}
+                  </article>
+                )
+              })}
+              <button type="button" className="btn btn-quiet" disabled={items.length >= MAX_PIECES} onClick={addItem}>
+                <Plus size={15} /> Add another piece
+              </button>
+            </div>
+          </section>
+
+          {/* 04 — date, place, files */}
+          <section ref={el => { sectionRefs.current[2] = el }}>
+            <SecHead n="04" title={isEvent ? 'Event & files' : 'Delivery & files'} />
+            <div className="stack" style={{ gap: 18 }}>
+              <div className="grid2">
+                <Field id="f-date" label={isEvent ? 'Event date' : 'Needed by'} error={errors.dateRequired}
+                  hint={days !== null && days > 0 ? `${days} day${days === 1 ? '' : 's'} from today.` : undefined}>
+                  <input id="f-date" type="date" className="input" min={todayStr()} value={dateRequired} onChange={e => setDateRequired(e.target.value)} aria-invalid={!!errors.dateRequired} />
+                </Field>
+                <Field id="f-event" label={isEvent ? 'Event name' : 'Project name (optional)'}>
+                  <input id="f-event" className="input" value={eventName} onChange={e => setEventName(e.target.value)} placeholder={isEvent ? 'Brand Launch 2026' : 'Winter menu refresh'} />
+                </Field>
+              </div>
+
+              {isEvent ? (
+                <div className="grid2">
+                  <Field id="f-setup" label="Venue / setup location">
+                    <input id="f-setup" className="input" value={setupLocation} onChange={e => setSetupLocation(e.target.value)} placeholder="Venue name and address" />
+                  </Field>
+                  <Field id="f-setup-t" label="Setup time">
+                    <input id="f-setup-t" className="input" value={setupTime} onChange={e => setSetupTime(e.target.value)} placeholder="e.g. Sat Dec 12, 9:00 AM" />
+                  </Field>
+                  <Field id="f-rem" label="Removal location">
+                    <input id="f-rem" className="input" value={removalLocation} onChange={e => setRemovalLocation(e.target.value)} placeholder="Same as setup, or other" />
+                  </Field>
+                  <Field id="f-rem-t" label="Removal time">
+                    <input id="f-rem-t" className="input" value={removalTime} onChange={e => setRemovalTime(e.target.value)} placeholder="e.g. Sun Dec 13, 11:00 PM" />
+                  </Field>
+                </div>
+              ) : (
+                <>
+                  <Field label="How should we hand it over?">
+                    <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                      {(Object.keys(FULFILL_LABELS) as Fulfillment[]).map(f => (
+                        <Chip key={f} on={fulfillment === f} onClick={() => setFulfillment(f)}>{FULFILL_LABELS[f]}</Chip>
+                      ))}
+                    </div>
+                  </Field>
+                  {fulfillment !== 'pickup' && (
+                    <div className="grid2">
+                      <Field id="f-addr" label={fulfillment === 'install' ? 'Install address' : 'Delivery address'} error={errors.setupLocation}>
+                        <input id="f-addr" className="input" autoComplete="street-address" value={setupLocation} onChange={e => setSetupLocation(e.target.value)} placeholder="Street, city" aria-invalid={!!errors.setupLocation} />
+                      </Field>
+                      <Field id="f-when" label={fulfillment === 'install' ? 'Install time' : 'Delivery window'}>
+                        <input id="f-when" className="input" value={setupTime} onChange={e => setSetupTime(e.target.value)} placeholder="e.g. Thu Nov 26, morning" />
+                      </Field>
+                    </div>
+                  )}
+                </>
+              )}
+
+              <Field label="Files for the whole job" error={errors.files}>
+                {uploads.length < MAX_FILES && (
+                  <div
+                    className="drop" role="button" tabIndex={0}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click() } }}
+                    onDragOver={e => { e.preventDefault(); setDropOver(true) }}
+                    onDragLeave={() => setDropOver(false)}
+                    onDrop={e => { e.preventDefault(); setDropOver(false); validateAndAddFiles(e.dataTransfer.files) }}
+                    onClick={() => fileInputRef.current?.click()}
+                    style={dropOver ? { borderColor: 'var(--mauve-deep)', background: 'var(--mauve-wash)' } : undefined}
+                  >
+                    <input ref={fileInputRef} type="file" multiple hidden accept={ALLOWED_EXTS.join(',')} onChange={e => { validateAndAddFiles(e.target.files); e.target.value = '' }} />
+                    <UploadCloud size={26} color="var(--mauve-deep)" />
+                    <b style={{ fontWeight: 500 }}>Drop {submitMode === 'design' ? 'inspiration photos, logos or files' : 'your print-ready files'} here</b>
+                    <span className="tiny muted">JPG, PNG, PDF, AI, EPS, SVG or DXF · up to {MAX_FILES} files · {MAX_FILE_MB} MB each</span>
+                    <span className="btn btn-quiet btn-sm" style={{ marginTop: 6 }}>Choose files</span>
+                  </div>
+                )}
+                {uploads.map(u => (
+                  <FileRow key={u.path} name={u.file.name} size={fmtBytes(u.file.size)} progress={u.progress} error={u.error} onRemove={() => removeUpload(u.path)} />
+                ))}
+              </Field>
+              <p className="tiny muted" style={{ margin: 0 }}>Bigger than {MAX_FILE_MB} MB? Put a WeTransfer or Google Drive link in the notes.</p>
+
+              <Field id="f-notes" label="Anything else?">
+                <textarea id="f-notes" className="input" value={notes} onChange={e => setNotes(e.target.value)}
+                  placeholder={isEvent ? 'Finishing, access at the venue, timing…' : 'Finishing, packaging, delivery instructions…'} />
+              </Field>
+            </div>
+          </section>
         </div>
-      </header>
 
-      {/* Intro bar */}
-      <div style={{ background: 'var(--bg)', padding: '32px 40px 0', borderBottom: '1px solid var(--charcoal-border)' }}>
-        <div style={{ maxWidth: '980px' }}>
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 'clamp(28px, 4vw, 44px)', fontWeight: 700, textTransform: 'uppercase', lineHeight: 1.05, margin: 0 }}>
-            Submit a <span style={{ color: 'var(--coral)' }}>Job Brief</span>
-          </h1>
-          <p style={{ margin: '10px 0 20px', color: 'var(--charcoal-60)', fontSize: '14px', maxWidth: 520, lineHeight: 1.6 }}>
-            Complete the form below to submit your print production order. All fields marked with * are required. We aim to respond within 24 hours.
-          </p>
-        </div>
-      </div>
-
-      {/* Mobile step progress (hidden on desktop, shows when sidebar is hidden) */}
-      <div className="mobile-steps">
-        <span style={{ fontSize: '11px', fontWeight: 700, color: '#aaa', letterSpacing: '1px', textTransform: 'uppercase', fontFamily: 'var(--font-body)' }}>
-          Step {activeStep + 1} of {STEPS.length} — <span style={{ color: 'var(--coral)' }}>{STEPS[activeStep]}</span>
-        </span>
-        <div className="mobile-steps-dots">
-          {STEPS.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => scrollToSection(i)}
-              className={`mobile-step-dot${i === activeStep ? ' active' : i < activeStep ? ' done' : ''}`}
-              style={{ border: 'none', cursor: 'pointer', padding: 0 }}
-              aria-label={`Go to step ${i + 1}`}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Two-column layout */}
-      <div className="layout-grid">
-
-        {/* Sidebar */}
-        <aside className="sidebar" style={{ background: 'var(--charcoal)', color: '#fff', position: 'sticky', top: '60px', height: 'calc(100vh - 60px)', overflowY: 'auto', display: 'flex', flexDirection: 'column', borderRight: '1px solid #222' }}>
-          <div style={{ padding: '32px 24px', flex: 1 }}>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: '#666', marginBottom: '16px', fontFamily: 'var(--font-body)' }}>Form Sections</div>
-            <nav>
-              {STEPS.map((step, i) => (
-                <button
-                  key={i}
-                  onClick={() => scrollToSection(i)}
-                  style={{
-                    display: 'flex', alignItems: 'flex-start', gap: '12px', width: '100%',
-                    background: activeStep === i ? 'rgba(184,149,90,0.12)' : 'transparent',
-                    border: 'none', cursor: 'pointer', padding: '10px 12px',
-                    borderRadius: '4px', marginBottom: '4px', textAlign: 'left',
-                  }}
-                >
-                  <span style={{
-                    flexShrink: 0, width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontFamily: 'var(--font-heading)', fontSize: '12px', fontWeight: 700,
-                    background: activeStep === i ? 'var(--coral)' : '#2a2a2a',
-                    color: activeStep === i ? 'var(--charcoal)' : '#666',
-                    borderRadius: '3px',
-                  }}>0{i + 1}</span>
-                  <span>
-                    <span style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: activeStep === i ? 'var(--coral)' : '#ccc', fontFamily: 'var(--font-body)', letterSpacing: '0.3px' }}>{step}</span>
-                    <span style={{ display: 'block', fontSize: '11px', color: '#555', marginTop: '1px' }}>
-                      {['Your name, company & email', 'What you need printed', 'Artwork, due date & notes', 'Review before submitting', 'Confirm & send brief'][i]}
-                    </span>
-                  </span>
-                </button>
-              ))}
-            </nav>
-
-            <div style={{ marginTop: '32px', paddingTop: '24px', borderTop: '1px solid #222' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: '#666', marginBottom: '12px', fontFamily: 'var(--font-body)' }}>Contact</div>
-              <div style={{ fontSize: '12px', color: '#777', marginBottom: '4px', fontFamily: 'var(--font-body)' }}>Email</div>
-              {branding.replyToEmail && <a href={`mailto:${branding.replyToEmail}`} style={{ fontSize: '13px', color: 'var(--coral)', textDecoration: 'none', display: 'block', marginBottom: '16px' }}>{branding.replyToEmail}</a>}
-              <div style={{ fontSize: '12px', color: '#777', marginBottom: '4px', fontFamily: 'var(--font-body)' }}>Portal</div>
-              <a href="/portal" style={{ fontSize: '13px', color: '#888', textDecoration: 'none', display: 'block' }}>Track your jobs →</a>
+        {/* Summary card + send */}
+        <aside ref={el => { sectionRefs.current[3] = el }} className="sticky stack" style={{ gap: 14 }}>
+          <div className="ticket">
+            <div className="t-label">Your brief</div>
+            <div className="display" style={{ fontSize: 30, marginTop: 10, color: '#fff' }}>
+              {eventName.trim() || companyName.trim() || (isEvent ? 'Your event' : 'Your order')}
+            </div>
+            <div className="small" style={{ color: 'rgba(243,238,241,.7)', marginTop: 4 }}>{placeLine}</div>
+            <div className="tear" />
+            <div className="grid2" style={{ gap: 14 }}>
+              <TicketStat label={isEvent ? 'Event' : 'Needed by'} value={dateRequired ? prettyDate(dateRequired) : '—'} />
+              <TicketStat label="Countdown" value={days === null ? '—' : countdownLabel(days)} />
+              <TicketStat label="Pieces" value={`${items.length} · ${units} unit${units === 1 ? '' : 's'}`} />
+              <TicketStat label="Files" value={String(fileCount)} />
+            </div>
+            {named.length > 0 && (
+              <>
+                <div className="tear" />
+                <ul className="small" style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4, color: 'rgba(243,238,241,.82)' }}>
+                  {named.slice(0, 6).map(i => <li key={i.id}>{parseInt(i.quantity) || 1} × {i.name.trim()}</li>)}
+                  {named.length > 6 && <li>+{named.length - 6} more</li>}
+                </ul>
+              </>
+            )}
+            <div className="tear" />
+            <div className="small" style={{ color: 'rgba(243,238,241,.82)' }}>
+              {submitMode === 'design' ? 'First proofs within 2–3 business days. You approve each design online.' : 'Your files go to production once we confirm sizing.'}
             </div>
           </div>
 
-          <div style={{ margin: '0 16px 20px', background: 'rgba(255,255,255,0.04)', border: '1px solid #2a2a2a', padding: '12px 14px', borderRadius: '4px' }}>
-            <p style={{ margin: 0, fontSize: '12px', color: '#888', lineHeight: 1.5, fontFamily: 'var(--font-body)' }}>
-              <strong style={{ color: '#ccc' }}>No WhatsApp orders.</strong> All jobs must go through this form so we can track, quote, and deliver accurately.
-            </p>
-          </div>
+          <label className="check-row">
+            <input type="checkbox" checked={confirmed} onChange={e => { setConfirmed(e.target.checked); if (e.target.checked) setErrors(p => { const er = { ...p }; delete er.confirmed; return er }) }} />
+            <span>I confirm these details are correct and that I own or have permission to use the artwork I’ve supplied.</span>
+          </label>
+          {errors.confirmed && <p className="err" data-error={errors.confirmed}>{errors.confirmed}</p>}
+          {submitError && <div className="alert" role="alert">{submitError}</div>}
+
+          {/* Honeypot */}
+          <div className="hp" aria-hidden="true"><input name="_hp" tabIndex={-1} autoComplete="off" /></div>
+
+          <button type="submit" className="btn btn-ink btn-block" disabled={submitting}>{submitting ? 'Sending…' : 'Send brief'}</button>
+          <p className="tiny muted" style={{ margin: 0, textAlign: 'center' }}>No payment now. We quote first.</p>
         </aside>
+      </form>
 
-        {/* Form column */}
-        <div style={{ background: 'var(--bg)' }}>
-          <div className="form-col-inner">
-
-            {submitError && (
-              <div style={{ background: '#fff0f0', border: '1.5px solid var(--red-err)', padding: '12px 16px', marginBottom: '24px', color: 'var(--red-err)', fontSize: '14px' }}>{submitError}</div>
-            )}
-
-            <form onSubmit={handleSubmit} noValidate>
-
-              {/* What are you submitting? — sets the whole job's default, per item still switchable */}
-              <div style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-60)', marginBottom: '10px', fontFamily: 'var(--font-body)' }}>What are you submitting?</div>
-                <div className="submit-mode-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  {([
-                    ['design', '🎨', 'Design request', 'Tell us what you need and add inspo pictures. We design it and send you a proof to approve.'],
-                    ['final', '📥', 'Upload my final designs', 'You already have print-ready artwork. Attach it per item — it\'s approved for print as soon as you submit.'],
-                  ] as const).map(([val, icon, title, sub]) => {
-                    const on = submitMode === val
-                    return (
-                      <button key={val} type="button"
-                        onClick={() => {
-                          setSubmitMode(val)
-                          setItems(prev => prev.map(i => ({ ...i, artwork: val })))
-                          setErrors(prev => { const e = { ...prev }; Object.keys(e).forEach(k => { if (k.endsWith('-photos') || k.endsWith('-shot')) delete e[k] }); return e })
-                          if (val === 'design') {
-                            setItemUploads(prev => Object.fromEntries(Object.entries(prev).map(([id, ups]) => [id, ups.filter(u => u.file.type.startsWith('image/'))])))
-                            setItemShots({})
-                          }
-                        }}
-                        style={{ textAlign: 'left', padding: '18px 20px', background: '#fff', border: `2px solid ${on ? 'var(--coral)' : 'var(--charcoal-border)'}`, borderTop: `3px solid ${on ? 'var(--coral)' : 'var(--charcoal-border)'}`, cursor: 'pointer', fontFamily: 'var(--font-body)', color: 'var(--charcoal)', position: 'relative', opacity: on ? 1 : 0.75 }}>
-                        {on && <span style={{ position: 'absolute', top: 10, right: 12, fontSize: '9px', fontWeight: 700, letterSpacing: '1.5px', color: '#fff', background: 'var(--coral)', padding: '2px 7px' }}>SELECTED</span>}
-                        <div style={{ fontSize: '22px', marginBottom: 6 }}>{icon}</div>
-                        <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '15px', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 4 }}>{title}</div>
-                        <div style={{ fontSize: '12px', lineHeight: 1.5, color: 'var(--charcoal-60)' }}>{sub}</div>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Section 01 — Client Info */}
-              <div ref={el => { sectionRefs.current[0] = el }}>
-                <Section num="01" title="Client Info">
-                  <div className="two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <Field label="Full name" required error={errors.clientName}>
-                      <input value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Jane Smith" style={inputStyle(!!errors.clientName)} data-error={errors.clientName || undefined}/>
-                    </Field>
-                    <Field label="Company name" required error={errors.companyName}>
-                      <input value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="Acme Events" style={inputStyle(!!errors.companyName)}/>
-                    </Field>
-                  </div>
-                  <Field label="Contact email" required error={errors.contactEmail}>
-                    <input type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="jane@acmeevents.com" style={inputStyle(!!errors.contactEmail)}/>
-                  </Field>
-                </Section>
-              </div>
-
-              {/* Section 02 — Job Items */}
-              <div ref={el => { sectionRefs.current[1] = el }}>
-                <Section num="02" title="Job Items">
-                  {items.map((item, idx) => (
-                    <div key={item.id} style={{ background: 'var(--bg)', padding: '16px', marginBottom: '12px', border: '1px solid var(--charcoal-border)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-                        <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--charcoal-60)', fontFamily: 'var(--font-body)' }}>Item {idx + 1}</span>
-                        {items.length > 1 && (
-                          <button type="button" onClick={() => removeItem(item.id)} style={{ background: 'none', border: '1px solid var(--charcoal-border)', padding: '4px 12px', fontSize: '12px', cursor: 'pointer', color: 'var(--charcoal-60)', fontFamily: 'var(--font-body)' }}>Remove</button>
-                        )}
-                      </div>
-                      <div className="name-qty" style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: '12px', marginBottom: '12px' }}>
-                        <Field label="Item name" required error={errors[`item-${idx}-name`]} compact>
-                          <input value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} placeholder="Pull-Up Banner" style={inputStyle(!!errors[`item-${idx}-name`])}/>
-                        </Field>
-                        <Field label="Qty" required error={errors[`item-${idx}-qty`]} compact>
-                          <input type="number" min="1" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} placeholder="1" style={inputStyle(!!errors[`item-${idx}-qty`])}/>
-                        </Field>
-                      </div>
-                      <div className="two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                        <Field label="Size" required error={errors[`item-${idx}-size`]} compact>
-                          <input value={item.size} onChange={e => updateItem(item.id, 'size', e.target.value)} placeholder="85cm × 200cm" style={inputStyle(!!errors[`item-${idx}-size`])}/>
-                        </Field>
-                        <Field label="Material" required error={errors[`item-${idx}-material`]} compact>
-                          <select value={item.material} onChange={e => updateItem(item.id, 'material', e.target.value)} style={inputStyle(!!errors[`item-${idx}-material`])}>
-                            <option value="">Select material</option>
-                            {MATERIALS.map(m => <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1).replace('-', ' ')}</option>)}
-                          </select>
-                        </Field>
-                      </div>
-
-                      <div style={{ marginTop: '12px' }}>
-                        <Field label={<>Description <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— colours, wording, style, anything specific</span></>} compact>
-                          <textarea value={item.description} onChange={e => updateItem(item.id, 'description', e.target.value)} placeholder="e.g. Gold mirror-acrylic welcome sign, script font, names 'Aman & Priya', on a stand" rows={3} style={{ ...inputStyle(false), resize: 'vertical', minHeight: '72px' }}/>
-                        </Field>
-                      </div>
-
-                      {/* Who makes the artwork? Decides what the files below mean. */}
-                      <div style={{ marginTop: '12px', marginBottom: '10px' }}>
-                        <div className="two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                          {([
-                            ['design', 'Design it for me', 'Send inspo — we design & send you a proof'],
-                            ['final', 'I have the final file', 'Print-ready artwork — approved on submit'],
-                          ] as const).map(([val, title, sub]) => {
-                            const on = item.artwork === val
-                            return (
-                              <button key={val} type="button" onClick={() => {
-                                  updateItem(item.id, 'artwork', val)
-                                  setErrors(prev => { const e = { ...prev }; delete e[`item-${item.id}-photos`]; delete e[`item-${item.id}-shot`]; return e })
-                                  // Back to "design it for me": print files and the screenshot no longer apply.
-                                  if (val === 'design') {
-                                    setItemUploads(prev => ({ ...prev, [item.id]: (prev[item.id] ?? []).filter(u => u.file.type.startsWith('image/')) }))
-                                    removeItemShot(item.id)
-                                  }
-                                }}
-                                style={{ textAlign: 'left', padding: '9px 12px', background: on ? '#fff' : 'transparent', border: `1.5px solid ${on ? 'var(--coral)' : 'var(--charcoal-border)'}`, cursor: 'pointer', fontFamily: 'var(--font-body)', color: 'var(--charcoal)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '13px', fontWeight: 700 }}>
-                                  <span style={{ width: 12, height: 12, borderRadius: '50%', border: `1.5px solid ${on ? 'var(--coral)' : 'var(--charcoal-border)'}`, background: on ? 'var(--coral)' : 'transparent', boxShadow: on ? 'inset 0 0 0 2px #fff' : 'none', flexShrink: 0 }} />
-                                  {title}
-                                </div>
-                                <div style={{ fontSize: '11px', color: 'var(--charcoal-60)', marginTop: 2, paddingLeft: 20 }}>{sub}</div>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-
-                      {item.artwork === 'final' ? (
-                        <div className="final-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '4px', alignItems: 'start' }}>
-                          {/* Print-ready file(s) */}
-                          <Field label={<>Print-ready file<span style={{ color: 'var(--coral)', marginLeft: '2px' }}>*</span><span style={{ display: 'block', fontSize: '11px', fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0, marginTop: 2, lineHeight: '14px' }}>Goes straight to print — exactly as supplied</span></>} compact error={errors[`item-${item.id}-photos`]}>
-                            <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 96, padding: '12px', border: `1.5px dashed ${errors[`item-${item.id}-photos`] ? 'var(--red-err)' : 'var(--charcoal-border)'}`, background: '#fff', cursor: 'pointer', textAlign: 'center' }}>
-                              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--coral)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>
-                              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--charcoal)' }}>Tap to add file</span>
-                              <span style={{ fontSize: 11, color: 'var(--charcoal-60)' }}>PDF · AI · EPS · SVG · PNG · JPG</span>
-                              <input type="file" multiple accept={ALLOWED_EXTS.join(',')} style={{ display: 'none' }} onChange={e => { validateAndAddItemPhotos(item.id, e.target.files); e.target.value = '' }}/>
-                            </label>
-                            {(itemUploads[item.id] ?? []).length > 0 && (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-                                {(itemUploads[item.id] ?? []).map(u => (
-                                  <div key={u.path} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', background: '#fff', border: '1px solid var(--charcoal-border)' }}>
-                                    <div style={{ width: 40, height: 40, flexShrink: 0, border: '1px solid var(--charcoal-border)', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                                      {u.file.type.startsWith('image/')
-                                        ? <img src={URL.createObjectURL(u.file)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
-                                        : <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--charcoal-60)' }}>{u.file.name.split('.').pop()?.toUpperCase()}</span>}
-                                    </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--charcoal)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.file.name}</div>
-                                      <div style={{ fontSize: 11, color: u.error ? 'var(--red-err)' : u.progress < 100 ? 'var(--charcoal-60)' : '#1B4D3E' }}>
-                                        {u.error ? u.error : u.progress < 100 ? `Uploading ${u.progress}%` : '✓ Uploaded'}
-                                      </div>
-                                    </div>
-                                    <button type="button" onClick={() => removeItemPhoto(item.id, u.path)} aria-label="Remove file" style={{ background: 'none', border: '1px solid var(--charcoal-border)', width: 26, height: 26, fontSize: 14, lineHeight: 1, cursor: 'pointer', color: 'var(--charcoal-60)', flexShrink: 0 }}>×</button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </Field>
-
-                          {/* Screenshot of the design */}
-                          {(() => {
-                            const shot = itemShots[item.id]
-                            const needShot = (itemUploads[item.id] ?? []).some(u => !u.file.type.startsWith('image/'))
-                            const shotErr = errors[`item-${item.id}-shot`] ?? shot?.error
-                            return (
-                              <Field label={<>Screenshot of the design{needShot && <span style={{ color: 'var(--coral)', marginLeft: '2px' }}>*</span>}<span style={{ display: 'block', fontSize: '11px', fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0, marginTop: 2, lineHeight: '14px' }}>So our team can see the design</span></>} compact error={shotErr}>
-                                {shot ? (
-                                  <div style={{ position: 'relative', border: '1px solid var(--charcoal-border)', background: '#fff' }}>
-                                    <img src={URL.createObjectURL(shot.file)} alt="Design screenshot" style={{ display: 'block', width: '100%', height: 150, objectFit: 'contain', background: 'var(--bg)', opacity: shot.busy ? 0.5 : 1 }}/>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 8px', borderTop: '1px solid var(--charcoal-border)' }}>
-                                      <span style={{ fontSize: 11, color: shot.error ? 'var(--red-err)' : shot.busy ? 'var(--charcoal-60)' : '#1B4D3E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        {shot.error ? shot.error : shot.busy ? 'Uploading…' : '✓ Screenshot added'}
-                                      </span>
-                                      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--charcoal-60)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                                        Replace
-                                        <input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={e => { setItemShot(item.id, e.target.files); e.target.value = '' }}/>
-                                      </label>
-                                      <button type="button" onClick={() => removeItemShot(item.id)} aria-label="Remove screenshot" style={{ background: 'none', border: '1px solid var(--charcoal-border)', width: 26, height: 26, fontSize: 14, lineHeight: 1, cursor: 'pointer', color: 'var(--charcoal-60)', flexShrink: 0 }}>×</button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 96, padding: '12px', border: `1.5px dashed ${shotErr ? 'var(--red-err)' : 'var(--charcoal-border)'}`, background: '#fff', cursor: 'pointer', textAlign: 'center' }}>
-                                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--coral)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-7 7"/><path d="m3 18 4-4 3 3"/></svg>
-                                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--charcoal)' }}>Tap to add screenshot</span>
-                                    <span style={{ fontSize: 11, color: 'var(--charcoal-60)' }}>JPG or PNG of how it should look</span>
-                                    <input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={e => { setItemShot(item.id, e.target.files); e.target.value = '' }}/>
-                                  </label>
-                                )}
-                              </Field>
-                            )
-                          })()}
-                        </div>
-                      ) : (
-                      <div style={{ marginTop: '4px' }}>
-                        <Field label={<>Image files <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— inspo pictures or images to use</span></>} compact error={errors[`item-${item.id}-photos`]}>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                            {(itemUploads[item.id] ?? []).map(u => (
-                              <div key={u.path} title={u.file.name} style={{ position: 'relative', width: 64, height: 64, border: '1px solid var(--charcoal-border)', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                                {u.error ? <span style={{ fontSize: 9, color: 'var(--red-err)', padding: 2, textAlign: 'center' }}>{u.error}</span>
-                                  : u.progress < 100 ? <span style={{ fontSize: 11, color: 'var(--charcoal-60)' }}>{u.progress}%</span>
-                                  : <img src={URL.createObjectURL(u.file)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>}
-                                <button type="button" onClick={() => removeItemPhoto(item.id, u.path)} style={{ position: 'absolute', top: -1, right: -1, background: 'var(--charcoal)', color: '#fff', border: 'none', width: 18, height: 18, fontSize: 12, lineHeight: 1, cursor: 'pointer' }}>×</button>
-                              </div>
-                            ))}
-                            {(itemUploads[item.id] ?? []).length < MAX_ITEM_PHOTOS && (
-                              <label style={{ width: 64, height: 64, border: '1.5px dashed var(--charcoal-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--charcoal-60)', fontSize: 24 }}>
-                                +
-                                <input type="file" multiple accept={IMG_EXTS.join(',')} style={{ display: 'none' }} onChange={e => { validateAndAddItemPhotos(item.id, e.target.files); e.target.value = '' }}/>
-                              </label>
-                            )}
-                          </div>
-                        </Field>
-                      </div>
-                      )}
-                    </div>
-                  ))}
-                  {items.length < 10 && (
-                    <button type="button" onClick={addItem} style={{ width: '100%', padding: '14px', border: '1.5px dashed var(--charcoal-border)', background: 'none', color: 'var(--charcoal-60)', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}>+ Add Another Item</button>
-                  )}
-                </Section>
-              </div>
-
-              {/* Section 03 — Files & Deadline */}
-              <div ref={el => { sectionRefs.current[2] = el }}>
-                <Section num="03" title="Files & Deadline">
-                  <div className="two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <Field label="Date required" required error={errors.dateRequired}>
-                      <input type="date" value={dateRequired} min={todayStr()} onChange={e => setDateRequired(e.target.value)} style={inputStyle(!!errors.dateRequired)}/>
-                    </Field>
-                    <Field label="Event / project name">
-                      <input value={eventName} onChange={e => setEventName(e.target.value)} placeholder="Brand Launch 2026" style={inputStyle(false)}/>
-                    </Field>
-                  </div>
-
-                  <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--charcoal-60)', margin: '8px 0 10px' }}>Setup &amp; Removal <span style={{ fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>— so our crew knows where &amp; when</span></div>
-                  <div className="two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <Field label="Setup location">
-                      <input value={setupLocation} onChange={e => setSetupLocation(e.target.value)} placeholder="Venue name / address" style={inputStyle(false)}/>
-                    </Field>
-                    <Field label="Setup time">
-                      <input value={setupTime} onChange={e => setSetupTime(e.target.value)} placeholder="e.g. Fri 19 Jun, 8:00 AM" style={inputStyle(false)}/>
-                    </Field>
-                    <Field label="Removal location">
-                      <input value={removalLocation} onChange={e => setRemovalLocation(e.target.value)} placeholder="Same as setup, or other" style={inputStyle(false)}/>
-                    </Field>
-                    <Field label="Removal time">
-                      <input value={removalTime} onChange={e => setRemovalTime(e.target.value)} placeholder="e.g. Sun 21 Jun, 11:00 PM" style={inputStyle(false)}/>
-                    </Field>
-                  </div>
-
-                  <Field label={<>Reference images <span style={{ fontWeight: 400, color: 'var(--charcoal-60)', textTransform: 'none', letterSpacing: 0 }}>— optional, up to 3 files, 50MB each</span></>} error={errors.files}>
-                    {uploads.length < MAX_FILES && (
-                      <div
-                        onDragOver={e => { e.preventDefault(); setDropOver(true) }}
-                        onDragLeave={() => setDropOver(false)}
-                        onDrop={e => { e.preventDefault(); setDropOver(false); validateAndAddFiles(e.dataTransfer.files) }}
-                        onClick={() => fileInputRef.current?.click()}
-                        style={{ border: `2px dashed ${dropOver ? 'var(--coral)' : 'var(--charcoal-border)'}`, padding: '32px 24px', textAlign: 'center', cursor: 'pointer', background: dropOver ? 'var(--coral-light)' : '#fff', marginBottom: '8px' }}
-                      >
-                        <input ref={fileInputRef} type="file" multiple accept=".jpg,.jpeg,.png,.pdf,.ai,.eps,.svg" style={{ display: 'none' }} onChange={e => { validateAndAddFiles(e.target.files); e.target.value = '' }}/>
-                        <svg viewBox="0 0 24 24" width="28" fill="none" stroke="var(--charcoal-60)" strokeWidth="1.5" style={{ marginBottom: '10px' }}><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                        <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--charcoal)', marginBottom: '4px' }}>Drop files here or click to attach</div>
-                        <div style={{ fontSize: '12px', color: 'var(--charcoal-60)' }}>JPG · PNG · PDF · AI · EPS · SVG</div>
-                      </div>
-                    )}
-                    {uploads.map(u => (
-                      <div key={u.path} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#fff', border: '1px solid var(--charcoal-border)', padding: '10px 14px', marginBottom: '6px' }}>
-                        <span style={{ flex: 1, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.file.name}</span>
-                        <span style={{ fontSize: '11px', color: 'var(--charcoal-60)', flexShrink: 0 }}>{fmtBytes(u.file.size)}</span>
-                        {u.error ? (
-                          <span style={{ fontSize: '11px', color: 'var(--red-err)' }}>{u.error}</span>
-                        ) : u.progress < 100 ? (
-                          <div style={{ width: '60px', height: '4px', background: 'var(--charcoal-border)', overflow: 'hidden' }}>
-                            <div style={{ width: `${u.progress}%`, height: '100%', background: 'var(--coral)' }}/>
-                          </div>
-                        ) : (
-                          <span style={{ fontSize: '11px', color: '#1B7F4F', fontWeight: 700 }}>✓</span>
-                        )}
-                        <button type="button" onClick={() => removeUpload(u.path)} style={{ background: 'none', border: 'none', color: 'var(--charcoal-60)', cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1 }}>×</button>
-                      </div>
-                    ))}
-                    <p style={{ fontSize: '12px', color: 'var(--charcoal-60)', marginTop: '6px', lineHeight: 1.6 }}>
-                      Files over 50MB? Share via <a href="https://wetransfer.com" target="_blank" rel="noopener" style={{ color: 'var(--coral)', fontWeight: 600, textDecoration: 'none' }}>WeTransfer</a> or <a href="https://drive.google.com" target="_blank" rel="noopener" style={{ color: 'var(--coral)', fontWeight: 600, textDecoration: 'none' }}>Google Drive</a> and paste the link in Notes below.
-                    </p>
-                  </Field>
-
-                  <Field label="Special notes / instructions">
-                    <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any special requirements, finishing options, delivery instructions..." rows={4} style={{ ...inputStyle(false), resize: 'vertical', minHeight: '100px' }}/>
-                  </Field>
-                </Section>
-              </div>
-
-              {/* Section 04 — Summary */}
-              <div ref={el => { sectionRefs.current[3] = el }}>
-                <Section num="04" title="Job Summary">
-                  <div style={{ border: '1px solid var(--charcoal-border)', padding: '20px', background: '#fff' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid var(--charcoal)', paddingBottom: '12px', marginBottom: '16px' }}>
-                      <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '16px', letterSpacing: '3px', textTransform: 'uppercase' }}>PIXEL <span style={{ color: 'var(--coral)' }}>PRODUCTION</span></span>
-                      <span style={{ border: '1px solid var(--charcoal-border)', color: 'var(--charcoal-60)', fontWeight: 700, fontSize: '10px', padding: '3px 10px', letterSpacing: '2px', fontFamily: 'var(--font-body)' }}>DRAFT</span>
-                    </div>
-                    <div className="summary-meta" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', background: 'var(--bg)', padding: '12px 14px', marginBottom: '16px', fontSize: '13px' }}>
-                      {[['CLIENT', clientName || '—'], ['COMPANY', companyName || '—'], ['DATE REQUIRED', dateRequired ? new Date(dateRequired + 'T00:00:00').toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'], ['EVENT', eventName || '—']].map(([label, value]) => (
-                        <div key={label}>
-                          <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '1px', color: 'var(--charcoal-60)', marginBottom: '3px' }}>{label}</div>
-                          <div style={{ fontWeight: 600, fontSize: '13px' }}>{value}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="summary-table-wrap">
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', marginBottom: '12px' }}>
-                      <thead>
-                        <tr style={{ background: 'var(--charcoal)', color: '#fff' }}>
-                          {['#', 'Item', 'Qty', 'Size', 'Material', 'Artwork'].map(h => <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>)}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {items.filter(i => i.name || i.quantity || i.size || i.material).length === 0 ? (
-                          <tr><td colSpan={6} style={{ padding: '12px 10px', color: 'var(--charcoal-60)', fontStyle: 'italic' }}>No items added yet</td></tr>
-                        ) : items.map((item, idx) => (item.name || item.quantity || item.size || item.material) && (
-                          <tr key={item.id} style={{ background: idx % 2 === 0 ? '#fff' : 'var(--bg)' }}>
-                            <td style={{ padding: '8px 10px', border: '1px solid var(--charcoal-border)' }}>{idx + 1}</td>
-                            <td style={{ padding: '8px 10px', border: '1px solid var(--charcoal-border)' }}>{item.name || '—'}</td>
-                            <td style={{ padding: '8px 10px', border: '1px solid var(--charcoal-border)' }}>{item.quantity || '—'}</td>
-                            <td style={{ padding: '8px 10px', border: '1px solid var(--charcoal-border)' }}>{item.size || '—'}</td>
-                            <td style={{ padding: '8px 10px', border: '1px solid var(--charcoal-border)', textTransform: 'capitalize' }}>{item.material || '—'}</td>
-                            <td style={{ padding: '8px 10px', border: '1px solid var(--charcoal-border)', fontSize: '12px', whiteSpace: 'nowrap' }}>
-                              {item.artwork === 'final'
-                                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#1B4D3E', fontWeight: 700 }}>
-                                    {itemShots[item.id] && <img src={URL.createObjectURL(itemShots[item.id].file)} alt="" style={{ width: 28, height: 28, objectFit: 'cover', border: '1px solid var(--charcoal-border)' }}/>}
-                                    ✓ Final file supplied
-                                  </span>
-                                : <span style={{ color: 'var(--charcoal-60)' }}>Design for me</span>}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    </div>
-                    {notes && <div style={{ background: 'var(--bg)', padding: '10px 12px', fontSize: '13px', marginBottom: '10px' }}><strong>Notes:</strong> {notes}</div>}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--charcoal-60)', paddingTop: '10px', borderTop: '1px solid var(--charcoal-border)' }}>
-                      <span>{new Date().toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}</span>
-                      <span>DDF-Pixel Job Intake</span>
-                    </div>
-                  </div>
-                  <button type="button" onClick={() => window.print()} style={{ marginTop: '12px', padding: '11px 24px', border: '1.5px solid var(--charcoal-border)', background: '#fff', fontFamily: 'var(--font-body)', fontSize: '12px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer', color: 'var(--charcoal)' }}>
-                    Print / Save as PDF
-                  </button>
-                </Section>
-              </div>
-
-              {/* Section 05 — Submit */}
-              <div ref={el => { sectionRefs.current[4] = el }}>
-                <Section num="05" title="Submit">
-                  <label style={{ display: 'flex', gap: '14px', alignItems: 'flex-start', cursor: 'pointer', marginBottom: '6px' }}>
-                    <input type="checkbox" checked={confirmed} onChange={e => { setConfirmed(e.target.checked); if (e.target.checked) setErrors(p => { const er = { ...p }; delete er.confirmed; return er }) }} style={{ marginTop: '3px', accentColor: 'var(--coral)', width: '16px', height: '16px', flexShrink: 0 }}/>
-                    <span style={{ fontSize: '14px', lineHeight: 1.6, color: 'var(--charcoal)' }}>
-                      I confirm the details above are correct and that I own or have permission to use all supplied artwork. I understand DDF-Pixel will begin production based on this brief.
-                    </span>
-                  </label>
-                  {errors.confirmed && <p style={{ color: 'var(--red-err)', fontSize: '13px', marginTop: '4px' }}>{errors.confirmed}</p>}
-
-                  {/* Honeypot */}
-                  <div style={{ position: 'absolute', left: '-9999px' }} aria-hidden="true">
-                    <input name="_hp" tabIndex={-1} autoComplete="off"/>
-                  </div>
-
-                  <button type="submit" disabled={submitting} style={{ marginTop: '24px', padding: '16px 48px', background: submitting ? 'var(--charcoal-60)' : 'var(--coral)', color: '#fff', border: 'none', fontFamily: 'var(--font-heading)', fontSize: '15px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', cursor: submitting ? 'default' : 'pointer' }}>
-                    {submitting ? 'Submitting…' : 'Submit Job Brief'}
-                  </button>
-                </Section>
-              </div>
-
-            </form>
-          </div>
-        </div>
-      </div>
-
-      <footer style={{ background: 'var(--charcoal)', padding: '20px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid var(--coral)', flexWrap: 'wrap', gap: '8px' }}>
-        {brandLogo(24)}
-        <span style={{ fontSize: '12px', color: '#555', fontFamily: 'var(--font-body)' }}>© 2026 {branding.businessName} · All jobs submitted here only</span>
-        <a href="/portal" style={{ fontSize: '12px', color: '#666', textDecoration: 'none', fontFamily: 'var(--font-body)' }}>Track your jobs →</a>
-      </footer>
-    </div>
+      <SiteFoot brand={branding} />
+    </Page>
   )
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function Section({ num, title, children }: { num: string; title: string; children: React.ReactNode }) {
+function KindCard({ on, onClick, title, body, icon }: { on: boolean; onClick: () => void; title: string; body: string; icon: React.ReactNode }) {
   return (
-    <div style={{ background: '#fff', padding: '28px', marginBottom: '16px', border: '1px solid var(--charcoal-border)', borderTop: '3px solid var(--coral)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-        <span style={{ fontFamily: 'var(--font-heading)', fontSize: '13px', fontWeight: 700, color: 'var(--coral)', letterSpacing: '1px' }}>{num}</span>
-        <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '16px', textTransform: 'uppercase', letterSpacing: '1px' }}>{title}</span>
-      </div>
-      {children}
-    </div>
+    <button type="button" className="mode" aria-pressed={on} onClick={onClick}>
+      <span className="check">{on && <Check size={13} />}</span>
+      <span className="kind-icon">{icon}</span>
+      <span style={{ fontSize: 20, fontWeight: 400, letterSpacing: '-0.02em', paddingRight: 30 }}>{title}</span>
+      <span className="small muted">{body}</span>
+    </button>
   )
 }
 
-function Field({ label, required, error, children, compact }: { label: React.ReactNode; required?: boolean; error?: string; children: React.ReactNode; compact?: boolean }) {
+function TicketStat({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ marginBottom: compact ? 0 : '16px' }} data-error={error || undefined}>
-      <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px', color: 'var(--charcoal)', fontFamily: 'var(--font-body)' }}>
-        {label}{required && <span style={{ color: 'var(--coral)', marginLeft: '2px' }}>*</span>}
-      </label>
-      {children}
-      {error && <p style={{ color: 'var(--red-err)', fontSize: '12px', marginTop: '4px', margin: '4px 0 0' }}>{error}</p>}
+    <div>
+      <div className="t-label">{label}</div>
+      <div className="num" style={{ fontWeight: 500, marginTop: 4 }}>{value}</div>
     </div>
   )
-}
-
-function inputStyle(hasError: boolean): React.CSSProperties {
-  return {
-    width: '100%',
-    padding: '10px 14px',
-    border: `1.5px solid ${hasError ? 'var(--red-err)' : 'var(--charcoal-border)'}`,
-    fontFamily: 'var(--font-body)',
-    fontSize: '14px',
-    background: '#fff',
-    outline: 'none',
-    boxSizing: 'border-box',
-    borderRadius: 0,
-  }
 }

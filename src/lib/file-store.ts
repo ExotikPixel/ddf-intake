@@ -4,6 +4,7 @@ import { promises as fsp, createReadStream, createWriteStream } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { MAX_FILE_BYTES } from '@/lib/limits'
 
 // Client files on local disk, under the exact keys Supabase Storage used
 // (e.g. "uploads/1763241122000-k3j2h1.pdf"), so DB paths never need rewriting.
@@ -26,7 +27,8 @@ export function filePath(key: string): string {
   return full
 }
 
-export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+// Hard cap on any single stored upload (same as the form/upload-url limit).
+export const MAX_UPLOAD_BYTES = MAX_FILE_BYTES
 
 export class TooLargeError extends Error {
   constructor() { super('file too large') }

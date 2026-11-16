@@ -37,31 +37,29 @@ export default function LoginPage() {
     setLoading(false)
   }
 
-  const input = { width: '100%', padding: '10px 14px', border: '1.5px solid var(--charcoal-border)', fontSize: 15, outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'var(--font-body)' }
-  const label = { display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--charcoal)' }
-
   return (
-    <main style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-body)' }}>
-      <div style={{ background: '#fff', padding: '48px 40px', width: '100%', maxWidth: 420, border: '1px solid var(--charcoal-border)' }}>
-        <div style={{ marginBottom: 32 }}>
-          <img src="/logo-ddfpixel.png" alt="DDF x Pixel" style={{ height: '54px', width: 'auto', marginBottom: 16 }} />
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: 'var(--charcoal)' }}>Admin</h1>
-          <p style={{ margin: '8px 0 0', color: 'var(--charcoal-60)', fontSize: 14 }}>Sign in to manage jobs</p>
+    <main className="cx">
+      <div className="paper-grain" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 20 }}>
+        <div className="panel" style={{ width: '100%', maxWidth: 420, padding: '40px 34px', display: 'grid', gap: 22 }}>
+          <div style={{ display: 'grid', gap: 14 }}>
+            <img src="/logo-ddfpixel.png" alt="DDF x Pixel" className="logo" style={{ height: 40 }} />
+            <h1 className="display" style={{ margin: 0, fontSize: 40 }}>Welcome <span className="serif">back.</span></h1>
+            <p className="muted" style={{ margin: 0 }}>Sign in to manage jobs.</p>
+          </div>
+          <form onSubmit={handleSubmit} className="stack" style={{ gap: 16 }}>
+            <div className="field">
+              <label className="label" htmlFor="l-email">Email</label>
+              <input id="l-email" className="input" type="email" required autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@ddfevents.ca" />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="l-pass">Password</label>
+              <input id="l-pass" className="input" type="password" required autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
+            </div>
+            {error && <div className="alert" role="alert">{error}</div>}
+            <button type="submit" className="btn btn-ink btn-block" disabled={loading}>{loading ? 'Signing in…' : 'Sign in'}</button>
+          </form>
+          <a className="link tiny" href="/portal" style={{ justifySelf: 'center' }}>Looking for your job? Open the client portal</a>
         </div>
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 16 }}>
-            <label style={label}>Email address</label>
-            <input type="email" required autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@ddfevents.ca" style={input} />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={label}>Password</label>
-            <input type="password" required autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" style={input} />
-          </div>
-          {error && <p style={{ color: 'var(--red-err)', fontSize: 13, marginBottom: 16 }}>{error}</p>}
-          <button type="submit" disabled={loading} style={{ width: '100%', background: loading ? '#999' : 'var(--coral)', color: '#fff', border: 'none', padding: '12px', fontSize: 15, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: 0.5 }}>
-            {loading ? 'Signing in…' : 'Sign In'}
-          </button>
-        </form>
       </div>
     </main>
   )

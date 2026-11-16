@@ -1,4 +1,7 @@
 import { z } from 'zod'
+import { MAX_PIECES, MAX_FILES } from '@/lib/limits'
+
+export const MATERIALS = ['vinyl', 'fabric', 'foam-board', 'acrylic', 'cardstock', 'wood', 'pvc', 'metal', 'other'] as const
 
 // Keys the upload endpoint hands out: flat, under uploads/. Clients may only
 // reference such keys (never arbitrary storage paths).
@@ -8,7 +11,7 @@ export const ItemSchema = z.object({
   name: z.string().min(1, 'Item name is required'),
   quantity: z.number().int().min(1, 'Quantity must be at least 1'),
   size: z.string().min(1, 'Size is required'),
-  material: z.enum(['vinyl', 'fabric', 'foam-board', 'acrylic', 'cardstock', 'wood', 'pvc', 'other']),
+  material: z.enum(MATERIALS),
   // Client-facing detail captured at intake (both optional).
   description: z.string().max(2000).optional(),   // richer free-text brief for this item
   ref_photos: z.array(z.string().regex(UPLOAD_KEY)).max(8).optional(), // job-files paths to client reference/inspo images
@@ -37,23 +40,34 @@ export const ItemSchema = z.object({
 export const SubmitSchema = z.object({
   clientName: z.string().min(1, 'Client name is required'),
   companyName: z.string().min(1, 'Company name is required'),
-  contactEmail: z.string().email('Invalid email address').transform(s => s.trim().toLowerCase()),
-  // ISO date string (YYYY-MM-DD); stored as date type in Postgres
+  contactEmail: z.string().trim().email('Invalid email address').transform(s => s.trim().toLowerCase()),
+  // ISO date string (YYYY-MM-DD): the event date, or the needed-by date for products.
   dateRequired: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
   eventName: z.string().optional(),
   notes: z.string().optional(),
-  // Crew logistics — one set per job (all optional, free-form text).
+  // What the brief is for. Products are handed over by pickup, delivery or install.
+  jobType: z.enum(['event', 'product']).default('event'),
+  fulfillment: z.enum(['pickup', 'delivery', 'install']).optional(),
+  // Crew logistics — one set per job (all optional, free-form text). For products,
+  // setupLocation / setupTime hold the delivery or install address and time.
   setupLocation: z.string().max(300).optional(),
   setupTime: z.string().max(120).optional(),
   removalLocation: z.string().max(300).optional(),
   removalTime: z.string().max(120).optional(),
-  items: z.array(ItemSchema).min(1, 'At least one item is required').max(10),
-  filePaths: z.array(z.string().regex(UPLOAD_KEY)).max(3),
+  items: z.array(ItemSchema).min(1, 'At least one item is required').max(MAX_PIECES),
+  filePaths: z.array(z.string().regex(UPLOAD_KEY)).max(MAX_FILES),
   submissionId: z.string().uuid('Invalid submission ID'),
   // Which workspace this intake belongs to (from the /s/{slug} URL). Optional —
   // the root form omits it and the server falls back to the default tenant.
   tenantSlug: z.string().max(64).optional(),
   _hp: z.string().optional(),
+}).superRefine((d, ctx) => {
+  if (d.jobType !== 'product') return
+  if (!d.fulfillment) {
+    ctx.addIssue({ code: 'custom', path: ['fulfillment'], message: 'Choose pick up, delivery or install' })
+  } else if (d.fulfillment !== 'pickup' && !d.setupLocation?.trim()) {
+    ctx.addIssue({ code: 'custom', path: ['setupLocation'], message: 'Add the delivery or install address' })
+  }
 })
 
 export type SubmitInput = z.infer<typeof SubmitSchema>
@@ -92,8 +106,8 @@ export type FinalDesignInput = z.infer<typeof FinalDesignSchema>
 // Client appends NEW items and/or NEW reference files to an existing job
 // (append-only — existing items are never sent and cannot be changed here).
 export const AddToJobSchema = z.object({
-  newItems: z.array(ItemSchema).max(10).optional(),
-  newFilePaths: z.array(z.string().regex(UPLOAD_KEY)).max(3).optional(),
+  newItems: z.array(ItemSchema).max(MAX_PIECES).optional(),
+  newFilePaths: z.array(z.string().regex(UPLOAD_KEY)).max(MAX_FILES).optional(),
 }).refine(
   d => (d.newItems?.length ?? 0) > 0 || (d.newFilePaths?.length ?? 0) > 0,
   { message: 'Add at least one item or file' },
