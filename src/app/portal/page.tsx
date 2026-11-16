@@ -1014,7 +1014,7 @@ export default function PortalPage() {
                               <select value={item.material}
                                 onChange={e => updateEditItem(idx, 'material', e.target.value)}
                                 style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}>
-                                {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','other'].map(m => (
+                                {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','metal','other'].map(m => (
                                   <option key={m} value={m}>{m}</option>
                                 ))}
                               </select>
@@ -1105,7 +1105,7 @@ export default function PortalPage() {
                               <select value={item.material}
                                 onChange={e => updateAddItem(idx, 'material', e.target.value)}
                                 style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}>
-                                {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','other'].map(m => (
+                                {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','metal','other'].map(m => (
                                   <option key={m} value={m}>{m}</option>
                                 ))}
                               </select>

@@ -2369,7 +2369,7 @@ export default function AdminPage() {
                                 <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#8a857c' }}>Material
                                   <select value={item.material} onChange={e => updateEditItem(idx, 'material', e.target.value)}
                                     style={{ width: 140, padding: '6px 8px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', boxSizing: 'border-box' }}>
-                                    {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','other'].map(m => (<option key={m} value={m}>{m}</option>))}
+                                    {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','metal','other'].map(m => (<option key={m} value={m}>{m}</option>))}
                                   </select>
                                 </label>
                               </div>
