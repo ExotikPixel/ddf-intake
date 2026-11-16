@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { getJob, updateJobItem } from '@/lib/jobs-repo'
+import { exists } from '@/lib/file-store'
 import { FinalDesignSchema } from '@/lib/schemas'
 import { sendNtfy } from '@/lib/ntfy'
 import { publicItems, itemProofs } from '@/lib/job-types'
@@ -29,11 +30,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   const { itemIndex, paths, previews, approve } = parsed.data
 
-  const { data: job } = await supabaseAdmin
-    .from('jobs')
-    .select('contact_email, reference_number, client_name, company_name, items, status')
-    .eq('id', jobId)
-    .single()
+  const { data: job } = await getJob(jobId, ['contact_email', 'reference_number', 'client_name', 'company_name', 'items', 'status'])
 
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!(await portalCanAccess(jobId, job.contact_email))) {
@@ -55,8 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const previewMap: Record<string, string> = {}
   for (const [proof, pv] of Object.entries(previews ?? {})) if (paths.includes(proof)) previewMap[proof] = pv
   for (const p of [...paths, ...Object.values(previewMap)]) {
-    const { data, error } = await supabaseAdmin.storage.from('job-files').list('uploads', { search: p.slice('uploads/'.length), limit: 1 })
-    if (error || !data?.length) {
+    if (!p.startsWith('uploads/') || !(await exists(p))) {
       return NextResponse.json({ error: 'One of the uploaded files could not be found' }, { status: 400 })
     }
   }
@@ -85,9 +81,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     at: now,
   }
 
-  const { data: updatedItems, error } = await supabaseAdmin.rpc('update_job_item', {
-    p_job_id: jobId, p_index: itemIndex, p_patch: patch, p_append_message: appendMessage,
-  })
+  const { data: updatedItems, error } = await updateJobItem(jobId, itemIndex, patch, appendMessage)
   if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
   const items = (updatedItems ?? []) as JobItem[]
 

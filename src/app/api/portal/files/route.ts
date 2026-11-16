@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { getJob } from '@/lib/jobs-repo'
 import { itemProofs, itemExamplePhotos } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 import { portalCanAccess } from '@/lib/portal-auth'
@@ -17,11 +17,7 @@ export async function POST(req: NextRequest) {
   const jobId = Number(body.jobId)
   if (!Number.isInteger(jobId)) return NextResponse.json({ error: 'Invalid jobId' }, { status: 400 })
 
-  const { data: job } = await supabaseAdmin
-    .from('jobs')
-    .select('contact_email, items')
-    .eq('id', jobId)
-    .single()
+  const { data: job } = await getJob(jobId, ['contact_email', 'items'])
 
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!(await portalCanAccess(jobId, job.contact_email))) {

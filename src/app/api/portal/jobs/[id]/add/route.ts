@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { getJob, appendToJob } from '@/lib/jobs-repo'
 import { AddToJobSchema } from '@/lib/schemas'
 import { sendNtfy } from '@/lib/ntfy'
 import { sendAddedToJobNotification } from '@/lib/email'
@@ -31,11 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   // Ownership + status gate. Append is allowed while a job is live, but never
   // once it's completed (or cancelled) — at that point the job is closed.
-  const { data: job } = await supabaseAdmin
-    .from('jobs')
-    .select('contact_email, reference_number, company_name, client_name, status, tenant_id')
-    .eq('id', jobId)
-    .single()
+  const { data: job } = await getJob(jobId, ['contact_email', 'reference_number', 'company_name', 'client_name', 'status', 'tenant_id'])
 
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!(await portalCanAccess(jobId, job.contact_email))) {
@@ -54,11 +50,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     approval_status: 'pending' as const,
   }))
 
-  const { data: result, error } = await supabaseAdmin.rpc('append_to_job', {
-    p_job_id: jobId,
-    p_items: stamped,
-    p_files: newFilePaths,
-  })
+  const { data: result, error } = await appendToJob(jobId, stamped, newFilePaths)
   if (error) {
     console.error('[add-to-job] rpc error:', error)
     return NextResponse.json({ error: 'Update failed' }, { status: 500 })

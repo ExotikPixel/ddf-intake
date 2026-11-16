@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { getJob, updateJob } from '@/lib/jobs-repo'
+import { remove as removeFiles } from '@/lib/file-store'
 import { mergeItemsPreservingApproval } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 import { portalCanAccess } from '@/lib/portal-auth'
@@ -12,11 +13,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (isNaN(jobId)) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
 
   // Verify ownership and status
-  const { data: job } = await supabaseAdmin
-    .from('jobs')
-    .select('contact_email, status, file_paths, items')
-    .eq('id', jobId)
-    .single()
+  const { data: job } = await getJob(jobId, ['contact_email', 'status', 'file_paths', 'items'])
 
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!(await portalCanAccess(jobId, job.contact_email))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -40,7 +37,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const newPaths = body.file_paths as string[]
     const removed = (job.file_paths as string[] ?? []).filter((p: string) => !newPaths.includes(p))
     if (removed.length > 0) {
-      await supabaseAdmin.storage.from('job-files').remove(removed)
+      await removeFiles(removed)
     }
     patch.file_paths = newPaths
   }
@@ -49,7 +46,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
   }
 
-  const { error } = await supabaseAdmin.from('jobs').update(patch).eq('id', jobId)
+  const { error } = await updateJob(jobId, patch)
   if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
 
   return NextResponse.json({ success: true })

@@ -1,8 +1,6 @@
 'use client'
 
 import { useEffect, useState, FormEvent } from 'react'
-import { createClient } from '@/lib/supabase-browser'
-import { useRouter } from 'next/navigation'
 import { STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemExamplePhotos, designsMode, isImagePath, fileKindLabel } from '@/lib/job-types'
 import { renderPrintFilePreview, uploadPreviewFile, needsPreview } from '@/lib/proof-preview'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
@@ -97,7 +95,6 @@ export default function PortalPage() {
   const [addError, setAddError] = useState('')
   const [addUploading, setAddUploading] = useState(false)
   const [addItemUploading, setAddItemUploading] = useState<number | null>(null)
-  const router = useRouter()
 
   function showJobs(list: Job[]) {
     setJobs(list)
@@ -108,27 +105,10 @@ export default function PortalPage() {
       .forEach(j => loadProofs(j.id))
   }
 
-  // Load the client's jobs by whichever path they arrived on:
-  //  • a Supabase magic-link session (legacy) → all their jobs, or
-  //  • a no-login portal token from reference # + email lookup → that one job.
-  // No credentials → show the lookup form instead of bouncing to a login page.
+  // Load the client's job from their no-login portal token (reference # + email
+  // lookup). No token → show the lookup form.
   async function loadPortal() {
     setLoading(true)
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      setEmail(user.email ?? '')
-      setUsingToken(false)
-      const { data } = await supabase
-        .from('jobs')
-        .select('id, reference_number, event_name, date_required, notes, status, submitted_at, items, file_paths')
-        .eq('contact_email', user.email)
-        .order('submitted_at', { ascending: false })
-      setNeedsLookup(false)
-      showJobs((data ?? []) as Job[])
-      return
-    }
-    // No session — try a no-login portal token.
     const res = await fetch('/api/portal/me')
     if (res.ok) {
       const { jobs: list, email } = await res.json()
@@ -565,16 +545,10 @@ export default function PortalPage() {
   }
 
   async function signOut() {
-    if (usingToken) {
-      // No-login session — clear the portal token and return to the lookup form.
-      await fetch('/api/portal/lookup', { method: 'DELETE' }).catch(() => {})
-      setJobs([]); setEmail(''); setUsingToken(false)
-      setNeedsLookup(true)
-      return
-    }
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
+    // Clear the portal token and return to the lookup form.
+    await fetch('/api/portal/lookup', { method: 'DELETE' }).catch(() => {})
+    setJobs([]); setEmail(''); setUsingToken(false)
+    setNeedsLookup(true)
   }
 
   const active = jobs.filter(j => j.status === 'in_progress' || j.status === 'received').length

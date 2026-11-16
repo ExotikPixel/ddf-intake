@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { findJobsByReferenceCI } from '@/lib/jobs-repo'
+import { LEGACY_NOTICE, legacyNoticeOn } from '@/lib/legacy-notice'
 import { normalizeEmail, emailsMatch } from '@/lib/normalize-email'
 import { signPortalToken, PORTAL_COOKIE } from '@/lib/portal-token'
 
@@ -30,16 +31,13 @@ export async function POST(req: NextRequest) {
 
   // Case-insensitive on the reference too — clients retype these by hand.
   // Reference numbers are [A-Z0-9-] only, so no ilike wildcard hazard.
-  const { data: rows } = await supabaseAdmin
-    .from('jobs')
-    .select('id, contact_email')
-    .ilike('reference_number', reference)
-    .limit(5)
+  const { data: rows } = await findJobsByReferenceCI(reference)
 
   const match = (rows ?? []).find(r => emailsMatch(r.contact_email, email))
   if (!match) {
     // One generic message — never reveal which of the two was wrong.
-    return NextResponse.json({ error: 'We couldn’t find a job with that reference number and email. Please check both and try again.' }, { status: 404 })
+    const base = 'We couldn’t find a job with that reference number and email. Please check both and try again.'
+    return NextResponse.json({ error: legacyNoticeOn() ? `${base} ${LEGACY_NOTICE}` : base }, { status: 404 })
   }
 
   const res = NextResponse.json({ ok: true })
