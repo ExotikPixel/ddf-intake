@@ -1,3 +1,4 @@
+import { baseUrl } from '@/lib/file-tokens'
 import { NextRequest, NextResponse } from 'next/server'
 import { getJob } from '@/lib/jobs-repo'
 import { requireAdmin } from '@/lib/admin-auth'
@@ -18,9 +19,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { data: job } = await getJob(jobId, ['id'], auth.tenantId)
   if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
-  const proto = req.headers.get('x-forwarded-proto') ?? 'https'
-  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? ''
-  const url = `${proto}://${host}/review/${signReviewToken(jobId)}`
+  const url = `${baseUrl()}/review/${signReviewToken(jobId)}`
 
   return NextResponse.json({ url })
 }

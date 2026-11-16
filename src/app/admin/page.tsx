@@ -2017,7 +2017,7 @@ export default function AdminPage() {
                             {fileUrls[job.id].map(f => (
                               <a
                                 key={f.path}
-                                href={f.url}
+                                href={f.fileUrl ?? f.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="file-link"

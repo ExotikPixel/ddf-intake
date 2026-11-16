@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findJobBySubmissionId, insertJob, updateJob } from '@/lib/jobs-repo'
 import { exists } from '@/lib/file-store'
-import { signFileLink } from '@/lib/file-tokens'
+import { signFileLink, baseUrl } from '@/lib/file-tokens'
 import { sendNotificationEmail, sendConfirmationEmail } from '@/lib/email'
 import { sendNtfy } from '@/lib/ntfy'
 
@@ -122,11 +122,9 @@ export async function POST(req: NextRequest) {
     if (await exists(path)) signedFileUrls.push(signFileLink(path, 60 * 60 * 24 * 30))
   }
 
-  // Absolute portal link for the confirmation email, from the incoming request
-  // (same convention as the review-link route) so it's correct in any env.
-  const proto = req.headers.get('x-forwarded-proto') ?? 'https'
-  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? ''
-  const portalUrl = host ? `${proto}://${host}/portal` : undefined
+  // Absolute portal link for the confirmation email. Built from PUBLIC_BASE_URL,
+  // never from request headers, so a caller can't point the email at another site.
+  const portalUrl = `${baseUrl()}/portal`
 
   const emailData = {
     referenceNumber,

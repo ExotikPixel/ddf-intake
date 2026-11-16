@@ -3,6 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
+# Fail before deploying if a required setting is missing (they'd otherwise only fail on first use).
+: "${PUBLIC_BASE_URL:?set in .env}" "${AUTH_SECRET:?set in .env}" "${FILE_LINK_SECRET:?set in .env}" \
+  "${REVIEW_LINK_SECRET:?set in .env}" "${CRON_SECRET:?set in .env}" "${POSTGRES_PASSWORD:?set in .env}"
 
 mkdir -p "$DDF_DATA_DIR"/files "$DDF_DATA_DIR"/backups "$DDF_DATA_DIR"/ops-state
 git pull --ff-only

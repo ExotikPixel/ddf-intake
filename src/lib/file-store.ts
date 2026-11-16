@@ -20,8 +20,8 @@ export function isSafeKey(key: string): boolean {
 
 export function filePath(key: string): string {
   if (!isSafeKey(key)) throw new Error(`unsafe file key: ${key}`)
-  const root = path.resolve(filesRoot())
-  const full = path.resolve(root, key)
+  const root = path.resolve(/*turbopackIgnore: true*/ filesRoot())
+  const full = path.resolve(/*turbopackIgnore: true*/ root, key)
   if (!full.startsWith(root + path.sep)) throw new Error(`unsafe file key: ${key}`)
   return full
 }
