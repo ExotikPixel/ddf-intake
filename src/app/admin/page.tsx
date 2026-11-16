@@ -1461,15 +1461,27 @@ export default function AdminPage() {
   // Plan B: a 'deposit' (Deposit due) filter joins these once deposits ship.
   const FILTERS: { key: string; label: string }[] = [
     { key: 'all', label: 'All' }, { key: 'waiting', label: 'Waiting on client' },
-    ...STATUSES.filter(s => s !== 'pending').map(s => ({ key: s, label: STATUS_LABELS[s] })),
+    // 'Pending' only shows while a job is pending, so new submissions aren't hidden in All.
+    ...STATUSES.filter(s => s !== 'pending' || jobs.some(j => j.status === 'pending')).map(s => ({ key: s, label: STATUS_LABELS[s] })),
   ]
   const matchesFilter = (j: Job) =>
-    filter === 'all' ? true : filter === 'waiting' ? jobWaiting(j) : j.status === filter
+    filter === 'all' ? true : filter === 'waiting' ? (j.status !== 'completed' && j.status !== 'cancelled' && jobWaiting(j)) : j.status === filter
 
   // The old inline card only toggled itself open (no lazy loads) — the drawer just needs the id.
   function openJob(id: number) {
+    if (drawerId === null && document.activeElement instanceof HTMLElement) returnFocusRef.current = document.activeElement
     setDrawerId(id)
   }
+  // Focus moves to the drawer's Close button on open and back to the row on close.
+  const drawerCloseRef = useRef<HTMLButtonElement>(null)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
+  const drawerOpen = drawerId !== null
+  useEffect(() => {
+    if (drawerOpen) { drawerCloseRef.current?.focus(); return }
+    const el = returnFocusRef.current
+    returnFocusRef.current = null
+    if (el && el.isConnected) el.focus()
+  }, [drawerOpen])
 
   const filtered = useMemo(() => {
     const byStatus = jobs.filter(matchesFilter)
@@ -2397,29 +2409,34 @@ export default function AdminPage() {
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table className="table">
-                    <thead><tr><th>Job</th><th>Date</th><th>Approvals</th><th>Status</th></tr></thead>
+                    <thead><tr><th>Job</th><th>Date</th><th className="hide-xs">Approvals</th><th>Status</th></tr></thead>
                     <tbody>
                       {filtered.map(job => {
                         const a = approvalSummary(job.items)
                         const d = daysUntil(job.date_required)
                         return (
                           <tr key={job.id} aria-selected={drawerId === job.id} tabIndex={0}
-                            onClick={() => openJob(job.id)} onKeyDown={e => { if (e.key === 'Enter') openJob(job.id) }}>
-                            <td style={{ minWidth: 230 }}>
+                            onClick={() => openJob(job.id)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJob(job.id) } }}>
+                            <td className="job-cell">
                               <span style={{ fontWeight: 500 }}>{job.event_name || job.company_name || job.client_name}</span>
                               <div className="row tiny muted" style={{ gap: 6, marginTop: 4 }}>
                                 <span className="type-tag">{job.job_type === 'product' ? 'Product' : 'Event'}</span>{job.company_name || job.client_name} · {job.reference_number}
                               </div>
                             </td>
                             <td className="num">
-                              <b>{prettyDate(job.date_required)}</b>
-                              <div className="tiny" style={{ color: d >= 0 && d <= 4 && job.status !== 'completed' ? 'var(--rose)' : 'var(--muted)', fontWeight: 500 }}>{countdownLabel(d)}</div>
+                              <b style={{ whiteSpace: 'nowrap' }}>{prettyDate(job.date_required)}</b>
+                              <div className="tiny" style={{ color: d >= 0 && d <= 4 && job.status !== 'completed' ? 'var(--rose)' : 'var(--muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>{countdownLabel(d)}</div>
                             </td>
-                            <td>
+                            <td className="hide-xs">
                               {a.total ? (
                                 <div className="row" style={{ gap: 8 }}>
                                   <span className="mini-bar"><span style={{ width: `${(a.approved / a.total) * 100}%`, background: a.approved === a.total ? 'var(--sage)' : 'var(--mauve)' }} /></span>
                                   <span className="tiny num">{a.approved}/{a.total}</span>
+                                  {job.items.some(it => it.approval_status === 'changes_requested') && (
+                                    <span className="tiny row" title="Changes requested" style={{ gap: 4, color: 'var(--rose)', fontWeight: 500 }}>
+                                      <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--rose)' }} />changes
+                                    </span>
+                                  )}
                                 </div>
                               ) : <span className="tiny muted">No proofs yet</span>}
                             </td>
@@ -2441,11 +2458,11 @@ export default function AdminPage() {
         {drawerJob && (
           <>
             <div className="drawer-backdrop" onClick={() => setDrawerId(null)} />
-            <aside className="drawer" aria-label={`Job ${drawerJob.reference_number}`} style={{ width: 'min(720px, calc(100% - 32px))' }}>
+            <aside className="drawer" role="dialog" aria-modal="true" aria-label={`Job ${drawerJob.reference_number}`} style={{ width: 'min(720px, calc(100% - 32px))' }}>
               <div style={{ padding: 22, display: 'grid', gap: 18 }}>
                 <div className="between">
                   <span className="tiny" style={{ color: 'var(--mauve-deep)', letterSpacing: '.06em', fontWeight: 500 }}>{drawerJob.reference_number} · {drawerJob.job_type === 'product' ? 'Product' : 'Event'}</span>
-                  <button type="button" className="link tiny" onClick={() => setDrawerId(null)}>Close</button>
+                  <button type="button" ref={drawerCloseRef} className="link tiny" onClick={() => setDrawerId(null)}>Close</button>
                 </div>
                 <h2 className="display" style={{ margin: 0, fontSize: 30 }}>{drawerJob.event_name || drawerJob.company_name || drawerJob.client_name}</h2>
                 <div className="stack" style={{ gap: 6 }}>
