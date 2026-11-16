@@ -327,3 +327,5 @@
 .cx .earlier a { width: 64px; height: 64px; border-radius: 12px; overflow: hidden; opacity: .75; border: 1px solid var(--line); background: #fff; }
 .cx .earlier img { width: 100%; height: 100%; object-fit: cover; }
 .cx .admin-main { padding: 22px 22px 60px; display: grid; gap: 22px; align-content: start; min-width: 0; }
+/* The dock is a flex row; .only-sm's display: revert would make it a block. */
+@media (max-width: 760px) { .cx .dock.only-sm { display: flex !important; } }

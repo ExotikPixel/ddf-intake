@@ -1,10 +1,22 @@
 'use client'
 
 import { useEffect, useState, FormEvent } from 'react'
-import { STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemExamplePhotos, designsMode, isImagePath, fileKindLabel } from '@/lib/job-types'
+import { Plus, Home, MessageCircle } from 'lucide-react'
+import { itemProofs, itemExamplePhotos, designsMode, isImagePath, fileKindLabel } from '@/lib/job-types'
 import { renderPrintFilePreview, uploadPreviewFile, needsPreview } from '@/lib/proof-preview'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 import { MAX_FILES, MAX_PIECES, MAX_FILE_MB } from '@/lib/limits'
+import { MATERIALS } from '@/lib/schemas'
+import { Page, SiteHead, SiteFoot, SecHead } from '@/components/cx/kit'
+import { ApprovalPill, JobStatusPill } from '@/components/cx/pills'
+import { daysUntil, countdownLabel, prettyDate } from '@/lib/countdown'
+
+const BRAND = { businessName: 'DDF x Pixel', logoUrl: '/logo-ddfpixel.png', replyToEmail: 'hello@ddfevents.ca' }
+const HANDOVER: Record<string, string> = { pickup: 'Pickup at our shop', delivery: 'Delivery', install: 'Install' }
+
+// A removable file name chip (edit / add-to-job panels).
+const FILE_CHIP = { display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 10px', maxWidth: '100%', minWidth: 0 } as const
+const FILE_NAME = { maxWidth: 180, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as const
 
 interface Job {
   id: number
@@ -16,6 +28,12 @@ interface Job {
   submitted_at: string
   items: JobItem[]
   file_paths: string[]
+  job_type?: 'event' | 'product'
+  fulfillment?: 'pickup' | 'delivery' | 'install' | null
+  setup_location?: string | null
+  setup_time?: string | null
+  removal_location?: string | null
+  removal_time?: string | null
 }
 
 interface EditForm {
@@ -24,37 +42,6 @@ interface EditForm {
   notes: string
   items: JobItem[]
   file_paths: string[]
-}
-
-function StatusPill({ status }: { status: string }) {
-  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending
-  return (
-    <span style={{
-      background: cfg.bg,
-      color: cfg.color,
-      fontSize: '11px',
-      fontWeight: 700,
-      letterSpacing: '0.8px',
-      textTransform: 'uppercase',
-      padding: '3px 10px',
-      border: `1px solid ${cfg.color}22`,
-    }}>
-      {cfg.label}
-    </span>
-  )
-}
-
-function ApprovalPill({ status }: { status: ApprovalStatus }) {
-  const cfg = APPROVAL_CONFIG[status]
-  return (
-    <span style={{
-      background: cfg.bg, color: cfg.color, fontSize: '10px', fontWeight: 700,
-      letterSpacing: '0.6px', textTransform: 'uppercase', padding: '2px 8px',
-      border: `1px solid ${cfg.color}33`, whiteSpace: 'nowrap',
-    }}>
-      {cfg.label}
-    </span>
-  )
 }
 
 export default function PortalPage() {
@@ -550,319 +537,237 @@ export default function PortalPage() {
     setNeedsLookup(true)
   }
 
-  const active = jobs.filter(j => j.status === 'in_progress' || j.status === 'received').length
-  const completed = jobs.filter(j => j.status === 'completed').length
 
   // No session and no portal token — ask for reference # + email (no login).
   if (needsLookup) {
     return (
-      <main style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-body)', padding: 16 }}>
-        <div style={{ background: '#fff', padding: '48px 40px', width: '100%', maxWidth: 440, border: '1px solid var(--charcoal-border)' }}>
-          <img src="/logo-ddfpixel.png" alt="DDF x Pixel" style={{ height: '54px', width: 'auto', marginBottom: 16 }} />
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: 'var(--charcoal)' }}>View your job</h1>
-          <p style={{ margin: '8px 0 28px', color: 'var(--charcoal-60)', fontSize: 14, lineHeight: 1.5 }}>
-            Enter your reference number and the email you used — it&apos;s on your confirmation email. No password needed.
-          </p>
-          <form onSubmit={handleLookup}>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--charcoal)' }}>Reference number</label>
-              <input value={lookupRef} onChange={e => setLookupRef(e.target.value)} required placeholder="DDF-20260722-A1B2C3"
-                autoCapitalize="characters" autoCorrect="off" spellCheck={false}
-                style={{ width: '100%', padding: '10px 14px', border: '1.5px solid var(--charcoal-border)', fontSize: 15, outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--font-body)' }} />
+      <Page>
+        <SiteHead brand={BRAND} right={<a className="btn btn-quiet btn-sm" href="/">Send a brief</a>} />
+        <section style={{ padding: '64px 0', display: 'grid', placeItems: 'center' }}>
+          <form className="panel" style={{ padding: 32, width: '100%', maxWidth: 440, display: 'grid', gap: 18 }} onSubmit={handleLookup}>
+            <span className="eyebrow">Track your job</span>
+            <h1 className="display" style={{ margin: 0, fontSize: 34 }}>Find your <span className="serif">job.</span></h1>
+            <p className="small muted" style={{ margin: 0 }}>Use the reference from your confirmation email and the email you sent the brief from. No password needed.</p>
+            <div className="field">
+              <label className="label" htmlFor="lk-ref">Reference number</label>
+              <input id="lk-ref" className="input" value={lookupRef} onChange={e => setLookupRef(e.target.value)} required placeholder="DDF-20260722-A1B2C3" autoCapitalize="characters" autoCorrect="off" spellCheck={false} />
             </div>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--charcoal)' }}>Email address</label>
-              <input type="email" value={lookupEmail} onChange={e => setLookupEmail(e.target.value)} required placeholder="you@company.com"
-                autoCapitalize="off" autoCorrect="off" spellCheck={false}
-                style={{ width: '100%', padding: '10px 14px', border: '1.5px solid var(--charcoal-border)', fontSize: 15, outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--font-body)' }} />
+            <div className="field">
+              <label className="label" htmlFor="lk-mail">Email</label>
+              <input id="lk-mail" type="email" className="input" value={lookupEmail} onChange={e => setLookupEmail(e.target.value)} required placeholder="you@company.com" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
             </div>
-            {lookupError && <p style={{ color: 'var(--red-err)', fontSize: 13, marginBottom: 16 }}>{lookupError}</p>}
-            <button type="submit" disabled={lookingUp}
-              style={{ width: '100%', background: lookingUp ? '#999' : 'var(--coral)', color: '#fff', border: 'none', padding: '12px', fontSize: 15, fontWeight: 700, cursor: lookingUp ? 'not-allowed' : 'pointer', letterSpacing: 0.5 }}>
-              {lookingUp ? 'Looking up…' : 'View my job'}
-            </button>
+            {lookupError && <div className="alert" role="alert">{lookupError}</div>}
+            <button className="btn btn-ink btn-block" type="submit" disabled={lookingUp}>{lookingUp ? 'Looking up…' : 'Open my job'}</button>
+            <span className="tiny muted">Lost your reference? Email <a className="link" href={`mailto:${BRAND.replyToEmail}`}>{BRAND.replyToEmail}</a></span>
           </form>
-          <p style={{ marginTop: 24, fontSize: 13, color: 'var(--charcoal-60)', textAlign: 'center' }}>
-            Need to submit a job? <a href="/" style={{ color: 'var(--coral)', textDecoration: 'none', fontWeight: 600 }}>Submit a brief →</a>
-          </p>
-        </div>
-      </main>
+        </section>
+        <SiteFoot brand={BRAND} />
+      </Page>
     )
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', fontFamily: 'var(--font-body)' }}>
-
-      {/* Header */}
-      <header style={{
-        background: 'var(--charcoal)',
-        height: '60px',
-        padding: '0 32px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        position: 'sticky',
-        top: 0,
-        zIndex: 50,
-        borderBottom: '2px solid var(--coral)',
-      }}>
-        <img src="/logo-ddfpixel.png" alt="DDF x Pixel" style={{ height: '30px', width: 'auto', filter: 'brightness(0) invert(1)' }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-          <span style={{ fontSize: '12px', color: '#888', display: 'none' }} className="email-label">{email}</span>
-          <button
-            onClick={signOut}
-            style={{ background: 'none', border: '1px solid #3a3a3a', color: '#888', padding: '6px 16px', fontSize: '12px', cursor: 'pointer', fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}
-          >
-            Look up a different job
-          </button>
-        </div>
-      </header>
-
-      {/* Page title bar */}
-      <div style={{ background: 'var(--bg)', padding: '28px 40px 0', borderBottom: '1px solid var(--charcoal-border)' }}>
-        <div style={{ maxWidth: 900, margin: '0 auto' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', paddingBottom: '20px', gap: 16, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)', marginBottom: '6px' }}>Client Portal</div>
-              <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 'clamp(24px, 3vw, 36px)', fontWeight: 700, textTransform: 'uppercase', margin: 0, letterSpacing: '0.5px' }}>Your Jobs</h1>
-              {email && <p style={{ margin: '4px 0 0', color: 'var(--charcoal-60)', fontSize: '13px' }}>{email}</p>}
-            </div>
-            <a
-              href="/"
-              style={{ background: 'var(--coral)', color: '#fff', padding: '11px 24px', textDecoration: 'none', fontWeight: 700, fontSize: '12px', letterSpacing: '1px', textTransform: 'uppercase', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap', flexShrink: 0 }}
-            >
-              + Submit New Brief
-            </a>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '32px 40px 64px' }}>
-
-        {loading ? (
-          <div style={{ padding: '64px 0', textAlign: 'center' }}>
-            <div style={{ width: 40, height: 40, border: '3px solid var(--charcoal-border)', borderTopColor: 'var(--coral)', borderRadius: '50%', margin: '0 auto 16px', animation: 'spin 0.8s linear infinite' }} />
-            <p style={{ color: 'var(--charcoal-60)', fontSize: '14px', margin: 0 }}>Loading your jobs…</p>
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-          </div>
-        ) : jobs.length === 0 ? (
-          /* Empty state */
-          <div style={{ background: '#fff', border: '1px solid var(--charcoal-border)', padding: '64px 40px', textAlign: 'center' }}>
-            <div style={{ width: 48, height: 48, background: 'var(--charcoal-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
-              <svg viewBox="0 0 24 24" width="22" fill="none" stroke="var(--charcoal-60)" strokeWidth="1.5"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-            </div>
-            <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '20px', fontWeight: 700, textTransform: 'uppercase', margin: '0 0 8px', letterSpacing: '0.5px' }}>No jobs yet</h2>
-            <p style={{ color: 'var(--charcoal-60)', fontSize: '14px', margin: '0 0 24px', maxWidth: 320, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6 }}>
-              Submit your first job brief and we&apos;ll have it quoted within 24 hours.
-            </p>
-            <a href="/" style={{ display: 'inline-block', background: 'var(--coral)', color: '#fff', padding: '12px 28px', textDecoration: 'none', fontWeight: 700, fontSize: '12px', letterSpacing: '1px', textTransform: 'uppercase' }}>
-              Submit a Brief →
-            </a>
-          </div>
-        ) : (
-          <>
-            {/* Summary row */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '24px' }}>
-              {[
-                ['Total Jobs', jobs.length],
-                ['Active', active],
-                ['Completed', completed],
-              ].map(([label, val]) => (
-                <div key={label as string} style={{ background: '#fff', border: '1px solid var(--charcoal-border)', padding: '16px 20px' }}>
-                  <div style={{ fontSize: '22px', fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--charcoal)' }}>{val}</div>
-                  <div style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--charcoal-60)', marginTop: '2px' }}>{label}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Job list */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {jobs.map(job => {
-                const canEdit = job.status === 'pending' || job.status === 'received'
-                const canAdd = job.status === 'in_progress'
-                const proofItems = job.items
-                  .map((it, idx) => ({ it, idx }))
-                  .filter(x => itemProofs(x.it).length > 0)
-                const approvedCount = proofItems.filter(x => x.it.approval_status === 'approved').length
-                return (
-                <div key={job.id} style={{ background: '#fff', border: '1px solid var(--charcoal-border)', borderLeft: `3px solid ${STATUS_CONFIG[job.status]?.color ?? '#888'}` }}>
-                  <div style={{ padding: '20px 24px' }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px', flexWrap: 'wrap' }}>
-                          <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '15px', color: 'var(--coral)', letterSpacing: '0.5px' }}>{job.reference_number}</span>
-                          <StatusPill status={job.status} />
-                        </div>
-                        {job.event_name && (
-                          <p style={{ margin: '0 0 4px', fontWeight: 600, fontSize: '15px', color: 'var(--charcoal)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.event_name}</p>
-                        )}
-                        <p style={{ margin: 0, fontSize: '13px', color: 'var(--charcoal-60)' }}>
-                          {job.items.length} item{job.items.length !== 1 ? 's' : ''}&nbsp;&nbsp;·&nbsp;&nbsp;Due&nbsp;
-                          {new Date(job.date_required + 'T00:00:00').toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}
-                        </p>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexShrink: 0 }}>
-                        <span style={{ fontSize: '12px', color: 'var(--charcoal-60)', whiteSpace: 'nowrap', marginTop: '2px' }}>
-                          {new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}
-                        </span>
-                        {canEdit && (
-                          <button
-                            onClick={() => editingJob === job.id ? cancelEdit() : startEdit(job)}
-                            style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', padding: '4px 12px', background: editingJob === job.id ? '#fff8f6' : '#f8f7f5', color: editingJob === job.id ? 'var(--coral)' : '#666', border: `1px solid ${editingJob === job.id ? 'var(--coral)44' : 'var(--charcoal-border)'}`, cursor: 'pointer', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap' }}
-                          >
-                            {editingJob === job.id ? 'Cancel' : 'Edit Brief'}
-                          </button>
-                        )}
-                        {canAdd && (
-                          <button
-                            onClick={() => addingJob === job.id ? cancelAdd() : startAdd(job)}
-                            style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', padding: '4px 12px', background: addingJob === job.id ? '#fff8f6' : '#f8f7f5', color: addingJob === job.id ? 'var(--coral)' : '#666', border: `1px solid ${addingJob === job.id ? 'var(--coral)44' : 'var(--charcoal-border)'}`, cursor: 'pointer', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap' }}
-                          >
-                            {addingJob === job.id ? 'Cancel' : '+ Add to Job'}
-                          </button>
-                        )}
-                      </div>
+    <Page>
+      <SiteHead brand={BRAND} right={<><span className="muted hide-sm" style={{ overflowWrap: 'anywhere' }}>{email}</span><button type="button" className="btn btn-quiet btn-sm" onClick={signOut}>Another job</button></>} />
+      {loading ? (
+        <p className="muted" style={{ padding: '80px 0', textAlign: 'center' }}>Loading your job…</p>
+      ) : jobs.length === 0 ? (
+        <section className="panel" style={{ padding: 32, maxWidth: 480, margin: '60px auto', display: 'grid', gap: 12 }}>
+          <h1 className="display" style={{ margin: 0, fontSize: 34 }}>No jobs <span className="serif">yet.</span></h1>
+          <p className="muted" style={{ margin: 0 }}>Send your first brief and we’ll come back with a quote.</p>
+          <a className="btn btn-ink" href="/" style={{ justifySelf: 'start' }}>Send a brief</a>
+        </section>
+      ) : (
+        <>
+          {jobs.map(job => {
+            const canEdit = job.status === 'pending' || job.status === 'received'
+            const canAdd = job.status === 'in_progress'
+            const proofItems = job.items
+              .map((it, idx) => ({ it, idx }))
+              .filter(x => itemProofs(x.it).length > 0)
+            const approvedCount = proofItems.filter(x => x.it.approval_status === 'approved').length
+            const days = daysUntil(job.date_required)
+            const isProduct = job.job_type === 'product'
+            const waiting = proofItems.filter(x => (x.it.approval_status ?? 'pending') === 'pending').length
+            const unproofed = job.items.map((it, idx) => ({ it, idx })).filter(x => itemProofs(x.it).length === 0)
+            const place = isProduct
+              ? (job.fulfillment === 'pickup' ? HANDOVER.pickup : [HANDOVER[job.fulfillment ?? ''], job.setup_location].filter(Boolean).join(' · '))
+              : job.setup_location
+            return (
+              <article key={job.id} className="stack" style={{ gap: 22, marginBottom: 48 }}>
+                <section className="split" style={{ padding: '40px 0 6px', alignItems: 'end' }}>
+                  <div className="stack" style={{ gap: 10, minWidth: 0 }}>
+                    <span className="row" style={{ gap: 10 }}><span className="eyebrow">Your job</span><JobStatusPill status={job.status} /></span>
+                    <h1 className="display hero-title" style={{ margin: 0, overflowWrap: 'anywhere' }}>{job.event_name || job.reference_number}</h1>
+                    <p className="muted" style={{ margin: 0 }}>{[place, `${isProduct ? 'Needed by' : 'Event'} ${prettyDate(job.date_required)}`].filter(Boolean).join(' · ')}</p>
+                  </div>
+                  <div className="ticket">
+                    <div className="between"><span className="t-label">Reference</span><span className="t-label">Countdown</span></div>
+                    <div className="between" style={{ marginTop: 8 }}>
+                      <span className="t-ref" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{job.reference_number}</span>
+                      <span className="display num" style={{ fontSize: 40, color: '#fff', whiteSpace: 'nowrap' }}>{days > 1 ? <>{days}<span className="small" style={{ marginLeft: 6, color: 'rgba(243,238,241,.65)', letterSpacing: 0 }}>days</span></> : countdownLabel(days)}</span>
                     </div>
-                    <div style={{ marginTop: '14px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                      {job.items.map((item, i) => (
-                        <span key={i} style={{ background: 'var(--bg)', border: '1px solid var(--charcoal-border)', padding: '3px 10px', fontSize: '12px', color: 'var(--charcoal-60)' }}>
-                          {item.quantity}× {item.name} · {item.size}
-                        </span>
-                      ))}
-                    </div>
-                    {job.notes && (
-                      <p style={{ margin: '10px 0 0', fontSize: '12px', color: 'var(--charcoal-60)', borderTop: '1px solid var(--charcoal-border)', paddingTop: 10, lineHeight: 1.5 }}>
-                        <strong style={{ color: '#aaa', textTransform: 'uppercase', fontSize: 10, letterSpacing: '1px' }}>Notes: </strong>{job.notes}
-                      </p>
+                  </div>
+                </section>
+
+                {/* Plan B: progress tracker */}
+
+                <div className="split">
+                  <div className="stack" style={{ gap: 22, minWidth: 0 }}>
+                    {waiting > 0 && (
+                      <div className="callout stack-sm">
+                        <div><b>{waiting} design{waiting === 1 ? ' is' : 's are'} waiting for your approval.</b><div className="small muted">We make everything as soon as it’s approved.</div></div>
+                        <button type="button" className="btn btn-ink" onClick={() => document.getElementById(`proofs-${job.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Review designs</button>
+                      </div>
+                    )}
+                    {unproofed.length > 0 && (
+                      <section className="stack" style={{ gap: 12 }}>
+                        <SecHead n="01" title="In design" aside={<span className="tiny muted">{unproofed.length} piece{unproofed.length === 1 ? '' : 's'}</span>} />
+                        {unproofed.map(({ it, idx }) => (
+                          <article key={idx} className="item-card" style={{ gridTemplateColumns: '1fr' }}>
+                            <div className="between" style={{ alignItems: 'start' }}>
+                              <span className="stack" style={{ gap: 4, minWidth: 0, overflowWrap: 'anywhere' }}><b>{it.name}</b><span className="small muted">{it.quantity} × {[it.size, it.material].filter(Boolean).join(' · ')}</span></span>
+                              <span className="pill pill-neutral">Designing</span>
+                            </div>
+                          </article>
+                        ))}
+                      </section>
                     )}
 
                     {/* ── Design proofs / approvals ─────────────────────────── */}
                     {proofItems.length > 0 && (
-                      <div style={{ marginTop: 16, borderTop: '1px solid var(--charcoal-border)', paddingTop: 16 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>Design Proofs</span>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: approvedCount === proofItems.length ? '#1B7F4F' : 'var(--charcoal-60)' }}>
-                            {approvedCount} of {proofItems.length} approved
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                          {proofItems.map(({ it, idx }) => {
-                            const key = `${job.id}:${idx}`
-                            const proofs = itemProofs(it)
-                            const status: ApprovalStatus = it.approval_status ?? 'pending'
-                            const busy = actioning === key
-                            const err = approvalError[key]
-                            return (
-                              <div key={idx} style={{ border: '1px solid var(--charcoal-border)', background: '#fff', display: 'flex', flexWrap: 'wrap', gap: 12, padding: 12, alignItems: 'flex-start' }}>
-                                {/* Thumbnails (one or more proofs) — latest-only keeps the newest big, earlier ones small/dim */}
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flexShrink: 0, alignItems: 'flex-start' }}>
-                                  {proofs.map((p, pi) => {
-                                    const u = proofUrls[job.id]?.[p]
-                                    // PDF/AI/EPS: the thumbnail is a preview (or a tile); the link opens the real file.
-                                    const fileU = !isImagePath(p) ? proofFileUrls[job.id]?.[p] : undefined
-                                    const older = proofs.length > 1 && designsMode(it) === 'latest' && pi > 0
-                                    const dim = older ? 56 : 84
-                                    return (
-                                      <div key={p} style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'center' }}>
-                                        <a href={fileU ?? u ?? undefined} target="_blank" rel="noopener noreferrer"
-                                           title={older ? 'Earlier design' : fileU ? `Open ${fileKindLabel(p)} file` : undefined}
-                                           style={{ display: 'block', width: dim, height: dim, background: '#eceae5', border: '1px solid var(--charcoal-border)', overflow: 'hidden', opacity: older ? 0.6 : 1 }}>
-                                          {u
-                                            ? <img src={u} alt={`Proof for ${it.name}`} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 3, boxSizing: 'border-box' }} />
-                                            : <span style={{ fontSize: 10, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>Loading…</span>}
-                                        </a>
-                                        {fileU && !older && (
-                                          <a href={fileU} target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--charcoal-60)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
-                                            {fileKindLabel(p)} ↗
-                                          </a>
-                                        )}
-                                      </div>
-                                    )
-                                  })}
-                                </div>
-                                {/* Body */}
-                                <div style={{ flex: 1, minWidth: 200 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-                                    <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--charcoal)' }}>{it.quantity}× {it.name}</span>
-                                    <ApprovalPill status={status} />
+                      <section id={`proofs-${job.id}`} className="stack" style={{ gap: 12, scrollMarginTop: 16 }}>
+                        <SecHead n="02" title="Designs" aside={<span className="tiny muted">{approvedCount} of {proofItems.length} approved</span>} />
+                        {proofItems.map(({ it, idx }) => {
+                          const key = `${job.id}:${idx}`
+                          const proofs = itemProofs(it)
+                          const status: ApprovalStatus = it.approval_status ?? 'pending'
+                          const busy = actioning === key
+                          const err = approvalError[key]
+                          // PDF/AI/EPS: the thumbnail is a preview (or a tile); the link opens the real file.
+                          const proofLink = (p: string, pi: number) => {
+                            const u = proofUrls[job.id]?.[p]
+                            const fileU = !isImagePath(p) ? proofFileUrls[job.id]?.[p] : undefined
+                            const older = proofs.length > 1 && designsMode(it) === 'latest' && pi > 0
+                            return { u, fileU, older }
+                          }
+                          const main = proofLink(proofs[0], 0)
+                          return (
+                            <article key={idx} className="item-card">
+                              {/* Thumbnails (one or more proofs) — latest-only keeps the newest big, earlier ones small/dim */}
+                              <div className="stack" style={{ gap: 6, alignContent: 'start', minWidth: 0 }}>
+                                <a className="thumb" href={main.fileU ?? main.u ?? undefined} target="_blank" rel="noopener noreferrer"
+                                   title={main.fileU ? `Open ${fileKindLabel(proofs[0])} file` : undefined} style={{ background: '#fff' }}>
+                                  {main.u
+                                    ? <img src={main.u} alt={`Proof for ${it.name}`} style={{ objectFit: 'contain', padding: 4 }} />
+                                    : <span className="tiny muted">Loading…</span>}
+                                </a>
+                                {main.fileU && (
+                                  <a className="link tiny" href={main.fileU} target="_blank" rel="noopener noreferrer" style={{ textAlign: 'center' }}>{fileKindLabel(proofs[0])} ↗</a>
+                                )}
+                              </div>
+                              {/* Body */}
+                              <div className="stack" style={{ gap: 10, minWidth: 0 }}>
+                                <div className="between" style={{ alignItems: 'start', flexWrap: 'wrap', gap: 8 }}>
+                                  <span className="stack" style={{ gap: 4, minWidth: 0, overflowWrap: 'anywhere' }}>
+                                    <b>{it.quantity}× {it.name}</b>
+                                    {it.size && <span className="small muted">{it.size}</span>}
+                                  </span>
+                                  <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
                                     {it.proof_source === 'client' && (
-                                      <span title="You uploaded this print-ready file yourself" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#1B4D3E', background: '#E8EFEB', border: '1px solid #b9d3c7', padding: '1px 6px', textTransform: 'uppercase' }}>Your file</span>
+                                      <span className="pill pill-ok" title="You uploaded this print-ready file yourself">Your file</span>
                                     )}
+                                    <ApprovalPill status={status} />
+                                  </span>
+                                </div>
+                                {proofs.length > 1 && (
+                                  <div className="earlier">
+                                    {proofs.slice(1).map((p, i) => {
+                                      const { u, fileU, older } = proofLink(p, i + 1)
+                                      return (
+                                        <span key={p} className="stack" style={{ gap: 3, justifyItems: 'center' }}>
+                                          <a href={fileU ?? u ?? undefined} target="_blank" rel="noopener noreferrer"
+                                             title={older ? 'Earlier design' : fileU ? `Open ${fileKindLabel(p)} file` : undefined}
+                                             style={{ opacity: older ? 0.6 : 1, display: 'grid', placeItems: 'center' }}>
+                                            {u
+                                              ? <img src={u} alt={`Proof for ${it.name}`} style={{ objectFit: 'contain', padding: 3 }} />
+                                              : <span className="tiny muted">…</span>}
+                                          </a>
+                                          {fileU && !older && (
+                                            <a className="link tiny" href={fileU} target="_blank" rel="noopener noreferrer" style={{ width: 'auto', height: 'auto', opacity: 1, border: 0, background: 'none' }}>{fileKindLabel(p)} ↗</a>
+                                          )}
+                                        </span>
+                                      )
+                                    })}
                                   </div>
-                                  {it.size && <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--charcoal-60)' }}>{it.size}</p>}
-                                  {it.admin_note && (
-                                    <div style={{ margin: '0 0 8px', padding: '8px 10px', background: '#faf9f7', border: '1px solid var(--charcoal-border)', borderLeft: '3px solid var(--coral)' }}>
-                                      <span style={{ display: 'block', fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--coral)', marginBottom: 3 }}>A note from us</span>
-                                      <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--charcoal)', whiteSpace: 'pre-wrap' }}>{it.admin_note}</p>
+                                )}
+                                {it.admin_note && (
+                                  <div className="msg shop" style={{ maxWidth: '100%' }}>
+                                    <div className="tiny muted" style={{ marginBottom: 3 }}>A note from us</div>
+                                    <p className="small" style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{it.admin_note}</p>
+                                  </div>
+                                )}
+                                {itemExamplePhotos(it).length > 0 && (
+                                  <div className="stack" style={{ gap: 6 }}>
+                                    <span className="label">How it might look</span>
+                                    <div className="earlier">
+                                      {itemExamplePhotos(it).map(p => {
+                                        const u = proofUrls[job.id]?.[p]
+                                        return (
+                                          <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer" style={{ opacity: 1, display: 'grid', placeItems: 'center' }}>
+                                            {u
+                                              ? <img src={u} alt="Example" style={{ objectFit: 'contain', padding: 3 }} />
+                                              : <span className="tiny muted">…</span>}
+                                          </a>
+                                        )
+                                      })}
                                     </div>
-                                  )}
-                                  {itemExamplePhotos(it).length > 0 && (
-                                    <div style={{ margin: '0 0 8px' }}>
-                                      <span style={{ display: 'block', fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--charcoal-60)', marginBottom: 6 }}>How it might look</span>
-                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                        {itemExamplePhotos(it).map(p => {
-                                          const u = proofUrls[job.id]?.[p]
-                                          return (
-                                            <a key={p} href={u ?? undefined} target="_blank" rel="noopener noreferrer"
-                                               style={{ display: 'block', width: 64, height: 64, background: '#eceae5', border: '1px solid var(--charcoal-border)', overflow: 'hidden' }}>
-                                              {u
-                                                ? <img src={u} alt="Example" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 3, boxSizing: 'border-box' }} />
-                                                : <span style={{ fontSize: 9, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>…</span>}
-                                            </a>
-                                          )
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-                                  {status === 'changes_requested' && it.client_note && (
-                                    <p style={{ margin: '0 0 8px', fontSize: 12, color: '#C62828', background: '#fff0f0', border: '1px solid #f6caca', padding: '6px 9px' }}>
-                                      You requested: “{it.client_note}”
-                                    </p>
-                                  )}
+                                  </div>
+                                )}
+                                {status === 'changes_requested' && it.client_note && (
+                                  <p className="alert" style={{ margin: 0, padding: '8px 12px', overflowWrap: 'anywhere' }}>
+                                    You requested: “{it.client_note}”
+                                  </p>
+                                )}
 
-                                  {/* Note box (request changes) */}
-                                  {noteOpen[key] ? (
-                                    <div>
-                                      <textarea
-                                        rows={2}
-                                        value={noteDraft[key] ?? ''}
-                                        onChange={e => setNoteDraft(prev => ({ ...prev, [key]: e.target.value }))}
-                                        placeholder="What needs to change?"
-                                        style={{ width: '100%', padding: '8px 9px', border: '1px solid #ddd', fontSize: 13, fontFamily: 'var(--font-body)', resize: 'vertical', boxSizing: 'border-box' }}
-                                      />
-                                      {err && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#dc2626' }}>{err}</p>}
-                                      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                                        <button onClick={() => submitApproval(job.id, idx, 'request_changes')} disabled={busy}
-                                          style={{ fontSize: 12, fontWeight: 700, padding: '8px 16px', background: '#C62828', color: '#fff', border: 'none', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1, fontFamily: 'var(--font-body)' }}>
-                                          {busy ? 'Sending…' : 'Send Request'}
-                                        </button>
-                                        <button onClick={() => { setNoteOpen(prev => ({ ...prev, [key]: false })); setApprovalError(prev => ({ ...prev, [key]: '' })) }} disabled={busy}
-                                          style={{ fontSize: 12, padding: '8px 16px', background: '#fff', border: '1px solid #ddd', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
-                                          Cancel
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                      {status !== 'approved' && (
-                                        <button onClick={() => submitApproval(job.id, idx, 'approve')} disabled={busy}
-                                          style={{ fontSize: 12, fontWeight: 700, padding: '8px 18px', background: '#1B7F4F', color: '#fff', border: 'none', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}>
-                                          {busy ? 'Saving…' : '✓ Approve'}
-                                        </button>
-                                      )}
-                                      <button onClick={() => { setNoteOpen(prev => ({ ...prev, [key]: true })); setNoteDraft(prev => ({ ...prev, [key]: prev[key] ?? '' })) }} disabled={busy}
-                                        style={{ fontSize: 12, fontWeight: 600, padding: '8px 18px', background: '#fff', color: status === 'approved' ? 'var(--charcoal-60)' : '#C62828', border: `1px solid ${status === 'approved' ? 'var(--charcoal-border)' : '#f6caca'}`, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
-                                        {status === 'approved' ? 'Request changes instead' : 'Request Changes'}
+                                {/* Note box (request changes) */}
+                                {noteOpen[key] ? (
+                                  <div className="stack" style={{ gap: 8 }}>
+                                    <textarea
+                                      className="input"
+                                      rows={2}
+                                      value={noteDraft[key] ?? ''}
+                                      onChange={e => setNoteDraft(prev => ({ ...prev, [key]: e.target.value }))}
+                                      placeholder="What needs to change?"
+                                    />
+                                    {err && <p className="err">{err}</p>}
+                                    <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
+                                      <button type="button" className="btn btn-ink btn-sm" onClick={() => submitApproval(job.id, idx, 'request_changes')} disabled={busy} style={{ opacity: busy ? 0.6 : 1 }}>
+                                        {busy ? 'Sending…' : 'Send Request'}
+                                      </button>
+                                      <button type="button" className="link tiny" onClick={() => { setNoteOpen(prev => ({ ...prev, [key]: false })); setApprovalError(prev => ({ ...prev, [key]: '' })) }} disabled={busy}>
+                                        Cancel
                                       </button>
                                     </div>
-                                  )}
-                                  {err && !noteOpen[key] && <p style={{ margin: '6px 0 0', fontSize: 11, color: '#dc2626' }}>{err}</p>}
-                                </div>
+                                  </div>
+                                ) : (
+                                  <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                                    {status !== 'approved' && (
+                                      <button type="button" className="btn btn-forest btn-sm" onClick={() => submitApproval(job.id, idx, 'approve')} disabled={busy} style={{ opacity: busy ? 0.6 : 1 }}>
+                                        {busy ? 'Saving…' : '✓ Approve'}
+                                      </button>
+                                    )}
+                                    <button type="button" className="btn btn-quiet btn-sm" onClick={() => { setNoteOpen(prev => ({ ...prev, [key]: true })); setNoteDraft(prev => ({ ...prev, [key]: prev[key] ?? '' })) }} disabled={busy}>
+                                      {status === 'approved' ? 'Request changes instead' : 'Request Changes'}
+                                    </button>
+                                  </div>
+                                )}
+                                {err && !noteOpen[key] && <p className="err">{err}</p>}
                               </div>
-                            )
-                          })}
-                        </div>
-                      </div>
+                            </article>
+                          )
+                        })}
+                      </section>
                     )}
 
                     {/* ── Client's own final artwork ─────────────────────────── */}
@@ -874,28 +779,28 @@ export default function PortalPage() {
                       if (closed || eligible.length === 0) return null
                       const open = !!finalOpen[job.id]
                       return (
-                        <div style={{ marginTop: 16, borderTop: '1px solid var(--charcoal-border)', paddingTop: 14 }}>
-                          <button onClick={() => setFinalOpen(prev => ({ ...prev, [job.id]: !open }))}
-                            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
-                            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>Have your own print-ready artwork?</span>
-                            <span style={{ fontSize: 11, color: 'var(--charcoal-60)' }}>{open ? '▴ hide' : '▾ upload & approve it yourself'}</span>
+                        <section className="panel" style={{ padding: 20, display: 'grid', gap: 12 }}>
+                          <button type="button" onClick={() => setFinalOpen(prev => ({ ...prev, [job.id]: !open }))} aria-expanded={open}
+                            className="row" style={{ gap: 8, flexWrap: 'wrap', width: '100%', textAlign: 'left', background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'var(--ink)' }}>
+                            <b>Have your own print-ready artwork?</b>
+                            <span className="tiny muted">{open ? '▴ hide' : '▾ upload & approve it yourself'}</span>
                           </button>
                           {open && (
-                            <div style={{ marginTop: 10 }}>
-                              <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--charcoal-60)', lineHeight: 1.5 }}>
+                            <div className="stack" style={{ gap: 10 }}>
+                              <p className="small muted" style={{ margin: 0 }}>
                                 If your designer already made the final file, upload it here and it&apos;s approved for print straight away — no need to wait for a proof from us. PDF, AI, EPS, DXF, SVG, PNG or JPG, up to {MAX_FILE_MB} MB.
                               </p>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              <div className="stack" style={{ gap: 8 }}>
                                 {eligible.map(({ it, idx }) => {
                                   const key = `${job.id}:${idx}`
                                   const busy = finalBusy === key
                                   const err = finalError[key]
                                   return (
-                                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: '1px solid var(--charcoal-border)', background: '#fff', padding: '8px 12px' }}>
-                                      <span style={{ flex: 1, minWidth: 140, fontSize: 13, fontWeight: 600, color: 'var(--charcoal)' }}>
-                                        {it.quantity}× {it.name} <span style={{ fontWeight: 400, color: 'var(--charcoal-60)' }}>· {it.size}</span>
+                                    <div key={idx} className="row" style={{ gap: 10, flexWrap: 'wrap', border: '1px solid var(--line)', borderRadius: 'var(--r-md)', background: 'var(--surface)', padding: '10px 12px' }}>
+                                      <span className="small" style={{ flex: 1, minWidth: 140, fontWeight: 500, overflowWrap: 'anywhere' }}>
+                                        {it.quantity}× {it.name} <span className="muted" style={{ fontWeight: 400 }}>· {it.size}</span>
                                       </span>
-                                      <label style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', background: busy ? '#f0f0f0' : '#1B7F4F', color: busy ? '#888' : '#fff', cursor: busy ? 'default' : 'pointer', fontFamily: 'var(--font-body)', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
+                                      <label className="btn btn-forest btn-sm" style={{ cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>
                                         {busy ? 'Uploading…' : '⬆ Upload final & approve'}
                                         <input type="file" multiple disabled={busy}
                                           accept=".pdf,.ai,.eps,.dxf,.svg,.png,.jpg,.jpeg,application/pdf,application/postscript,image/svg+xml,image/png,image/jpeg"
@@ -909,307 +814,313 @@ export default function PortalPage() {
                                           }} />
                                       </label>
                                       {finalPending[key]?.needs.map(n => (
-                                        <div key={n.path} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#fff8f6', border: '1px solid #f0c9bf', padding: '8px 12px', fontSize: 12 }}>
-                                          <span style={{ flex: 1, minWidth: 160 }}><strong>{n.name}</strong> uploaded ✓ — now add a <strong>screenshot of the design</strong> (JPG/PNG) so our team can see it. It&apos;s approved as soon as that&apos;s in.</span>
-                                          <label style={{ fontSize: 11, fontWeight: 700, padding: '6px 12px', background: busy ? '#f0f0f0' : 'var(--charcoal)', color: busy ? '#888' : '#fff', cursor: busy ? 'default' : 'pointer', whiteSpace: 'nowrap', fontFamily: 'var(--font-body)' }}>
+                                        <div key={n.path} className="callout stack-sm" style={{ width: '100%', padding: '12px 14px', flexWrap: 'wrap' }}>
+                                          <span className="small" style={{ flex: 1, minWidth: 160, overflowWrap: 'anywhere' }}><strong>{n.name}</strong> uploaded ✓ — now add a <strong>screenshot of the design</strong> (JPG/PNG) so our team can see it. It&apos;s approved as soon as that&apos;s in.</span>
+                                          <label className="btn btn-ink btn-sm" style={{ cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>
                                             {busy ? 'Saving…' : '🖼️ Add screenshot'}
                                             <input type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" disabled={busy} style={{ display: 'none' }}
                                               onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; addManualFinalPreview(job.id, idx, n.path, f) }} />
                                           </label>
                                         </div>
                                       ))}
-                                      {err && <p style={{ margin: 0, width: '100%', fontSize: 11, color: '#dc2626' }}>{err}</p>}
+                                      {err && <p className="err" style={{ width: '100%' }}>{err}</p>}
                                     </div>
                                   )
                                 })}
                               </div>
                             </div>
                           )}
-                        </div>
+                        </section>
                       )
                     })()}
+
+                    {/* Edit panel */}
+                    {editingJob === job.id && editForm && (
+                      <section className="panel" style={{ padding: 20, display: 'grid', gap: 14 }}>
+                        <h2 className="sec-title" style={{ margin: 0 }}>Edit brief</h2>
+                        {editError && <div className="alert" role="alert">{editError}</div>}
+                        <div className="grid2" style={{ gap: 10 }}>
+                          <label className="field">
+                            <span className="label">Due date</span>
+                            <input type="date" className="input" value={editForm.date_required}
+                              onChange={e => setEditForm(prev => prev ? { ...prev, date_required: e.target.value } : prev)} />
+                          </label>
+                          <label className="field">
+                            <span className="label">Event / Location</span>
+                            <input type="text" className="input" value={editForm.event_name}
+                              onChange={e => setEditForm(prev => prev ? { ...prev, event_name: e.target.value } : prev)}
+                              placeholder="Optional" />
+                          </label>
+                        </div>
+                        <label className="field">
+                          <span className="label">Notes / Special instructions</span>
+                          <textarea className="input" value={editForm.notes} rows={3}
+                            onChange={e => setEditForm(prev => prev ? { ...prev, notes: e.target.value } : prev)}
+                            placeholder="Optional" />
+                        </label>
+                        <div className="stack" style={{ gap: 8 }}>
+                          <span className="label">Reference photos</span>
+                          <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                            {editForm.file_paths.map(path => {
+                              const name = path.split('/').pop() ?? path
+                              return (
+                                <div key={path} className="tiny" style={FILE_CHIP}>
+                                  <span style={FILE_NAME}>{name}</span>
+                                  <button
+                                    type="button"
+                                    className="link tiny"
+                                    onClick={() => setEditForm(prev => prev ? { ...prev, file_paths: prev.file_paths.filter(p => p !== path) } : prev)}
+                                    title="Remove photo"
+                                    style={{ color: 'var(--rose)', flexShrink: 0 }}
+                                  >×</button>
+                                </div>
+                              )
+                            })}
+                            {editForm.file_paths.length < MAX_FILES && (
+                              <label className="btn btn-quiet btn-sm" style={{ cursor: uploadingPhoto ? 'default' : 'pointer', opacity: uploadingPhoto ? 0.6 : 1 }}>
+                                <input
+                                  type="file"
+                                  accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
+                                  style={{ display: 'none' }}
+                                  disabled={uploadingPhoto}
+                                  onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addPhoto(f) } }}
+                                />
+                                {uploadingPhoto ? 'Uploading…' : '+ Add Photo'}
+                              </label>
+                            )}
+                          </div>
+                          {uploadPhotoError && <p className="err">{uploadPhotoError}</p>}
+                          {editForm.file_paths.length > 0 && <p className="tiny muted" style={{ margin: 0 }}>Removing a photo cannot be undone after saving.</p>}
+                        </div>
+
+                        <div className="stack" style={{ gap: 8 }}>
+                          <span className="label">Items</span>
+                          {editForm.items.map((item, idx) => {
+                            const photos = item.ref_photos ?? []
+                            const uploading = editItemUploading === idx
+                            return (
+                            <div key={idx} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-md)', background: 'var(--surface)', padding: 12, display: 'grid', gap: 8 }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '76px minmax(0, 1fr) auto', gap: 8, alignItems: 'center' }}>
+                                <input type="number" min={1} className="input" aria-label="Quantity" value={item.quantity}
+                                  onChange={e => updateEditItem(idx, 'quantity', parseInt(e.target.value) || 1)}
+                                  style={{ textAlign: 'center', paddingLeft: 8, paddingRight: 8 }} />
+                                <input type="text" className="input" value={item.name}
+                                  onChange={e => updateEditItem(idx, 'name', e.target.value)}
+                                  placeholder="Item name" />
+                                <button type="button" className="link tiny" onClick={() => setEditForm(prev => prev ? { ...prev, items: prev.items.filter((_, i) => i !== idx) } : prev)}
+                                  disabled={editForm.items.length === 1}
+                                  aria-label="Remove item"
+                                  style={{ color: 'var(--rose)', fontSize: 18, padding: '0 4px', opacity: editForm.items.length === 1 ? 0.3 : 1 }}>×</button>
+                              </div>
+                              <div className="grid2" style={{ gap: 8 }}>
+                                <input type="text" className="input" value={item.size}
+                                  onChange={e => updateEditItem(idx, 'size', e.target.value)}
+                                  placeholder="Size" />
+                                <select className="input" value={item.material}
+                                  onChange={e => updateEditItem(idx, 'material', e.target.value)}>
+                                  {MATERIALS.map(m => (
+                                    <option key={m} value={m}>{m}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <textarea
+                                className="input"
+                                value={item.description ?? ''}
+                                rows={2}
+                                onChange={e => updateEditItem(idx, 'description', e.target.value)}
+                                placeholder="Notes for this item (optional) — colours, finish, placement…" />
+                              <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                                {photos.map(path => {
+                                  const name = path.split('/').pop() ?? path
+                                  return (
+                                    <div key={path} className="tiny" style={FILE_CHIP}>
+                                      <span style={{ ...FILE_NAME, maxWidth: 150 }}>{name}</span>
+                                      <button type="button" className="link tiny" onClick={() => removeEditItemFile(idx, path)} title="Remove"
+                                        style={{ color: 'var(--rose)', flexShrink: 0 }}>×</button>
+                                    </div>
+                                  )
+                                })}
+                                {photos.length < 5 && (
+                                  <label className="btn btn-quiet btn-sm" style={{ cursor: uploading ? 'default' : 'pointer', opacity: uploading ? 0.6 : 1 }}>
+                                    <input
+                                      type="file"
+                                      accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
+                                      style={{ display: 'none' }}
+                                      disabled={uploading}
+                                      onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addEditItemFile(idx, f) } }}
+                                    />
+                                    {uploading ? 'Uploading…' : '+ Example / file'}
+                                  </label>
+                                )}
+                              </div>
+                            </div>
+                            )
+                          })}
+                          {editForm.items.length < MAX_PIECES && (
+                            <button type="button" className="btn btn-quiet btn-sm" style={{ justifySelf: 'start' }}
+                              onClick={() => setEditForm(prev => prev ? { ...prev, items: [...prev.items, { name: '', quantity: 1, size: '', material: 'vinyl' }] } : prev)}>
+                              + Add Item
+                            </button>
+                          )}
+                        </div>
+                        <div className="row" style={{ gap: 14, justifyContent: 'flex-end' }}>
+                          <button type="button" className="link tiny" onClick={cancelEdit}>Cancel</button>
+                          <button type="button" className="btn btn-ink btn-sm" onClick={() => saveEdit(job.id)} disabled={savingEdit} style={{ opacity: savingEdit ? 0.6 : 1 }}>
+                            {savingEdit ? 'Saving…' : 'Save Changes'}
+                          </button>
+                        </div>
+                      </section>
+                    )}
+
+                    {/* Add-to-Job panel (append-only, in-progress jobs) */}
+                    {addingJob === job.id && (
+                      <section className="panel" style={{ padding: 20, display: 'grid', gap: 14 }}>
+                        <div className="stack" style={{ gap: 6 }}>
+                          <h2 className="sec-title" style={{ margin: 0 }}>Add to this job</h2>
+                          <p className="small muted" style={{ margin: 0 }}>
+                            Add new items or documents to a job already in production. Existing items aren&apos;t affected — we&apos;ll quote and proof the additions separately.
+                          </p>
+                        </div>
+                        {addError && <div className="alert" role="alert">{addError}</div>}
+
+                        <div className="stack" style={{ gap: 8 }}>
+                          <span className="label">New items</span>
+                          {addItems.map((item, idx) => {
+                            const photos = item.ref_photos ?? []
+                            const uploading = addItemUploading === idx
+                            return (
+                            <div key={idx} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-md)', background: 'var(--surface)', padding: 12, display: 'grid', gap: 8 }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '76px minmax(0, 1fr) auto', gap: 8, alignItems: 'center' }}>
+                                <input type="number" min={1} className="input" aria-label="Quantity" value={item.quantity}
+                                  onChange={e => updateAddItem(idx, 'quantity', parseInt(e.target.value) || 1)}
+                                  style={{ textAlign: 'center', paddingLeft: 8, paddingRight: 8 }} />
+                                <input type="text" className="input" value={item.name}
+                                  onChange={e => updateAddItem(idx, 'name', e.target.value)}
+                                  placeholder="Item name" />
+                                <button type="button" className="link tiny" onClick={() => setAddItems(prev => prev.filter((_, i) => i !== idx))}
+                                  aria-label="Remove item"
+                                  style={{ color: 'var(--rose)', fontSize: 18, padding: '0 4px' }}>×</button>
+                              </div>
+                              <div className="grid2" style={{ gap: 8 }}>
+                                <input type="text" className="input" value={item.size}
+                                  onChange={e => updateAddItem(idx, 'size', e.target.value)}
+                                  placeholder="Size" />
+                                <select className="input" value={item.material}
+                                  onChange={e => updateAddItem(idx, 'material', e.target.value)}>
+                                  {MATERIALS.map(m => (
+                                    <option key={m} value={m}>{m}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <textarea
+                                className="input"
+                                value={item.description ?? ''}
+                                rows={2}
+                                onChange={e => updateAddItem(idx, 'description', e.target.value)}
+                                placeholder="Notes for this item (optional) — colours, finish, placement…" />
+                              <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                                {photos.map(path => {
+                                  const name = path.split('/').pop() ?? path
+                                  return (
+                                    <div key={path} className="tiny" style={FILE_CHIP}>
+                                      <span style={{ ...FILE_NAME, maxWidth: 150 }}>{name}</span>
+                                      <button type="button" className="link tiny" onClick={() => removeItemFile(idx, path)} title="Remove"
+                                        style={{ color: 'var(--rose)', flexShrink: 0 }}>×</button>
+                                    </div>
+                                  )
+                                })}
+                                {photos.length < 5 && (
+                                  <label className="btn btn-quiet btn-sm" style={{ cursor: uploading ? 'default' : 'pointer', opacity: uploading ? 0.6 : 1 }}>
+                                    <input
+                                      type="file"
+                                      accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
+                                      style={{ display: 'none' }}
+                                      disabled={uploading}
+                                      onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addItemFile(idx, f) } }}
+                                    />
+                                    {uploading ? 'Uploading…' : '+ Example / file'}
+                                  </label>
+                                )}
+                              </div>
+                            </div>
+                            )
+                          })}
+                          {addItems.length < MAX_PIECES && (
+                            <button type="button" className="btn btn-quiet btn-sm" style={{ justifySelf: 'start' }}
+                              onClick={() => setAddItems(prev => [...prev, { name: '', quantity: 1, size: '', material: 'vinyl' }])}>
+                              + Add Item
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="stack" style={{ gap: 8 }}>
+                          <span className="label">New documents / photos</span>
+                          <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                            {addFiles.map(path => {
+                              const name = path.split('/').pop() ?? path
+                              return (
+                                <div key={path} className="tiny" style={FILE_CHIP}>
+                                  <span style={FILE_NAME}>{name}</span>
+                                  <button
+                                    type="button"
+                                    className="link tiny"
+                                    onClick={() => setAddFiles(prev => prev.filter(p => p !== path))}
+                                    title="Remove file"
+                                    style={{ color: 'var(--rose)', flexShrink: 0 }}
+                                  >×</button>
+                                </div>
+                              )
+                            })}
+                            {addFiles.length < MAX_FILES && (
+                              <label className="btn btn-quiet btn-sm" style={{ cursor: addUploading ? 'default' : 'pointer', opacity: addUploading ? 0.6 : 1 }}>
+                                <input
+                                  type="file"
+                                  accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
+                                  style={{ display: 'none' }}
+                                  disabled={addUploading}
+                                  onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addExtraFile(f) } }}
+                                />
+                                {addUploading ? 'Uploading…' : '+ Add File'}
+                              </label>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="row" style={{ gap: 14, justifyContent: 'flex-end' }}>
+                          <button type="button" className="link tiny" onClick={cancelAdd}>Cancel</button>
+                          <button type="button" className="btn btn-ink btn-sm" onClick={() => saveAdd(job.id)} disabled={savingAdd} style={{ opacity: savingAdd ? 0.6 : 1 }}>
+                            {savingAdd ? 'Adding…' : 'Add to Job'}
+                          </button>
+                        </div>
+                      </section>
+                    )}
                   </div>
-
-                  {/* Edit panel */}
-                  {editingJob === job.id && editForm && (
-                    <div style={{ padding: '18px 24px', borderTop: '2px solid var(--coral)', background: '#fffdf9' }}>
-                      <p style={{ margin: '0 0 14px', fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>Edit Brief</p>
-                      {editError && (
-                        <div style={{ background: '#fff0f0', border: '1px solid #fca5a5', color: '#b91c1c', fontSize: 12, padding: '8px 12px', marginBottom: 12 }}>{editError}</div>
-                      )}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
-                          Due Date
-                          <input type="date" value={editForm.date_required}
-                            onChange={e => setEditForm(prev => prev ? { ...prev, date_required: e.target.value } : prev)}
-                            style={{ padding: '7px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }} />
-                        </label>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
-                          Event / Location
-                          <input type="text" value={editForm.event_name}
-                            onChange={e => setEditForm(prev => prev ? { ...prev, event_name: e.target.value } : prev)}
-                            placeholder="Optional"
-                            style={{ padding: '7px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }} />
-                        </label>
-                      </div>
-                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 14 }}>
-                        Notes / Special Instructions
-                        <textarea value={editForm.notes} rows={3}
-                          onChange={e => setEditForm(prev => prev ? { ...prev, notes: e.target.value } : prev)}
-                          placeholder="Optional"
-                          style={{ padding: '8px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', resize: 'vertical' }} />
-                      </label>
-                      <div style={{ marginBottom: 14 }}>
-                        <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Reference Photos</p>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-                          {editForm.file_paths.map(path => {
-                            const name = path.split('/').pop() ?? path
-                            return (
-                              <div key={path} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg)', border: '1px solid var(--charcoal-border)', padding: '5px 8px' }}>
-                                <span style={{ fontSize: 12, color: 'var(--charcoal)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-                                <button
-                                  onClick={() => setEditForm(prev => prev ? { ...prev, file_paths: prev.file_paths.filter(p => p !== path) } : prev)}
-                                  title="Remove photo"
-                                  style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 14, fontWeight: 700, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
-                                >×</button>
-                              </div>
-                            )
-                          })}
-                          {editForm.file_paths.length < MAX_FILES && (
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: uploadingPhoto ? 'var(--charcoal-60)' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '5px 12px', cursor: uploadingPhoto ? 'default' : 'pointer' }}>
-                              <input
-                                type="file"
-                                accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
-                                style={{ display: 'none' }}
-                                disabled={uploadingPhoto}
-                                onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addPhoto(f) } }}
-                              />
-                              {uploadingPhoto ? 'Uploading…' : '+ Add Photo'}
-                            </label>
-                          )}
-                        </div>
-                        {uploadPhotoError && <p style={{ margin: '0 0 4px', fontSize: 11, color: '#dc2626' }}>{uploadPhotoError}</p>}
-                        {editForm.file_paths.length > 0 && <p style={{ margin: 0, fontSize: 11, color: 'var(--charcoal-60)' }}>Removing a photo cannot be undone after saving.</p>}
-                      </div>
-
-                      <div style={{ marginBottom: 14 }}>
-                        <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Items</p>
-                        {editForm.items.map((item, idx) => {
-                          const photos = item.ref_photos ?? []
-                          const uploading = editItemUploading === idx
-                          return (
-                          <div key={idx} style={{ border: '1px solid var(--charcoal-border)', background: '#fff', padding: 10, marginBottom: 8 }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 110px 130px 30px', gap: 6, alignItems: 'center' }}>
-                              <input type="number" min={1} value={item.quantity}
-                                onChange={e => updateEditItem(idx, 'quantity', parseInt(e.target.value) || 1)}
-                                style={{ padding: '6px 4px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', textAlign: 'center' }} />
-                              <input type="text" value={item.name}
-                                onChange={e => updateEditItem(idx, 'name', e.target.value)}
-                                placeholder="Item name"
-                                style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }} />
-                              <input type="text" value={item.size}
-                                onChange={e => updateEditItem(idx, 'size', e.target.value)}
-                                placeholder="Size"
-                                style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }} />
-                              <select value={item.material}
-                                onChange={e => updateEditItem(idx, 'material', e.target.value)}
-                                style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}>
-                                {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','metal','other'].map(m => (
-                                  <option key={m} value={m}>{m}</option>
-                                ))}
-                              </select>
-                              <button onClick={() => setEditForm(prev => prev ? { ...prev, items: prev.items.filter((_, i) => i !== idx) } : prev)}
-                                disabled={editForm.items.length === 1}
-                                style={{ background: 'none', border: '1px solid #fca5a5', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: '3px 6px', opacity: editForm.items.length === 1 ? 0.3 : 1 }}>×</button>
-                            </div>
-                            <textarea
-                              value={item.description ?? ''}
-                              rows={2}
-                              onChange={e => updateEditItem(idx, 'description', e.target.value)}
-                              placeholder="Notes for this item (optional) — colours, finish, placement…"
-                              style={{ width: '100%', marginTop: 6, padding: '7px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', resize: 'vertical', boxSizing: 'border-box' }} />
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, alignItems: 'center' }}>
-                              {photos.map(path => {
-                                const name = path.split('/').pop() ?? path
-                                return (
-                                  <div key={path} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--bg)', border: '1px solid var(--charcoal-border)', padding: '4px 7px' }}>
-                                    <span style={{ fontSize: 11, color: 'var(--charcoal)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-                                    <button onClick={() => removeEditItemFile(idx, path)} title="Remove"
-                                      style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}>×</button>
-                                  </div>
-                                )
-                              })}
-                              {photos.length < 5 && (
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: uploading ? 'var(--charcoal-60)' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '4px 10px', cursor: uploading ? 'default' : 'pointer' }}>
-                                  <input
-                                    type="file"
-                                    accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
-                                    style={{ display: 'none' }}
-                                    disabled={uploading}
-                                    onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addEditItemFile(idx, f) } }}
-                                  />
-                                  {uploading ? 'Uploading…' : '+ Example / file'}
-                                </label>
-                              )}
-                            </div>
-                          </div>
-                          )
-                        })}
-                        {editForm.items.length < MAX_PIECES && (
-                          <button onClick={() => setEditForm(prev => prev ? { ...prev, items: [...prev.items, { name: '', quantity: 1, size: '', material: 'vinyl' }] } : prev)}
-                            style={{ fontSize: 11, fontWeight: 600, color: 'var(--coral)', background: 'none', border: '1px dashed var(--coral)66', padding: '5px 14px', cursor: 'pointer', fontFamily: 'var(--font-body)', marginTop: 4 }}>
-                            + Add Item
-                          </button>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                        <button onClick={cancelEdit} style={{ fontSize: 12, padding: '7px 18px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Cancel</button>
-                        <button onClick={() => saveEdit(job.id)} disabled={savingEdit}
-                          style={{ fontSize: 12, fontWeight: 700, padding: '7px 20px', background: 'var(--coral)', color: '#fff', border: 'none', cursor: savingEdit ? 'default' : 'pointer', opacity: savingEdit ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}>
-                          {savingEdit ? 'Saving…' : 'Save Changes'}
-                        </button>
-                      </div>
+                  <aside className="sticky stack" style={{ gap: 16, minWidth: 0 }}>
+                    {/* Plan B: deposit card */}
+                    <div className="panel" style={{ padding: 22, display: 'grid', gap: 10, overflowWrap: 'anywhere' }}>
+                      <span className="label">Details</span>
+                      <div className="small"><span className="muted">Sent</span><br />{prettyDate(job.submitted_at.slice(0, 10))}</div>
+                      {!isProduct && job.setup_location && <div className="small"><span className="muted">Setup</span><br />{[job.setup_time, job.setup_location].filter(Boolean).join(' · ')}</div>}
+                      {!isProduct && job.removal_location && <div className="small"><span className="muted">Removal</span><br />{[job.removal_time, job.removal_location].filter(Boolean).join(' · ')}</div>}
+                      {isProduct && <div className="small"><span className="muted">Hand-over</span><br />{place || '—'}{job.setup_time ? ` · ${job.setup_time}` : ''}</div>}
+                      {job.notes && <div className="small"><span className="muted">Notes</span><br />{job.notes}</div>}
+                      <hr className="rule" />
+                      {canEdit && <button type="button" className="btn btn-quiet btn-sm" onClick={() => editingJob === job.id ? cancelEdit() : startEdit(job)}>{editingJob === job.id ? 'Cancel editing' : 'Edit brief'}</button>}
+                      {canAdd && <button type="button" className="btn btn-quiet btn-sm" onClick={() => addingJob === job.id ? cancelAdd() : startAdd(job)}><Plus size={14} /> {addingJob === job.id ? 'Cancel' : 'Add a piece to this job'}</button>}
                     </div>
-                  )}
-
-                  {/* Add-to-Job panel (append-only, in-progress jobs) */}
-                  {addingJob === job.id && (
-                    <div style={{ padding: '18px 24px', borderTop: '2px solid var(--coral)', background: '#fffdf9' }}>
-                      <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>Add to this Job</p>
-                      <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--charcoal-60)', lineHeight: 1.5 }}>
-                        Add new items or documents to a job already in production. Existing items aren&apos;t affected — we&apos;ll quote and proof the additions separately.
-                      </p>
-                      {addError && (
-                        <div style={{ background: '#fff0f0', border: '1px solid #fca5a5', color: '#b91c1c', fontSize: 12, padding: '8px 12px', marginBottom: 12 }}>{addError}</div>
-                      )}
-
-                      <div style={{ marginBottom: 14 }}>
-                        <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>New Items</p>
-                        {addItems.map((item, idx) => {
-                          const photos = item.ref_photos ?? []
-                          const uploading = addItemUploading === idx
-                          return (
-                          <div key={idx} style={{ border: '1px solid var(--charcoal-border)', background: '#fff', padding: 10, marginBottom: 8 }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 110px 130px 30px', gap: 6, alignItems: 'center' }}>
-                              <input type="number" min={1} value={item.quantity}
-                                onChange={e => updateAddItem(idx, 'quantity', parseInt(e.target.value) || 1)}
-                                style={{ padding: '6px 4px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', textAlign: 'center' }} />
-                              <input type="text" value={item.name}
-                                onChange={e => updateAddItem(idx, 'name', e.target.value)}
-                                placeholder="Item name"
-                                style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }} />
-                              <input type="text" value={item.size}
-                                onChange={e => updateAddItem(idx, 'size', e.target.value)}
-                                placeholder="Size"
-                                style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }} />
-                              <select value={item.material}
-                                onChange={e => updateAddItem(idx, 'material', e.target.value)}
-                                style={{ padding: '6px 6px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)' }}>
-                                {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','metal','other'].map(m => (
-                                  <option key={m} value={m}>{m}</option>
-                                ))}
-                              </select>
-                              <button onClick={() => setAddItems(prev => prev.filter((_, i) => i !== idx))}
-                                style={{ background: 'none', border: '1px solid #fca5a5', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: '3px 6px' }}>×</button>
-                            </div>
-                            <textarea
-                              value={item.description ?? ''}
-                              rows={2}
-                              onChange={e => updateAddItem(idx, 'description', e.target.value)}
-                              placeholder="Notes for this item (optional) — colours, finish, placement…"
-                              style={{ width: '100%', marginTop: 6, padding: '7px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', resize: 'vertical', boxSizing: 'border-box' }} />
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, alignItems: 'center' }}>
-                              {photos.map(path => {
-                                const name = path.split('/').pop() ?? path
-                                return (
-                                  <div key={path} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--bg)', border: '1px solid var(--charcoal-border)', padding: '4px 7px' }}>
-                                    <span style={{ fontSize: 11, color: 'var(--charcoal)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-                                    <button onClick={() => removeItemFile(idx, path)} title="Remove"
-                                      style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}>×</button>
-                                  </div>
-                                )
-                              })}
-                              {photos.length < 5 && (
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: uploading ? 'var(--charcoal-60)' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '4px 10px', cursor: uploading ? 'default' : 'pointer' }}>
-                                  <input
-                                    type="file"
-                                    accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
-                                    style={{ display: 'none' }}
-                                    disabled={uploading}
-                                    onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addItemFile(idx, f) } }}
-                                  />
-                                  {uploading ? 'Uploading…' : '+ Example / file'}
-                                </label>
-                              )}
-                            </div>
-                          </div>
-                          )
-                        })}
-                        {addItems.length < MAX_PIECES && (
-                          <button onClick={() => setAddItems(prev => [...prev, { name: '', quantity: 1, size: '', material: 'vinyl' }])}
-                            style={{ fontSize: 11, fontWeight: 600, color: 'var(--coral)', background: 'none', border: '1px dashed var(--coral)66', padding: '5px 14px', cursor: 'pointer', fontFamily: 'var(--font-body)', marginTop: 4 }}>
-                            + Add Item
-                          </button>
-                        )}
-                      </div>
-
-                      <div style={{ marginBottom: 14 }}>
-                        <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>New Documents / Photos</p>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-                          {addFiles.map(path => {
-                            const name = path.split('/').pop() ?? path
-                            return (
-                              <div key={path} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg)', border: '1px solid var(--charcoal-border)', padding: '5px 8px' }}>
-                                <span style={{ fontSize: 12, color: 'var(--charcoal)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-                                <button
-                                  onClick={() => setAddFiles(prev => prev.filter(p => p !== path))}
-                                  title="Remove file"
-                                  style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 14, fontWeight: 700, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
-                                >×</button>
-                              </div>
-                            )
-                          })}
-                          {addFiles.length < MAX_FILES && (
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: addUploading ? 'var(--charcoal-60)' : 'var(--coral)', border: '1px dashed var(--coral)66', padding: '5px 12px', cursor: addUploading ? 'default' : 'pointer' }}>
-                              <input
-                                type="file"
-                                accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
-                                style={{ display: 'none' }}
-                                disabled={addUploading}
-                                onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addExtraFile(f) } }}
-                              />
-                              {addUploading ? 'Uploading…' : '+ Add File'}
-                            </label>
-                          )}
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                        <button onClick={cancelAdd} style={{ fontSize: 12, padding: '7px 18px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Cancel</button>
-                        <button onClick={() => saveAdd(job.id)} disabled={savingAdd}
-                          style={{ fontSize: 12, fontWeight: 700, padding: '7px 20px', background: 'var(--coral)', color: '#fff', border: 'none', cursor: savingAdd ? 'default' : 'pointer', opacity: savingAdd ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}>
-                          {savingAdd ? 'Adding…' : 'Add to Job'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  </aside>
                 </div>
-              )})}
-            </div>
-
-            <p style={{ marginTop: '20px', fontSize: '12px', color: 'var(--charcoal-60)', textAlign: 'center' }}>
-              Questions about a job? Email <a href="mailto:hello@ddfevents.ca" style={{ color: 'var(--coral)', textDecoration: 'none', fontWeight: 600 }}>hello@ddfevents.ca</a> with your reference number.
-            </p>
-          </>
-        )}
-      </div>
-
-      {/* Footer */}
-      <footer style={{ background: 'var(--charcoal)', padding: '20px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid var(--coral)', flexWrap: 'wrap', gap: '8px' }}>
-        <img src="/logo-ddfpixel.png" alt="DDF x Pixel" style={{ height: '24px', filter: 'brightness(0) invert(1)' }} />
-        <span style={{ fontSize: '12px', color: '#555', fontFamily: 'var(--font-body)' }}>© 2026 DDF x Pixel</span>
-        <a href="/" style={{ fontSize: '12px', color: '#666', textDecoration: 'none' }}>Submit a brief →</a>
-      </footer>
-    </div>
+                <nav className="dock only-sm" aria-label="Quick actions">
+                  <button type="button" className="d-btn" aria-label="Top of page" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><Home size={18} /></button>
+                  {canAdd && <button type="button" className="fab" aria-label="Add a piece" onClick={() => startAdd(job)}><Plus size={22} /></button>}
+                  <button type="button" className="d-btn" aria-label="Designs" onClick={() => document.getElementById(`proofs-${job.id}`)?.scrollIntoView({ behavior: 'smooth' })}><MessageCircle size={18} /></button>
+                </nav>
+              </article>
+            )
+          })}
+        </>
+      )}
+      <SiteFoot brand={BRAND} />
+    </Page>
   )
 }
