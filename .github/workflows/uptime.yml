@@ -1,0 +1,22 @@
+name: uptime
+on:
+  schedule:
+    - cron: "17 * * * *"   # hourly
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check jobs.ddfpixel.com
+        env:
+          NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 https://jobs.ddfpixel.com/api/health || echo 000)
+          echo "health: $code"
+          if [ "$code" != "200" ]; then
+            curl -fsS -H "Title: DDF intake unreachable" -H "Priority: 5" \
+              -d "jobs.ddfpixel.com/api/health returned $code at $(date -u). Check the shop PC (power, internet, Docker)." \
+              "$NTFY_TOPIC_URL" || true
+            exit 1
+          fi

@@ -2,7 +2,7 @@
 
 > **For Claude (and humans): read this before exploring the code.** It maps both
 > apps, their integration contracts, what shipped recently, and the agreed next
-> steps. Last full update: **2026-07-04**.
+> steps. Last full update: **2026-07-04**; intake hosting updated **2026-11-16**.
 
 ## The two apps
 
@@ -10,15 +10,26 @@
 |---|---|---|
 | Path | `~/Documents/Claude/ddf-intake` | `~/Documents/Claude/command-centre` |
 | GitHub | `ExotikPixel/ddf-intake` | `ExotikPixel/flowdesk` |
-| Prod URL | `jobs.ddfpixel.com` | `www.getflowdesk.ca` |
-| Vercel project | `ddf-intake` (team `info-exotikwrapzs-projects`, **Hobby plan** → crons max 1×/day) | `flowdesk-akv9` (same team) |
-| Supabase | `pbgyekhyoihietqjrfpb` — `jobs.id` is **bigint** | `lkxdqwglzcvcgbrojbxd` — ids are **uuid** (has its own unrelated `jobs` table — never run intake SQL here) |
+| Prod URL | `jobs.ddfpixel.com` (Cloudflare Tunnel → Windows shop PC, Docker in WSL2) | `www.getflowdesk.ca` |
+| Vercel project | `ddf-intake` (detached: domain removed, auto-deploy off — kept only for history) | `flowdesk-akv9` (same team) |
+| Supabase | **none** (Postgres 17 container; schema `db/schema.sql`; `jobs.id` bigint, new ids start at 1,000,000). Old project `pbgyekhyoihietqjrfpb` is restricted; Phase 2 recovers its data | `lkxdqwglzcvcgbrojbxd` — ids are **uuid** (has its own unrelated `jobs` table — never run intake SQL here) |
 | Purpose | Client-facing: brief intake, design proofs, approvals, per-item chat, client portal | Internal: Kanban job boards, invoices/estimates/receipts (Square), to-dos, crew views |
 
-- **Deploy workflow: push `main` → prod.** No PR gate. Preview builds fail (Supabase env is Production-only) — ignore them.
+- **Deploy (intake):** push to `main`, then on the shop PC (Ubuntu/WSL2) run `cd ~/ddf-intake && git checkout main && ./scripts/deploy.sh`. Command Centre still deploys on push to `main` via Vercel.
 - **Local CC dev runs on `localhost:4000` and writes to the PRODUCTION Supabase.** Intake's local `.env.local` points its CC webhooks at localhost:4000; **prod env points at getflowdesk.ca** (verified).
 - Vercel env vars on flowdesk are **"sensitive"**: `vercel env pull` returns `""` for them. That does NOT mean they're empty.
 - A separate SaaS fork lives at `~/Documents/Claude/proofdeck` (own repo/Vercel/Supabase). ddf-intake stays stable; don't SaaS-ify it here.
+
+## Self-hosting (since 2026-11)
+- **Status:** built on branch `supabase-exit` (plan `docs/superpowers/plans/2026-11-15-supabase-exit-phase1.md`). Until plan Task 22 (go-live) is done, prod is still the old Vercel + Supabase deploy.
+- Host: Windows shop PC, Docker Desktop + WSL2 Ubuntu. Repo `~/ddf-intake`, data `~/DDF-Data/{files,backups,ops-state}`.
+- Services: db (Postgres 17), app (Next standalone), ops (health/backups/off-site/kanban loop), tunnel (cloudflared).
+- Files: local disk under the old Supabase keys (`uploads/...`). Upload: PUT `/upload/<token>`. Download: `/f/<token>` (HMAC, `FILE_LINK_SECRET`).
+- Admin login: `admin_users` + cookie JWT (`AUTH_SECRET`). Manage with `npm run admin:set -- <email>`; a password reset signs out existing sessions.
+- Clients: no-login portal only (ref # + email). Review links signed with `REVIEW_LINK_SECRET` (= old value).
+- Backups: ops loop dumps the DB daily (14 kept locally), copies DB + files to R2 `ddf-backups`, weekly ntfy report. Restore: `RESTORE.md`.
+- Offline page: Cloudflare Worker `ddf-offline-page` (`cloudflare/offline-worker`). Uptime: `.github/workflows/uptime.yml`.
+- DNS + email forwarding: Cloudflare (moved from Namecheap 2026-11).
 
 ## Integration contracts (intake → CC)
 
@@ -29,7 +40,7 @@ All secret-gated by `INTAKE_WEBHOOK_SECRET` (header `x-intake-secret`), org reso
 3. **Status callback** — CC → intake `src/app/api/cc/status-callback/route.ts` (exists; currently minimal — future job-tracker hook).
 
 ### Self-healing Kanban sync (intake side, live 2026-07-03)
-On failed push: quiet retries at 30s/90s post-response (Next `after()`) → still failing lands in `kanban_sync_queue` (table: `SUPABASE_KANBAN_RETRY_QUEUE.sql`, already run in prod) with a soft priority-4 ntfy → drained by any later successful sync (limit 3) and by daily cron `GET /api/cron/kanban-retry` (12:00 UTC, `CRON_SECRET` Bearer). Recovery pings priority 3; persistent failure alarms priority 5. **A loud alarm now means CC is genuinely down.**
+On failed push: quiet retries at 30s/90s post-response (Next `after()`) → still failing lands in `kanban_sync_queue` (table in `db/schema.sql`) with a soft priority-4 ntfy → drained by any later successful sync (limit 3) and by `GET /api/cron/kanban-retry` (`CRON_SECRET` Bearer), called every 6 h by the ops loop. Recovery pings priority 3; persistent failure alarms priority 5. **A loud alarm now means CC is genuinely down.**
 
 ## Command Centre specifics Claude keeps rediscovering
 
@@ -42,10 +53,10 @@ On failed push: quiet retries at 30s/90s post-response (Next `after()`) → stil
 
 ## Intake specifics
 
-- Items live as a JSON array on `jobs.items`; **all writes must go through the atomic `update_job_item` RPC** (read-modify-write races lost client approvals once).
+- Items live as a JSON array on `jobs.items`; **writes go through `updateJobItem()` / `appendToJob()` in `src/lib/jobs-repo.ts`** (row-locked SQL functions — read-modify-write races lost client approvals once).
 - Proof selection: `approvedProofs()` in `src/lib/job-types.ts` honours `designs_mode` ('all'/'pick'/'latest').
 - ntfy phone push via `src/lib/ntfy.ts` (`NTFY_TOPIC_URL`); headers must be ASCII.
-- Repo-root `SUPABASE_*.sql` files are run manually in the **intake** Supabase SQL editor.
+- Schema changes: edit `db/schema.sql` (idempotent); `deploy.sh` applies it. The old `SUPABASE_*.sql` files live in `db/legacy-supabase/` for Phase 2 only.
 
 ## Shipped this session (2026-07-03 → 04)
 
@@ -69,5 +80,5 @@ On failed push: quiet retries at 30s/90s post-response (Next `after()`) → stil
 
 - Never bulk-delete rows by query in shared tables — capture exact ids your test created and delete only those; SELECT and eyeball before any delete.
 - Don't trust a filtered grep to prove code is "orphaned" (`grep -v` filters matching *lines*, including callers).
-- Intake SQL goes to `pbgyekhyoihietqjrfpb`, CC SQL to `lkxdqwglzcvcgbrojbxd` — both have a `jobs` table; the wrong one fails (or worse, succeeds).
+- Intake SQL goes to the shop PC's Postgres (`db/schema.sql`), CC SQL to Supabase `lkxdqwglzcvcgbrojbxd` — both have a `jobs` table; the wrong one fails (or worse, succeeds).
 - New public/secret-gated CC API routes must be whitelisted in `middleware.ts`.

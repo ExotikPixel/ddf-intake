@@ -62,3 +62,9 @@ When spawning subagents (Agent/Task tool), the routing block is automatically in
 | `ctx stats` | Call the `ctx_stats` MCP tool and display the full output verbatim |
 | `ctx doctor` | Call the `ctx_doctor` MCP tool, run the returned shell command, display as checklist |
 | `ctx upgrade` | Call the `ctx_upgrade` MCP tool, run the returned shell command, display as checklist |
+
+## ddf-intake hosting (read SYSTEM_STATE.md → "Self-hosting")
+- No Supabase. DB = Postgres via `src/lib/db.ts` + repos (`jobs-repo.ts`, `library-repo.ts`). Never put SQL in routes.
+- Files = `src/lib/file-store.ts` + `src/lib/file-tokens.ts`. Keys must pass `isSafeKey`.
+- Tests: `docker compose up -d db && npm test` (uses `ddf_test`; suites truncate it).
+- Deploy = `./scripts/deploy.sh` on the shop PC (WSL2). There is no Vercel deploy any more.
