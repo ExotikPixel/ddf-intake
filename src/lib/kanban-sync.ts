@@ -1,5 +1,8 @@
 import { after } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { db } from '@/lib/db'
+import { getJob } from '@/lib/jobs-repo'
+import { exists } from '@/lib/file-store'
+import { signFileLink } from '@/lib/file-tokens'
 import { approvedProofs, itemProofs } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 import { sendNtfy } from '@/lib/ntfy'
@@ -20,7 +23,7 @@ import { DATE_PREFIX, cap, resolveDate, fmtDate } from '@/lib/kanban-days'
 //
 // Self-healing: a failed push quietly retries at 30s and 90s after the
 // response is sent; if it's still failing it lands in kanban_sync_queue
-// (see SUPABASE_KANBAN_RETRY_QUEUE.sql) and is retried by later sync
+// (table in db/schema.sql) and is retried by later sync
 // activity and the daily /api/cron/kanban-retry cron. The phone only
 // alarms when the retries themselves keep failing.
 
@@ -69,7 +72,7 @@ export async function syncApprovedItemsToKanban(jobId: number): Promise<KanbanSy
         title: 'Kanban sync failing - auto-retry queued',
         message: queued
           ? `${label} didn't reach Command Centre after 3 attempts (${detail}). Approved designs are NOT on the board yet — it will keep retrying automatically.`
-          : `${label} didn't reach Command Centre after 3 attempts (${detail}) AND couldn't be queued for auto-retry (has SUPABASE_KANBAN_RETRY_QUEUE.sql been run?). Use Resync manually.`,
+          : `${label} didn't reach Command Centre after 3 attempts (${detail}) AND couldn't be queued for auto-retry (is the kanban_sync_queue table missing?). Use Resync manually.`,
         tags: 'warning',
         priority: queued ? 4 : 5,
       })
@@ -93,13 +96,13 @@ export async function drainKanbanQueue(opts: { limit?: number } = {}): Promise<{
   const limit = opts.limit ?? 20
   const cutoff = new Date(Date.now() - RETRY_COOLDOWN_MS).toISOString()
 
-  const { data: rows, error } = await supabaseAdmin
-    .from('kanban_sync_queue')
-    .select('job_id, job_label, attempts, first_failed_at')
-    .lt('last_attempt_at', cutoff)
-    .order('first_failed_at', { ascending: true })
-    .limit(limit)
-  if (error) {
+  type QueueRow = { job_id: number; job_label: string; attempts: number; first_failed_at: string }
+  let rows: QueueRow[]
+  try {
+    rows = await db()<QueueRow[]>`
+      select job_id, job_label, attempts, first_failed_at from kanban_sync_queue
+      where last_attempt_at < ${cutoff} order by first_failed_at asc limit ${limit}`
+  } catch (error) {
     console.error('[kanban-retry] queue read failed:', error)
     return { checked: 0, recovered: [], failing: [] }
   }
@@ -107,21 +110,19 @@ export async function drainKanbanQueue(opts: { limit?: number } = {}): Promise<{
   const recovered: string[] = []
   const failing: string[] = []
 
-  for (const row of rows ?? []) {
+  for (const row of rows) {
     const r = await attemptSync(row.job_id)
     if (r.ok || r.reason === 'not_found' || r.reason === 'none_approved') {
       // Synced — or there's nothing left to sync; either way the entry is spent.
       await clearQueued(row.job_id)
       if (r.ok) recovered.push(row.job_label)
     } else {
-      await supabaseAdmin
-        .from('kanban_sync_queue')
-        .update({
-          attempts:        row.attempts + 1,
-          last_error:      'detail' in r ? r.detail : 'webhook env vars missing',
-          last_attempt_at: new Date().toISOString(),
-        })
-        .eq('job_id', row.job_id)
+      await db()`
+        update kanban_sync_queue
+        set attempts = ${row.attempts + 1},
+            last_error = ${'detail' in r ? r.detail : 'webhook env vars missing'},
+            last_attempt_at = now()
+        where job_id = ${row.job_id}`
       const ageH = Math.max(1, Math.round((Date.now() - new Date(row.first_failed_at).getTime()) / 3_600_000))
       failing.push(`${row.job_label} — ${row.attempts + 1} attempts over ${ageH}h`)
     }
@@ -144,41 +145,35 @@ export async function drainKanbanQueue(opts: { limit?: number } = {}): Promise<{
     })
   }
 
-  return { checked: rows?.length ?? 0, recovered, failing }
+  return { checked: rows.length, recovered, failing }
 }
 
 // ── Retry queue plumbing ──────────────────────────────────────────────────
 
 async function clearQueued(jobId: number): Promise<void> {
-  const { error } = await supabaseAdmin.from('kanban_sync_queue').delete().eq('job_id', jobId)
-  if (error) console.error('[kanban-retry] dequeue failed:', error)
+  try {
+    await db()`delete from kanban_sync_queue where job_id = ${jobId}`
+  } catch (error) {
+    console.error('[kanban-retry] dequeue failed:', error)
+  }
 }
 
-/** Returns false when the row couldn't be written (e.g. table not created yet). */
+/** Returns false when the row couldn't be written. */
 async function enqueueForRetry(jobId: number, label: string, reason: string, detail: string): Promise<boolean> {
-  const { data: existing, error: selErr } = await supabaseAdmin
-    .from('kanban_sync_queue')
-    .select('attempts')
-    .eq('job_id', jobId)
-    .maybeSingle()
-  if (selErr) {
-    console.error('[kanban-retry] queue lookup failed:', selErr)
-    return false
-  }
-
-  const { error } = existing
-    ? await supabaseAdmin
-        .from('kanban_sync_queue')
-        .update({ reason, last_error: detail, attempts: existing.attempts + 1, last_attempt_at: new Date().toISOString() })
-        .eq('job_id', jobId)
-    : await supabaseAdmin
-        .from('kanban_sync_queue')
-        .insert({ job_id: jobId, job_label: label, reason, last_error: detail })
-  if (error) {
+  try {
+    await db()`
+      insert into kanban_sync_queue (job_id, job_label, reason, last_error)
+      values (${jobId}, ${label}, ${reason}, ${detail})
+      on conflict (job_id) do update
+        set reason = excluded.reason,
+            last_error = excluded.last_error,
+            attempts = kanban_sync_queue.attempts + 1,
+            last_attempt_at = now()`
+    return true
+  } catch (error) {
     console.error('[kanban-retry] enqueue failed:', error)
     return false
   }
-  return true
 }
 
 // ── Single sync attempt (no retries, no notifications) ───────────────────
@@ -190,11 +185,7 @@ async function attemptSync(jobId: number): Promise<AttemptResult> {
     const secret     = process.env.INTAKE_WEBHOOK_SECRET
     if (!webhookUrl || !secret) return { ok: false, reason: 'not_configured', label }
 
-    const { data: job } = await supabaseAdmin
-      .from('jobs')
-      .select('reference_number, client_name, company_name, contact_email, event_name, date_required, notes, items')
-      .eq('id', jobId)
-      .single()
+    const { data: job } = await getJob(jobId, ['reference_number', 'client_name', 'company_name', 'contact_email', 'event_name', 'date_required', 'notes', 'items'])
     if (!job) return { ok: false, reason: 'not_found', label }
     label = `${job.reference_number} (${job.client_name})`
 
@@ -249,10 +240,8 @@ async function attemptSync(jobId: number): Promise<AttemptResult> {
 
       // Every approved design for the day.
       const allPaths = members.flatMap(({ it }) => approvedProofs(it))
-      const signed = await Promise.all(allPaths.map(async path => {
-        const { data } = await supabaseAdmin.storage.from('job-files').createSignedUrl(path, PROOF_TTL_SECONDS)
-        return data?.signedUrl
-      }))
+      const signed = await Promise.all(allPaths.map(async path =>
+        (await exists(path)) ? signFileLink(path, PROOF_TTL_SECONDS) : undefined))
 
       const eventDate = day !== 'no-date' ? day : job.date_required
       // Client item notes go FIRST and under a clear heading — Command Centre

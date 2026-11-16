@@ -1,4 +1,5 @@
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { exists } from '@/lib/file-store'
+import { signFileLink } from '@/lib/file-tokens'
 import { isImagePath, proofPreviewPath, fileTileDataUrl } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 
@@ -33,9 +34,10 @@ export async function signProofDisplayUrls(items: JobItem[], paths: string[]) {
     toSign.add(p)
   }
   const list = Array.from(toSign)
-  const results = await Promise.all(list.map(p => supabaseAdmin.storage.from('job-files').createSignedUrl(p, TTL)))
+  // Only sign files that exist, so a missing file falls back to a tile (as before).
+  const present = await Promise.all(list.map(p => exists(p)))
   const signed: Record<string, string> = {}
-  results.forEach((r, i) => { if (r.data?.signedUrl) signed[list[i]] = r.data.signedUrl })
+  list.forEach((p, i) => { if (present[i]) signed[p] = signFileLink(p, TTL) })
 
   const urls: Record<string, string> = {}
   const fileUrls: Record<string, string> = {}
