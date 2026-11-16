@@ -194,7 +194,7 @@ export default function ReviewClient({ token }: { token: string }) {
         <>
           <div className="tabs glass" role="tablist" aria-label="Pieces">
             {reviewable.map(({ it, idx }) => (
-              <button key={idx} role="tab" className="tab" aria-selected={idx === cur.idx} onClick={() => { setActive(idx); setAsking(null) }}>
+              <button key={idx} type="button" role="tab" id={`tab-${idx}`} aria-controls="piece-panel" className="tab" aria-selected={idx === cur.idx} onClick={() => { setActive(idx); setAsking(null) }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: it.approval_status === 'approved' ? '#7fa487' : it.approval_status === 'changes_requested' ? 'var(--rose)' : 'var(--mauve)' }} />
                 {it.name}
               </button>
@@ -207,6 +207,8 @@ export default function ReviewClient({ token }: { token: string }) {
               <div><b>Everything is approved — thank you.</b><div className="small muted">We’ll get these into production.</div></div>
             </div>
           )}
+
+          {allDone && allMsg && <p className="err" role="alert" style={{ marginTop: 10 }}>{allMsg}</p>}
 
           {reviewable.length > 1 && !allDone && (
             <div className="callout stack-sm" style={{ marginTop: 22 }}>
@@ -226,14 +228,14 @@ export default function ReviewClient({ token }: { token: string }) {
             const pickMode = multi && mode === 'pick'
             const isApproved = status === 'approved'
             const chosen = isApproved ? it.approved_proof_url : selected[idx]
-            const onStage = (pickMode ? chosen : undefined) ?? viewing[idx] ?? shown[0]
+            const onStage = [pickMode ? chosen : undefined, viewing[idx], shown[0]].find(p => p && shown.includes(p)) ?? shown[0]
             const floor = wantsFloorPreview(it)
             const busy = actioning === idx
             const needsPick = pickMode && !selected[idx]
             const thread = itemThread(it)
             const examples = itemExamplePhotos(it)
             return (
-              <div className="split" style={{ marginTop: 26, gridTemplateColumns: 'minmax(0,1fr) 380px' }}>
+              <div className="split" role="tabpanel" id="piece-panel" aria-labelledby={`tab-${idx}`} style={{ marginTop: 26, gridTemplateColumns: 'minmax(0,1fr) 380px' }}>
                 <div className="stack" style={{ gap: 14 }}>
                   <ProofStage
                     src={data.proofUrls[onStage]} href={data.fileUrls?.[onStage] ?? data.proofUrls[onStage]}
@@ -248,7 +250,7 @@ export default function ReviewClient({ token }: { token: string }) {
                           {shown.map((p, pi) => (
                             <button key={p} type="button" className="opt"
                               aria-pressed={p === onStage}
-                              disabled={pickMode && isApproved && p !== chosen}
+                              disabled={pickMode && isApproved && !!chosen && p !== chosen}
                               onClick={() => {
                                 setViewing(v => ({ ...v, [idx]: p }))
                                 if (pickMode && !isApproved) { setSelected(s => ({ ...s, [idx]: p })); setErr(e => ({ ...e, [idx]: '' })) }
@@ -310,6 +312,7 @@ export default function ReviewClient({ token }: { token: string }) {
                       <label className="label" htmlFor={`chg-${idx}`}>{isApproved ? 'Message us' : 'What should we change?'}</label>
                       <textarea id={`chg-${idx}`} className="input" autoFocus value={noteDraft[idx] ?? ''}
                         onChange={e => setNoteDraft(prev => ({ ...prev, [idx]: e.target.value }))}
+                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if ((noteDraft[idx] ?? '').trim() && !busy) submit(idx, 'request_changes', proofs) } }}
                         placeholder="e.g. Make the date larger and use our full names." />
                       <div className="row">
                         <button type="button" className="btn btn-ink btn-sm" disabled={busy || !(noteDraft[idx] ?? '').trim()} onClick={() => submit(idx, 'request_changes', proofs)}>{busy ? 'Sending…' : 'Send to designer'}</button>
