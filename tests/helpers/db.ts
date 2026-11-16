@@ -17,6 +17,11 @@ loadDotEnv()
 export const TEST_URL = process.env.TEST_DATABASE_URL ?? ''
 export const hasDb = TEST_URL !== ''
 
+// Suites truncate tables, so refuse anything but the throwaway ddf_test database.
+if (hasDb && new URL(TEST_URL).pathname !== '/ddf_test') {
+  throw new Error('TEST_DATABASE_URL must point at the ddf_test database')
+}
+
 /** Apply db/schema.sql to ddf_test via psql inside the container ($$ bodies need psql). */
 export function applySchema(): void {
   execFileSync(
