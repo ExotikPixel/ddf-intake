@@ -13,7 +13,7 @@ export type JobColumn =
   | 'id' | 'tenant_id' | 'reference_number' | 'submission_id' | 'client_name' | 'company_name'
   | 'contact_email' | 'event_name' | 'date_required' | 'notes' | 'setup_location' | 'setup_time'
   | 'removal_location' | 'removal_time' | 'items' | 'file_paths' | 'production' | 'notify_client'
-  | 'status' | 'submitted_at' | 'updated_at'
+  | 'status' | 'submitted_at' | 'updated_at' | 'job_type' | 'fulfillment' | 'reminders' | 'deposit'
 
 export interface NewJob {
   tenant_id: string
@@ -33,13 +33,16 @@ export interface NewJob {
   submission_id: string
   submitted_at: string
   status: string
+  job_type?: 'event' | 'product'
+  fulfillment?: 'pickup' | 'delivery' | 'install' | null
 }
 
 const UPDATABLE = new Set<string>([
   'status', 'notify_client', 'date_required', 'event_name', 'notes', 'setup_location', 'setup_time',
   'removal_location', 'removal_time', 'items', 'file_paths', 'production',
+  'job_type', 'fulfillment', 'reminders', 'deposit',
 ])
-const JSON_COLUMNS = new Set<string>(['items', 'production'])
+const JSON_COLUMNS = new Set<string>(['items', 'production', 'reminders', 'deposit'])
 const ARRAY_COLUMNS = new Set<string>(['file_paths'])
 
 async function attempt<T>(label: string, fn: () => Promise<T | null>): Promise<Result<T>> {
@@ -101,6 +104,22 @@ export function listJobFiles(tenantId: string): Promise<Result<Row[]>> {
   })
 }
 
+/** Every job that isn't completed or cancelled (small set; callers filter further). */
+export function listOpenJobs(columns: JobColumn[]): Promise<Result<Row[]>> {
+  return attempt('listOpenJobs', async () => {
+    const sql = db()
+    const rows = await sql`select ${sql(columns)} from jobs where status not in ('completed', 'cancelled') order by date_required asc, id asc`
+    return rows as unknown as Row[]
+  })
+}
+
+export function findJobByDepositOrder(orderId: string): Promise<Result<Row>> {
+  return attempt('findJobByDepositOrder', async () => {
+    const rows = await db()`select id, reference_number, event_name, company_name, client_name, contact_email, deposit from jobs where deposit->>'order_id' = ${orderId}`
+    return (rows[0] as Row | undefined) ?? null
+  })
+}
+
 export function insertJob(j: NewJob): Promise<Result<{ id: number }>> {
   return attempt('insertJob', async () => {
     const sql = db()
@@ -108,11 +127,11 @@ export function insertJob(j: NewJob): Promise<Result<{ id: number }>> {
       insert into jobs (
         tenant_id, reference_number, client_name, company_name, contact_email, event_name,
         date_required, notes, setup_location, setup_time, removal_location, removal_time,
-        items, file_paths, submission_id, submitted_at, status
+        items, file_paths, submission_id, submitted_at, status, job_type, fulfillment
       ) values (
         ${j.tenant_id}, ${j.reference_number}, ${j.client_name}, ${j.company_name}, ${j.contact_email}, ${j.event_name},
         ${j.date_required}, ${j.notes}, ${j.setup_location}, ${j.setup_time}, ${j.removal_location}, ${j.removal_time},
-        ${json(j.items)}, ${sql.array(j.file_paths)}::text[], ${j.submission_id}, ${j.submitted_at}, ${j.status}
+        ${json(j.items)}, ${sql.array(j.file_paths)}::text[], ${j.submission_id}, ${j.submitted_at}, ${j.status}, ${j.job_type ?? 'event'}, ${j.fulfillment ?? null}
       ) returning id`
     return { id: row.id as number }
   })
@@ -132,7 +151,7 @@ export function updateJob(id: number, patch: Record<string, unknown>, tenantId?:
     for (const k of keys) {
       if (!UPDATABLE.has(k)) throw new Error(`updateJob: column not allowed: ${k}`)
       const v = patch[k]
-      values[k] = JSON_COLUMNS.has(k) ? json(v) : ARRAY_COLUMNS.has(k) ? sql.array((v ?? []) as string[]) : v
+      values[k] = JSON_COLUMNS.has(k) ? (v === null ? null : json(v)) : ARRAY_COLUMNS.has(k) ? sql.array((v ?? []) as string[]) : v
     }
     const rows = tenantId
       ? await sql`update jobs set ${sql(values, ...keys)} where id = ${id} and tenant_id = ${tenantId} returning id`

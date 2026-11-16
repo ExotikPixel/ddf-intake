@@ -97,6 +97,21 @@ create index if not exists jobs_submitted_at_idx   on public.jobs (submitted_at 
 create index if not exists jobs_tenant_idx         on public.jobs (tenant_id);
 create index if not exists jobs_reference_lower_idx on public.jobs (lower(reference_number));
 
+-- ── Client experience v2 ────────────────────────────────────────────
+alter table public.jobs add column if not exists job_type text not null default 'event';
+alter table public.jobs add column if not exists fulfillment text;
+alter table public.jobs add column if not exists reminders jsonb not null default '{}'::jsonb;
+alter table public.jobs add column if not exists deposit jsonb;
+
+do $$ begin
+  alter table public.jobs add constraint jobs_job_type_chk check (job_type in ('event','product'));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.jobs add constraint jobs_fulfillment_chk check (fulfillment is null or fulfillment in ('pickup','delivery','install'));
+exception when duplicate_object then null; end $$;
+
+create index if not exists jobs_deposit_order_idx on public.jobs ((deposit->>'order_id'));
+
 -- ── Design library ───────────────────────────────────────────────────
 create table if not exists public.design_library (
   id          bigint generated always as identity (start with 1000000) primary key,
