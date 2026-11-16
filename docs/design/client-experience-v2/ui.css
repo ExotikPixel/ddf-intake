@@ -86,7 +86,7 @@
 
 /* ── fields ───────────────────────────────────────── */
 
-.cx .field { display: grid; gap: 7px; }
+.cx .field { display: grid; gap: 7px; align-content: start; }
 .cx .input {
   width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm);
   padding: 13px 15px; font: 400 15px var(--body); color: var(--ink); transition: border-color .2s, box-shadow .2s;
