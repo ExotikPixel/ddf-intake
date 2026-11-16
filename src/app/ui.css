@@ -55,7 +55,7 @@
 
 .cx .display { font-family: var(--display); font-weight: 300; letter-spacing: -0.04em; line-height: 1.02; text-wrap: balance; }
 /* Script accent: upright (it's already cursive), a touch larger so it matches the Geist cap height. */
-.cx .display-i, .cx .serif { font-family: var(--serif); font-style: normal; font-weight: 400; letter-spacing: 0; font-size: 1.12em; line-height: 0.9; padding-right: 0.06em; }
+.cx .display-i, .cx .serif { font-family: var(--serif); font-style: normal; font-weight: 400; letter-spacing: 0; font-size: 1.12em; line-height: 0.9; padding-right: 0.06em; color: var(--mauve-deep); }
 .cx .eyebrow { display: inline-flex; align-items: center; gap: 8px; justify-self: start; font: 500 12px/1 var(--body); letter-spacing: .02em; color: var(--ink-soft); background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); padding: 8px 14px; border-radius: 999px; }
 .cx .eyebrow::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--mauve-deep); }
 .cx .label { font: 500 12px/1.2 var(--body); letter-spacing: .01em; color: var(--muted); }
