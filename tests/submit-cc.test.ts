@@ -54,6 +54,20 @@ describe.skipIf(!hasDb)('submit, add and CC callback hardening', () => {
     expect(res.status).toBe(400)
   })
 
+  it('submit stores job_type and fulfillment', async () => {
+    const r1 = await submit.POST(json('http://l/api/submit', {
+      ...base(), jobType: 'product', fulfillment: 'delivery', setupLocation: '1 Main St',
+    }))
+    expect(r1.status).toBe(200)
+    const p = await repo.getJobByReference((await r1.json()).referenceNumber, ['job_type', 'fulfillment', 'setup_location'])
+    expect(p.data).toMatchObject({ job_type: 'product', fulfillment: 'delivery', setup_location: '1 Main St' })
+
+    const r2 = await submit.POST(json('http://l/api/submit', { ...base(), submissionId: crypto.randomUUID() }))
+    expect(r2.status).toBe(200)
+    const e = await repo.getJobByReference((await r2.json()).referenceNumber, ['job_type', 'fulfillment'])
+    expect(e.data).toMatchObject({ job_type: 'event', fulfillment: null })
+  })
+
   it('submit strips shop-only item fields', async () => {
     const b = base()
     const res = await submit.POST(json('http://l/api/submit', {

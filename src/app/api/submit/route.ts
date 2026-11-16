@@ -100,6 +100,8 @@ export async function POST(req: NextRequest) {
     submission_id: data.submissionId,
     submitted_at: submittedAt,
     status: 'pending',
+    job_type: data.jobType,
+    fulfillment: data.jobType === 'product' ? data.fulfillment ?? null : null,
   })
 
   if (insertError || !inserted) {
