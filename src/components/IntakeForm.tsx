@@ -601,7 +601,7 @@ export default function IntakeForm({ branding, slug }: { branding: PublicBrandin
         right={<><span className="muted hide-sm">Already sent a brief?</span><a className="btn btn-quiet btn-sm" href="/portal">Track your job</a></>}
       />
 
-      <section style={{ padding: '40px 0 28px', display: 'grid', gap: 16, maxWidth: 820 }}>
+      <section style={{ padding: '40px 0 28px', display: 'grid', gap: 16, maxWidth: 900 }}>
         <span className="eyebrow">New brief · replies within 1 business day</span>
         <h1 className="display hero-title" style={{ margin: 0 }}>Tell us what you’re <span className="serif">making.</span></h1>
         <p className="muted" style={{ margin: 0, maxWidth: 580, fontSize: 17 }}>

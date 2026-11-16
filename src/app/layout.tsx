@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
-import { Geist, Pinyon_Script } from 'next/font/google'
+import { Geist } from 'next/font/google'
+import localFont from 'next/font/local'
 import './globals.css'
 import './ui.css'
 
@@ -10,10 +11,20 @@ const geist = Geist({
 })
 
 // The one script accent word in headings ("Tell us what you're *making.*").
-const accent = Pinyon_Script({
-  subsets: ['latin'],
+// BP-JulietteEx2 by BlessedPrint (web licence held by the owner), trimmed to
+// Latin letters, accents and punctuation to keep it light for phones.
+const accent = localFont({
+  src: './fonts/bp-juliette-ex2-regular.woff2',
   weight: '400',
   variable: '--font-accent',
+  display: 'swap',
+  // The file declares huge ascent/descent (2140/3500 per 1000), which pushes
+  // the heading's lines apart; give it ordinary line metrics instead.
+  declarations: [
+    { prop: 'ascent-override', value: '95%' },
+    { prop: 'descent-override', value: '30%' },
+    { prop: 'line-gap-override', value: '0%' },
+  ],
 })
 
 export const viewport: Viewport = {
