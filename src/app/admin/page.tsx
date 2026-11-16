@@ -2,8 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { STATUSES, STATUS_LABELS, STATUS_CONFIG, APPROVAL_CONFIG, itemProofs, itemRefPhotos, itemExamplePhotos, approvedProofs, itemThread, designsMode, fileKindLabel, fileTileDataUrl, jobQuoteTotal } from '@/lib/job-types'
-import type { JobItem, ApprovalStatus, ItemMessage } from '@/lib/job-types'
+import { STATUSES, STATUS_LABELS, itemProofs, itemRefPhotos, itemExamplePhotos, approvedProofs, itemThread, designsMode, fileKindLabel, fileTileDataUrl, jobQuoteTotal } from '@/lib/job-types'
+import type { JobItem, ItemMessage } from '@/lib/job-types'
+import { Search, LayoutGrid, LogOut, Printer } from 'lucide-react'
+import { ApprovalPill, JobStatusPill } from '@/components/cx/pills'
+import { Pill } from '@/components/cx/kit'
+import { adminKpis, approvalSummary, jobWaiting } from '@/lib/admin-kpis'
+import { torontoDate, torontoHour } from '@/lib/local-time'
+import { daysUntil, countdownLabel, prettyDate } from '@/lib/countdown'
 import { renderPrintFilePreview, uploadPreviewFile, needsPreview } from '@/lib/proof-preview'
 import { MAX_FILES } from '@/lib/limits'
 
@@ -25,6 +31,10 @@ interface Job {
   items: JobItem[]
   file_paths: string[]
   notify_client: boolean
+  job_type?: 'event' | 'product'
+  fulfillment?: 'pickup' | 'delivery' | 'install' | null
+  updated_at?: string
+  // Plan B: reminders / deposit fields land here when those features ship.
 }
 
 interface EditForm {
@@ -97,43 +107,6 @@ function EditIcon() {
   )
 }
 
-// ── Status pill ────────────────────────────────────────────────────────────
-function StatusPill({ status }: { status: string }) {
-  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending
-  return (
-    <span style={{
-      background: cfg.bg,
-      color: cfg.color,
-      fontSize: '10px',
-      fontWeight: 700,
-      letterSpacing: '0.8px',
-      textTransform: 'uppercase',
-      padding: '2px 8px',
-      border: `1px solid ${cfg.color}33`,
-      whiteSpace: 'nowrap',
-    }}>
-      {cfg.label}
-    </span>
-  )
-}
-
-function ApprovalPill({ status }: { status: ApprovalStatus }) {
-  const cfg = APPROVAL_CONFIG[status]
-  return (
-    <span style={{
-      background: cfg.bg, color: cfg.color, fontSize: 9, fontWeight: 700,
-      letterSpacing: '0.6px', textTransform: 'uppercase', padding: '1px 7px',
-      border: `1px solid ${cfg.color}33`, whiteSpace: 'nowrap',
-    }}>
-      {cfg.label}
-    </span>
-  )
-}
-
-const STATUS_COLORS: Record<string, string> = Object.fromEntries(
-  Object.entries(STATUS_CONFIG).map(([k, v]) => [k, v.color])
-)
-
 // A reusable stock design (a white stage, standard backdrop, …) the admin can
 // attach to items without re-uploading. Catalogued in the design_library table.
 interface LibraryEntry {
@@ -150,7 +123,6 @@ export default function AdminPage() {
   const [loadError, setLoadError]       = useState('')
   const [filter, setFilter]             = useState('all')
   const [search, setSearch]             = useState('')
-  const [openOverride, setOpenOverride] = useState<Record<number, boolean>>({})
   const [updating, setUpdating]         = useState<number | null>(null)
   const [togglingNotify, setTogglingNotify] = useState<number | null>(null)
   const [fileUrls, setFileUrls]         = useState<Record<number, { path: string; name: string; url: string; fileUrl?: string }[]>>({})
@@ -815,8 +787,8 @@ export default function AdminPage() {
 
   async function printJobTicket(job: Job) {
     const statusLabel   = STATUS_LABELS[job.status] ?? job.status
-    const submittedDate = new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
-    const printDate     = new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    const submittedDate = new Date(job.submitted_at).toLocaleDateString('en-CA', { day: 'numeric', month: 'long', year: 'numeric' })
+    const printDate     = new Date().toLocaleDateString('en-CA', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     const BRAND = '#b8955a'
 
     const itemRows = job.items.map(item => `
@@ -1468,8 +1440,51 @@ export default function AdminPage() {
     router.push('/login?next=/admin')
   }
 
+  // ── Dashboard: job drawer, greeting, KPIs and filters ────────────────────
+  const [drawerId, setDrawerId] = useState<number | null>(null)
+  const [adminEmail, setAdminEmail] = useState('')
+  useEffect(() => {
+    fetch('/api/admin/me').then(r => (r.ok ? r.json() : null)).then(j => { if (j?.email) setAdminEmail(j.email) }).catch(() => {})
+  }, [])
+  // Escape closes the job drawer — unless a modal on top of it (chat, approve picker, library) is open.
+  useEffect(() => {
+    if (drawerId === null) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !chatItem && !approvePicker && !libraryPicker) setDrawerId(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [drawerId, chatItem, approvePicker, libraryPicker])
+  const drawerJob = jobs.find(j => j.id === drawerId) ?? null
+  const kpis = adminKpis(jobs, torontoDate())
+  const hour = torontoHour()
+  const partOfDay = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'
+  const firstName = adminEmail ? adminEmail.split('@')[0].split(/[._-]/)[0].replace(/^./, c => c.toUpperCase()) : ''
+  // Plan B: a 'deposit' (Deposit due) filter joins these once deposits ship.
+  const FILTERS: { key: string; label: string }[] = [
+    { key: 'all', label: 'All' }, { key: 'waiting', label: 'Waiting on client' },
+    // 'Pending' only shows while a job is pending, so new submissions aren't hidden in All.
+    ...STATUSES.filter(s => s !== 'pending' || jobs.some(j => j.status === 'pending')).map(s => ({ key: s, label: STATUS_LABELS[s] })),
+  ]
+  const matchesFilter = (j: Job) =>
+    filter === 'all' ? true : filter === 'waiting' ? (j.status !== 'completed' && j.status !== 'cancelled' && jobWaiting(j)) : j.status === filter
+
+  // The old inline card only toggled itself open (no lazy loads) — the drawer just needs the id.
+  function openJob(id: number) {
+    if (drawerId === null && document.activeElement instanceof HTMLElement) returnFocusRef.current = document.activeElement
+    setDrawerId(id)
+  }
+  // Focus moves to the drawer's Close button on open and back to the row on close.
+  const drawerCloseRef = useRef<HTMLButtonElement>(null)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
+  const drawerOpen = drawerId !== null
+  useEffect(() => {
+    if (drawerOpen) { drawerCloseRef.current?.focus(); return }
+    const el = returnFocusRef.current
+    returnFocusRef.current = null
+    if (el && el.isConnected) el.focus()
+  }, [drawerOpen])
+
   const filtered = useMemo(() => {
-    const byStatus = filter === 'all' ? jobs : jobs.filter(j => j.status === filter)
+    const byStatus = jobs.filter(matchesFilter)
     const q = search.trim().toLowerCase()
     if (!q) return byStatus
     return byStatus.filter(j =>
@@ -1478,45 +1493,853 @@ export default function AdminPage() {
     )
   }, [jobs, filter, search])
 
-  const statCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    STATUSES.forEach(s => { counts[s] = jobs.filter(j => j.status === s).length })
-    return counts
-  }, [jobs])
 
   // Keep the conversation drawer scrolled to the newest message.
   useEffect(() => {
     if (chatItem && chatBodyRef.current) chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight
   }, [chatItem, jobs])
 
+  // Everything a job shows once opened (tools, approvals, quotes, edit panel).
+  function renderJobDetail(job: Job) {
+    return (
+      <>
+        {/* Items */}
+        <div className="panel" style={{ padding: 20, display: 'grid', gap: 12 }}>
+          <span className="label">Pieces</span>
+          {job.items.map((item, i) => {
+            const refs = itemRefPhotos(item)
+            return (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="row small" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <span>
+                  <b style={{ color: 'var(--mauve-deep)', fontWeight: 600, marginRight: 2 }}>{item.quantity}×</b>
+                  {item.name}
+                  {item.size     && <span className="muted"> · {item.size}</span>}
+                  {item.material && <span className="muted"> · {item.material}</span>}
+                </span>
+                {refs.length > 0 && (() => {
+                  const key = `${job.id}:${i}`
+                  const isOpen = openRefs === key
+                  return (
+                    <button
+                      type="button"
+                      className="chip"
+                      aria-pressed={isOpen}
+                      onClick={() => {
+                        if (isOpen) { setOpenRefs(null); return }
+                        void loadFiles(job.id, refs)
+                        setOpenRefs(key)
+                      }}
+                      title={`${refs.length} client reference photo${refs.length > 1 ? 's' : ''} — click to view`}
+                      style={{ padding: '5px 10px', fontSize: 12 }}
+                    >📎 {refs.length}</button>
+                  )
+                })()}
+                {itemProofs(item).length > 0 && (
+                  item.approval_status && item.approval_status !== 'pending'
+                    ? <ApprovalPill status={item.approval_status} />
+                    : <span title="Proof attached — not yet approved for print"><Pill tone="neutral">Awaiting approval</Pill></span>
+                )}
+                {item.proof_source === 'client' && (() => {
+                  const proofs = itemProofs(item)
+                  const first = proofs[0]
+                  const cached = first ? fileUrls[job.id]?.find(f => f.path === first) : undefined
+                  const href = cached?.fileUrl ?? cached?.url
+                  const title = `The client uploaded this print-ready file themselves${item.proof_uploaded_at ? ` on ${new Date(item.proof_uploaded_at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' })}` : ''} — click to open${first ? ` the ${fileKindLabel(first)} file` : ''}`
+                  const style = { textDecoration: 'none', cursor: first ? 'pointer' : 'default', border: 0 }
+                  if (href) {
+                    return <a href={href} target="_blank" rel="noopener noreferrer" download title={title} className="pill pill-ok" style={style}>📥 Client file</a>
+                  }
+                  return (
+                    <button
+                      type="button"
+                      disabled={!first}
+                      title={title}
+                      className="pill pill-ok"
+                      style={style}
+                      onClick={async () => {
+                        if (!first) return
+                        // Open the tab synchronously so Safari/Chrome popup blockers don't eat it, then point it at the signed URL once we have one.
+                        const w = window.open('', '_blank')
+                        const files = await loadFiles(job.id, proofs)
+                        const signed = files.find(f => f.path === first)
+                        const url = signed?.fileUrl ?? signed?.url
+                        if (url) { if (w) w.location.href = url; else window.open(url, '_blank') }
+                        else w?.close()
+                      }}
+                    >📥 Client file</button>
+                  )
+                })()}
+                {item.added_at && (
+                  <span title={`Client added this after submitting, on ${new Date(item.added_at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' })}`}><Pill tone="wait">🆕 Added later</Pill></span>
+                )}
+              </span>
+              {refs.length > 0 && openRefs === `${job.id}:${i}` && (
+                <div className="thumbs" style={{ marginTop: 4 }}>
+                  {refs.map(p => {
+                    const signed = fileUrls[job.id]?.find(f => f.path === p)
+                    return signed ? (
+                      <a key={p} href={signed.url} target="_blank" rel="noopener noreferrer" title={`Open ${signed.name}`} className="thumb" style={{ width: 64, height: 64 }}>
+                        <img src={signed.url} alt="" style={{ objectFit: 'contain', padding: 3, boxSizing: 'border-box' }} />
+                      </a>
+                    ) : (
+                      <span key={p} className="thumb tiny muted" style={{ width: 64, height: 64 }}>
+                        {fileError === job.id ? '!' : loadingFiles === job.id ? '…' : '·'}
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
+              {item.description && <span className="tiny muted" style={{ lineHeight: 1.45 }}>{item.description}</span>}
+            </div>
+            )
+          })}
+
+          {/* Setup / removal logistics */}
+          {(job.setup_location || job.setup_time || job.removal_location || job.removal_time) && (
+            <div className="row" style={{ flexWrap: 'wrap', gap: '4px 28px', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+              {(job.setup_location || job.setup_time) && (
+                <div className="small">
+                  <span className="label" style={{ marginRight: 8 }}>Setup</span>
+                  {[job.setup_location, job.setup_time].filter(Boolean).join(' · ')}
+                </div>
+              )}
+              {(job.removal_location || job.removal_time) && (
+                <div className="small">
+                  <span className="label" style={{ marginRight: 8 }}>Removal</span>
+                  {[job.removal_location, job.removal_time].filter(Boolean).join(' · ')}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Design approval — admin marks items approved for print */}
+        {(() => {
+          const proofed = job.items.map((it, i) => ({ it, i })).filter(x => itemProofs(x.it).length > 0)
+          if (proofed.length === 0) return null
+          return (
+            <div className="panel" style={{ padding: 20, display: 'grid', gap: 12 }}>
+              <h3 className="sec-title" style={{ margin: 0, fontSize: 22 }}>Design approval</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {proofed.map(({ it, i }) => {
+                  const key = `${job.id}:${i}`
+                  const approved = it.approval_status === 'approved'
+                  const busy = approvingItem === key
+                  const thread = itemThread(it)
+                  const lastFromClient = thread.length > 0 && thread[thread.length - 1].from === 'client'
+                  const needsAction = !approved && (it.approval_status === 'changes_requested' || lastFromClient)
+                  return (
+                    <div key={i} className="row" style={{ gap: 10, flexWrap: 'wrap', padding: '10px 12px', background: needsAction ? 'var(--amber-wash)' : 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16 }}>
+                      <span className="small" style={{ flex: 1, minWidth: 160, lineHeight: 1.35 }}>
+                        <b style={{ color: 'var(--mauve-deep)', fontWeight: 600 }}>{it.quantity}×</b> {it.name}
+                        {approved && it.approved_proof_url && itemProofs(it).length > 1 && (
+                          <span className="tiny" style={{ display: 'inline-block', marginLeft: 6, fontWeight: 600, color: 'var(--sage)' }}>· picked {itemProofs(it).indexOf(it.approved_proof_url) + 1}/{itemProofs(it).length}</span>
+                        )}
+                      </span>
+                      {it.approval_status && it.approval_status !== 'pending' && <ApprovalPill status={it.approval_status} />}
+                      <button
+                        type="button"
+                        onClick={() => setChatItem({ jobId: job.id, idx: i })}
+                        title={thread.length > 0 ? `${thread.length} message${thread.length > 1 ? 's' : ''}` : 'Open conversation'}
+                        className={needsAction ? 'btn btn-ink btn-sm' : 'btn btn-quiet btn-sm'}>
+                        💬 {thread.length > 0 ? thread.length : 'Reply'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (approved) { approveItem(job, i, false); return }
+                          // Alternatives (pick-one) → make the team choose which design. All-needed
+                          // items (the default for multiple designs) approve the whole set directly.
+                          if (designsMode(it) === 'pick' && itemProofs(it).length > 1 && !it.approved_proof_url) {
+                            setPickerChoice(null)
+                            setApprovePicker({ jobId: job.id, idx: i })
+                            void loadFiles(job.id, itemProofs(it))
+                          } else {
+                            approveItem(job, i, true)
+                          }
+                        }}
+                        disabled={busy}
+                        className={approved ? 'btn btn-quiet btn-sm' : 'btn btn-forest btn-sm'}
+                        style={approved ? { color: 'var(--sage)' } : undefined}
+                      >
+                        {busy ? '…' : approved ? '✓ Approved' : designsMode(it) === 'pick' && itemProofs(it).length > 1 && !it.approved_proof_url ? 'Approve…' : 'Approve'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* Notes */}
+        {job.notes && (
+          <div className="callout" style={{ justifyContent: 'flex-start', alignItems: 'flex-start' }}>
+            <span className="label" style={{ paddingTop: 2, flexShrink: 0 }}>Notes</span>
+            <span className="small" style={{ lineHeight: 1.5 }}>{job.notes}</span>
+          </div>
+        )}
+
+        {/* Quote — admin only, never sent to the client */}
+        {(() => {
+          const { total, quoted } = jobQuoteTotal(job.items)
+          const fmt = (n: number) => n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 2 })
+          return (
+            <div className="panel" style={{ padding: 20, display: 'grid', gap: 10 }}>
+              <div className="between" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <span className="row" style={{ gap: 8 }}>
+                  <h3 className="sec-title" style={{ margin: 0, fontSize: 22 }}>Quote</h3>
+                  <span className="tiny muted">internal · clients never see this</span>
+                </span>
+                <span className="small" style={{ fontWeight: 600, color: quoted > 0 ? 'var(--sage)' : 'var(--muted)' }}>
+                  {quoted > 0 ? `Total ${fmt(total)}` : 'Nothing quoted yet'}
+                  {quoted > 0 && quoted < job.items.length && <span className="muted" style={{ fontWeight: 400 }}> · {quoted} of {job.items.length} items</span>}
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {job.items.map((item, i) => {
+                  const key = `${job.id}:${i}`
+                  const draft = quoteDraft[key] ?? { price: item.quote_price != null ? String(item.quote_price) : '', note: item.quote_note ?? '' }
+                  const st = quoteState[key]
+                  const setDraft = (patch: Partial<{ price: string; note: string }>) => setQuoteDraft(prev => ({ ...prev, [key]: { ...draft, ...patch } }))
+                  return (
+                    <div key={i} className="quote-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1.2fr) 120px minmax(160px, 2fr) 70px', gap: 8, alignItems: 'center' }}>
+                      <span className="small" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.name}>
+                        <b style={{ fontWeight: 600 }}>{item.quantity}×</b> {item.name}
+                      </span>
+                      <span style={{ position: 'relative' }}>
+                        <span className="small muted" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>$</span>
+                        <input inputMode="decimal" placeholder="0.00" value={draft.price}
+                          onChange={e => setDraft({ price: e.target.value })} onBlur={() => saveQuote(job, i)}
+                          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                          className="input" aria-invalid={st === 'error' ? true : undefined}
+                          style={{ paddingLeft: 24, textAlign: 'right', fontWeight: 600 }} />
+                      </span>
+                      <input placeholder="Note to self — options, assumptions, what you told them…" value={draft.note}
+                        onChange={e => setDraft({ note: e.target.value })} onBlur={() => saveQuote(job, i)}
+                        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                        className="input" />
+                      <span className="tiny" style={{ whiteSpace: 'nowrap', color: st === 'saved' ? 'var(--sage)' : st === 'error' ? 'var(--rose)' : 'var(--muted)' }}>
+                        {st === 'saving' ? 'Saving…' : st === 'saved' ? '✓ Saved' : st === 'error' ? 'Not saved' : item.quoted_at ? new Date(item.quoted_at).toLocaleDateString('en-CA', { day: 'numeric', month: 'short' }) : ''}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* Files */}
+        {job.file_paths.length > 0 && (
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+            {fileUrls[job.id] ? (
+              <>
+                <span className="label">Files</span>
+                {fileUrls[job.id].map(f => (
+                  <a
+                    key={f.path}
+                    href={f.fileUrl ?? f.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="chip small"
+                    style={{ textDecoration: 'none', color: 'var(--mauve-deep)', padding: '6px 12px' }}
+                  >
+                    ↓ {f.name}
+                  </a>
+                ))}
+              </>
+            ) : fileError === job.id ? (
+              <span className="err">Failed to load files.</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => loadFiles(job.id, job.file_paths)}
+                disabled={loadingFiles === job.id}
+                className="link small"
+              >
+                {loadingFiles === job.id
+                  ? 'Loading…'
+                  : `View ${job.file_paths.length} attached file${job.file_paths.length !== 1 ? 's' : ''} →`}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Actions footer */}
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+
+          {/* Edit */}
+          <button
+            type="button"
+            onClick={() => editingJob === job.id ? cancelEdit() : startEdit(job)}
+            className={editingJob === job.id ? 'btn btn-ink btn-sm' : 'btn btn-quiet btn-sm'}
+            title="Edit brief"
+          >
+            <EditIcon /> {editingJob === job.id ? 'Cancel' : 'Edit Brief'}
+          </button>
+
+          {/* Print */}
+          <button
+            type="button"
+            onClick={() => printJobTicket(job)}
+            className="btn btn-quiet btn-sm"
+            title="Print job ticket"
+          >
+            <PrintIcon /> Print
+          </button>
+
+          {/* Copy public approval link */}
+          {(() => {
+            const hasProof = job.items.some(i => itemProofs(i).length > 0)
+            const isCopied = copiedLink === job.id
+            return (
+              <button
+                type="button"
+                onClick={() => copyApprovalLink(job.id)}
+                disabled={!hasProof || copyingLink === job.id}
+                className="btn btn-quiet btn-sm"
+                title={hasProof ? 'Copy a no-login approval link to send to the client' : 'Attach a proof to an item first'}
+                style={{ color: isCopied ? 'var(--sage)' : 'var(--mauve-deep)', cursor: hasProof ? 'pointer' : 'not-allowed' }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+                  <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+                </svg>
+                {isCopied ? 'Copied!' : copyingLink === job.id ? 'Copying…' : 'Approval Link'}
+              </button>
+            )
+          })()}
+
+          {/* Approved designs sheet — appears as soon as any item is approved (partial OK) */}
+          {(() => {
+            const proofItems = job.items.filter(i => itemProofs(i).length > 0)
+            const approvedCount = proofItems.filter(i => i.approval_status === 'approved').length
+            if (approvedCount === 0) return null
+            const isFull = approvedCount === proofItems.length
+            return (
+              <button
+                type="button"
+                onClick={() => printApprovedSheet(job)}
+                className="btn btn-forest btn-sm"
+                title={isFull ? 'Print all approved designs' : `Print the ${approvedCount} approved item${approvedCount !== 1 ? 's' : ''} so the team can start`}
+              >
+                <CheckIcon /> Approved Sheet {isFull ? '' : `(${approvedCount}/${proofItems.length})`}
+              </button>
+            )
+          })()}
+
+          {/* Invoice → Command Centre */}
+          <button
+            type="button"
+            onClick={() => sendToCommandCentre(job)}
+            disabled={sendingToCC === job.id || sentToCC.has(job.id)}
+            className="btn btn-quiet btn-sm"
+            title={sentToCC.has(job.id) ? 'Draft invoice created in Command Centre' : 'Create draft invoice in Command Centre'}
+            style={{ color: 'var(--sage)' }}
+          >
+            {sentToCC.has(job.id)
+              ? <><CheckIcon /> Invoiced</>
+              : sendingToCC === job.id
+                ? 'Sending…'
+                : <><InvoiceIcon /> Invoice</>}
+          </button>
+
+          {/* Re-sync approved items to the Command Centre Kanban board */}
+          {(() => {
+            const approvedCount = job.items.filter(i => itemProofs(i).length > 0 && i.approval_status === 'approved').length
+            if (approvedCount === 0) return null
+            const done = resynced.has(job.id)
+            return (
+              <button
+                type="button"
+                onClick={() => resyncToKanban(job)}
+                disabled={resyncing === job.id}
+                className="btn btn-quiet btn-sm"
+                title="Push this job's approved items to the Command Centre Kanban board again — refreshes client notes, designs and specs on the tile"
+                style={done ? { color: 'var(--sage)' } : undefined}
+              >
+                {done ? <><CheckIcon /> Synced</> : resyncing === job.id ? 'Syncing…' : (
+                  <>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="23 4 23 10 17 10"/>
+                      <polyline points="1 20 1 14 7 14"/>
+                      <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                    </svg>
+                    Re-sync
+                  </>
+                )}
+              </button>
+            )
+          })()}
+
+          {/* Notify client toggle */}
+          <button
+            type="button"
+            onClick={() => toggleNotify(job.id, job.notify_client)}
+            disabled={togglingNotify === job.id}
+            aria-pressed={job.notify_client}
+            className="btn btn-quiet btn-sm"
+            title={job.notify_client ? 'Client notifications ON — click to disable' : 'Client notifications OFF — click to enable'}
+            style={{ color: job.notify_client ? 'var(--amber)' : 'var(--muted)', cursor: togglingNotify === job.id ? 'wait' : 'pointer' }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 01-3.46 0"/>
+            </svg>
+            {job.notify_client ? 'Notify: ON' : 'Notify: OFF'}
+          </button>
+
+          {/* Status dropdown */}
+          <select
+            value={job.status}
+            disabled={updating === job.id}
+            onChange={e => updateStatus(job.id, e.target.value)}
+            aria-label="Job status"
+            className="input"
+            style={{ width: 'auto', padding: '9px 14px', fontSize: 13, borderRadius: 999, cursor: 'pointer' }}
+          >
+            {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+          </select>
+        </div>
+
+        {/* ── Edit panel ───────────────────────────────────────── */}
+        {editingJob === job.id && editForm && (
+          <div className="panel" style={{ padding: 20, display: 'grid', gap: 16 }}>
+            <h3 className="sec-title" style={{ margin: 0, fontSize: 22 }}>Edit brief</h3>
+
+            {/* Date + Event */}
+            <div className="grid2" style={{ gap: 10 }}>
+              <label className="stack" style={{ gap: 6 }}>
+                <span className="label">Due date</span>
+                <input
+                  type="date"
+                  value={editForm.date_required}
+                  onChange={e => setEditForm(prev => prev ? { ...prev, date_required: e.target.value } : prev)}
+                  className="input"
+                />
+              </label>
+              <label className="stack" style={{ gap: 6 }}>
+                <span className="label">Event / location</span>
+                <input
+                  type="text"
+                  value={editForm.event_name}
+                  onChange={e => setEditForm(prev => prev ? { ...prev, event_name: e.target.value } : prev)}
+                  placeholder="Optional"
+                  className="input"
+                />
+              </label>
+            </div>
+
+            {/* Notes */}
+            <label className="stack" style={{ gap: 6 }}>
+              <span className="label">Notes / special instructions</span>
+              <textarea
+                value={editForm.notes}
+                onChange={e => setEditForm(prev => prev ? { ...prev, notes: e.target.value } : prev)}
+                rows={3}
+                placeholder="Optional"
+                className="input"
+              />
+            </label>
+
+            {/* Setup & Removal logistics */}
+            <div className="stack" style={{ gap: 10 }}>
+              <span className="label" style={{ color: 'var(--ink)', fontWeight: 600 }}>Setup &amp; removal</span>
+              <div className="grid2" style={{ gap: 10 }}>
+                {([
+                  ['Setup location', 'setup_location', 'Venue / address'],
+                  ['Setup time', 'setup_time', 'e.g. Fri 8:00 AM'],
+                  ['Removal location', 'removal_location', 'Same as setup, or other'],
+                  ['Removal time', 'removal_time', 'e.g. Sun 11:00 PM'],
+                ] as const).map(([label, key, ph]) => (
+                  <label key={key} className="stack" style={{ gap: 6 }}>
+                    <span className="label">{label}</span>
+                    <input
+                      type="text"
+                      value={editForm[key]}
+                      onChange={e => setEditForm(prev => prev ? { ...prev, [key]: e.target.value } : prev)}
+                      placeholder={ph}
+                      className="input"
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Reference Photos */}
+            <div className="stack" style={{ gap: 8 }}>
+              <span className="label" style={{ color: 'var(--ink)', fontWeight: 600 }}>Reference photos <span className="muted" style={{ fontWeight: 400 }}>· job-wide</span></span>
+              <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                {editForm.file_paths.map(path => {
+                  const name = path.split('/').pop() ?? path
+                  const cached = fileUrls[job.id]?.find(f => f.path === path)
+                  return (
+                    <div key={path} className="row" style={{ gap: 8, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, padding: '4px 10px 4px 4px' }}>
+                      {cached && (
+                        <img src={cached.url} alt={name} style={{ width: 36, height: 36, objectFit: 'cover', flexShrink: 0, borderRadius: 8 }} />
+                      )}
+                      <span className="tiny" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setEditForm(prev => prev ? { ...prev, file_paths: prev.file_paths.filter(p => p !== path) } : prev)}
+                        title="Remove photo"
+                        className="link tiny"
+                        style={{ color: 'var(--rose)', fontSize: 15, lineHeight: 1 }}
+                      >×</button>
+                    </div>
+                  )
+                })}
+                {editForm.file_paths.length < MAX_FILES && (
+                  <label className="btn btn-quiet btn-sm" style={{ cursor: uploadingPhoto ? 'default' : 'pointer', opacity: uploadingPhoto ? 0.55 : 1 }}>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
+                      style={{ display: 'none' }}
+                      disabled={uploadingPhoto}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addPhoto(f) } }}
+                    />
+                    {uploadingPhoto ? 'Uploading…' : '+ Add Photo'}
+                  </label>
+                )}
+              </div>
+              {uploadPhotoError && <p className="err">{uploadPhotoError}</p>}
+              {editForm.file_paths.length > 0 && <p className="tiny muted" style={{ margin: 0 }}>Removing a photo cannot be undone after saving.</p>}
+            </div>
+
+            {/* Items */}
+            <div className="stack" style={{ gap: 10 }}>
+              <span className="label" style={{ color: 'var(--ink)', fontWeight: 600 }}>Items <span className="muted" style={{ fontWeight: 400 }}>({editForm.items.length})</span></span>
+              {editForm.items.map((item, idx) => {
+                const proofs = itemProofs(item)
+                const itemStatus = item.completed ? 'completed' : (item.approval_status === 'approved' ? 'approved' : 'pending')
+                const collapsed = collapsedItems.has(idx)
+                const statusBusy = approvingItem === `${job.id}:${idx}`
+                return (
+                <div key={idx} style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 16, padding: '12px 12px 14px' }}>
+                  {/* Item header: number badge + name + status + remove */}
+                  <div className="row" style={{ gap: 10, marginBottom: collapsed ? 0 : 12, flexWrap: 'wrap' }}>
+                    <span onClick={() => setCollapsedItems(prev => { const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n })}
+                      title={collapsed ? 'Open item' : 'Collapse item'}
+                      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 999, background: 'var(--mauve-deep)', color: '#fff', fontSize: 12, fontWeight: 600, flexShrink: 0, cursor: 'pointer' }}>{idx + 1}</span>
+                    {collapsed ? (
+                      <button type="button"
+                        onClick={() => setCollapsedItems(prev => { const n = new Set(prev); n.delete(idx); return n })}
+                        title="Click to open this item"
+                        style={{ flex: 1, minWidth: 120, textAlign: 'left', padding: '5px 8px', border: '1px solid transparent', borderRadius: 10, fontSize: 15, fontWeight: 600, background: 'transparent', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.name || 'Item name'} <span className="tiny muted" style={{ fontWeight: 400 }}>· click to open</span>
+                      </button>
+                    ) : (
+                      <input
+                        type="text" value={item.name}
+                        onChange={e => updateEditItem(idx, 'name', e.target.value)}
+                        placeholder="Item name"
+                        style={{ flex: 1, minWidth: 120, padding: '5px 8px', border: '1px solid transparent', borderRadius: 10, fontSize: 15, fontWeight: 600, fontFamily: 'inherit', color: 'var(--ink)', background: 'transparent' }}
+                        onFocus={e => { e.currentTarget.style.borderColor = 'var(--line)'; e.currentTarget.style.background = '#fff' }}
+                        onBlur={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'transparent' }}
+                      />
+                    )}
+                    <span style={{ display: 'inline-flex', border: '1px solid var(--line)', borderRadius: 999, overflow: 'hidden', flexShrink: 0, opacity: statusBusy ? 0.55 : 1 }}>
+                      {([['pending', 'Awaiting', 'var(--amber)'], ['approved', 'Approved', 'var(--sage)'], ['completed', 'Completed', 'var(--ink)']] as const).map(([k, label, on]) => {
+                        const active = itemStatus === k
+                        return (
+                          <button key={k} type="button" disabled={statusBusy} onClick={() => setItemStatus(job, idx, k)}
+                            title={k === 'completed' ? 'Mark this item done — collapses it; once every item is done the job rolls up to Completed' : k === 'approved' ? 'Approve the design for print' : 'Send back to awaiting approval'}
+                            style={{ fontSize: 11.5, fontWeight: 500, padding: '5px 10px', cursor: statusBusy ? 'default' : 'pointer', border: 'none', borderLeft: k === 'pending' ? 'none' : '1px solid var(--line)', background: active ? on : '#fff', color: active ? '#fff' : 'var(--muted)' }}>
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </span>
+                    <button type="button" onClick={() => setCollapsedItems(prev => { const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n })}
+                      title={collapsed ? 'Open item' : 'Collapse item'}
+                      className="btn btn-quiet btn-sm"
+                      style={{ padding: collapsed ? '6px 12px' : '6px 9px', fontSize: 12 }}>
+                      {collapsed ? '▸ Open' : '▾'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeEditItem(idx)}
+                      disabled={editForm.items.length === 1}
+                      title={editForm.items.length === 1 ? 'A job needs at least one item' : 'Remove this item'}
+                      className="link tiny"
+                      style={{ color: editForm.items.length === 1 ? 'var(--muted)' : 'var(--rose)', cursor: editForm.items.length === 1 ? 'default' : 'pointer', opacity: editForm.items.length === 1 ? 0.5 : 1 }}
+                    >✕ Remove</button>
+                  </div>
+                  {!collapsed && (<>
+                  {item.approval_status === 'changes_requested' && item.client_note && (
+                    <p className="small" style={{ margin: '0 0 12px', color: 'var(--rose)', background: 'var(--rose-wash)', borderRadius: 12, padding: '8px 12px' }}>Client asked: “{item.client_note}”</p>
+                  )}
+                  {/* Spec chips */}
+                  <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'flex-end' }}>
+                    <label className="stack" style={{ gap: 5 }}><span className="label">Qty</span>
+                      <input type="number" min={1} value={item.quantity} onChange={e => updateEditItem(idx, 'quantity', parseInt(e.target.value) || 1)}
+                        className="input" style={{ width: 76, textAlign: 'center' }} />
+                    </label>
+                    <label className="stack" style={{ gap: 5 }}><span className="label">Size</span>
+                      <input type="text" value={item.size} onChange={e => updateEditItem(idx, 'size', e.target.value)} placeholder="e.g. 22×28"
+                        className="input" style={{ width: 150 }} />
+                    </label>
+                    <label className="stack" style={{ gap: 5 }}><span className="label">Material</span>
+                      <select value={item.material} onChange={e => updateEditItem(idx, 'material', e.target.value)}
+                        className="input" style={{ width: 150 }}>
+                        {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','metal','other'].map(m => (<option key={m} value={m}>{m}</option>))}
+                      </select>
+                    </label>
+                  </div>
+
+                  {/* Split: client brief (left) · design proofs for approval (right) */}
+                  <div className="job-split">
+
+                    {/* LEFT — From the client */}
+                    <div style={{ borderRadius: 14, border: '1px solid var(--line)', background: 'var(--bg)', padding: '12px 14px' }}>
+                      <span className="label" style={{ display: 'block', marginBottom: 10 }}>From the client</span>
+                      <label className="stack" style={{ gap: 6 }}><span className="label">Brief</span>
+                        <textarea value={item.description ?? ''} onChange={e => updateEditItem(idx, 'description', e.target.value)} rows={5}
+                          placeholder="What the client asked for — finishing, sides, easel back, etc."
+                          className="input" />
+                      </label>
+                      {itemRefPhotos(item).length > 0 && (
+                        <div style={{ marginTop: 11 }}>
+                          <span className="label" style={{ display: 'block', marginBottom: 8 }}>Reference photos · {itemRefPhotos(item).length}</span>
+                          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                            {itemRefPhotos(item).map(p => {
+                              const signed = fileUrls[job.id]?.find(f => f.path === p)
+                              return signed ? (
+                                <a key={p} href={signed.url} target="_blank" rel="noopener noreferrer" title="Reference photo" style={{ display: 'block', width: 54, height: 54 }}>
+                                  <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid var(--line)', borderRadius: 10, display: 'block' }} />
+                                </a>
+                              ) : <span key={p} className="tiny muted" style={{ width: 54, height: 54, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10, fontSize: 9 }}>IMG</span>
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* RIGHT — Design proofs for approval (hero) + note/examples */}
+                    <div style={{ borderRadius: 14, border: '1px solid var(--line)', background: 'var(--surface)', padding: '12px 14px 14px', minWidth: 0 }}>
+                      <div className="between" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                        <span className="label" style={{ color: 'var(--mauve-deep)', fontWeight: 600 }}>Design proofs — for approval</span>
+                        {proofs.length > 0 && (
+                          <span className="tiny" style={{ color: item.approval_status === 'changes_requested' ? 'var(--rose)' : 'var(--amber)' }}>{item.approval_status === 'changes_requested' ? 'Upload replaces current →' : 'New design goes on top →'}</span>
+                        )}
+                      </div>
+
+                      {/* Hero: large preview of the current proof, or a big dropzone when none */}
+                      {proofs.length > 0 ? (() => {
+                        const hero = proofs[0]
+                        const heroSigned = fileUrls[job.id]?.find(f => f.path === hero)
+                        return (
+                          <>
+                          <a href={heroSigned?.fileUrl ?? heroSigned?.url ?? undefined} target="_blank" rel="noopener noreferrer" title={heroSigned?.fileUrl ? `Open ${fileKindLabel(hero)} file` : 'Open full size'}
+                            style={{ display: 'block', borderRadius: 12, overflow: 'hidden', background: 'var(--bg)' }}>
+                            {heroSigned
+                              ? <img src={heroSigned.url} alt="Design proof" style={{ display: 'block', width: '100%', maxHeight: 260, objectFit: 'contain', cursor: 'zoom-in' }} />
+                              : <div className="tiny muted" style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading proof…</div>}
+                          </a>
+                          {heroSigned?.fileUrl && (
+                            <a href={heroSigned.fileUrl} target="_blank" rel="noopener noreferrer" download
+                               className="link tiny" style={{ display: 'inline-block', marginTop: 6 }}>
+                              ⬇ Open {fileKindLabel(hero)} file (print original)
+                            </a>
+                          )}
+                          </>
+                        )
+                      })() : (
+                        <label
+                          onDragOver={e => { e.preventDefault(); if (uploadingProof !== idx) setDragProof(idx) }}
+                          onDragLeave={() => setDragProof(prev => prev === idx ? null : prev)}
+                          onDrop={e => { e.preventDefault(); setDragProof(null); const fs = Array.from(e.dataTransfer.files ?? []); if (fs.length && uploadingProof !== idx) addProofs(idx, fs) }}
+                          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, height: 200, textAlign: 'center', borderRadius: 12, border: `1.5px dashed ${dragProof === idx ? 'var(--sage)' : 'var(--mauve)'}`, background: dragProof === idx ? 'var(--sage-wash)' : 'var(--mauve-wash)', cursor: uploadingProof === idx ? 'default' : 'pointer', color: uploadingProof === idx ? 'var(--muted)' : dragProof === idx ? 'var(--sage)' : 'var(--mauve-deep)' }}>
+                          <input type="file" multiple accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
+                            onChange={e => { const fs = Array.from(e.target.files ?? []); if (fs.length) { e.target.value = ''; addProofs(idx, fs) } }} />
+                          <span style={{ fontSize: 28, lineHeight: 1 }}>{uploadingProof === idx ? '…' : '+'}</span>
+                          <span className="small" style={{ fontWeight: 600 }}>{uploadingProof === idx ? 'Uploading…' : dragProof === idx ? 'Drop the designs here' : 'Add new design'}</span>
+                          <span className="tiny muted">JPG · PNG · SVG · PDF · AI · EPS</span>
+                          <button type="button" title="Attach a saved stock design (white stage, backdrop, …) without re-uploading"
+                            onClick={e => { e.preventDefault(); e.stopPropagation(); openLibrary(idx, 'proof') }}
+                            className="btn btn-quiet btn-sm" style={{ marginTop: 2, color: 'var(--mauve-deep)' }}>
+                            ⊞ Pick from library
+                          </button>
+                        </label>
+                      )}
+
+                      {/* Thumbnail strip — all proofs + add tile */}
+                      {proofs.length > 0 && (
+                        <div className="row" style={{ flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
+                          {proofs.map(p => {
+                            const nm = p.split('/').pop() ?? p
+                            const signed = fileUrls[job.id]?.find(f => f.path === p)
+                            return (
+                              <div key={p} title={nm} style={{ position: 'relative', width: 56, height: 56, flexShrink: 0 }}>
+                                {signed ? (
+                                  <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Click to view full image" style={{ display: 'block', width: '100%', height: '100%' }}>
+                                    <img src={signed.url} alt={nm} style={{ width: '100%', height: '100%', objectFit: 'contain', background: 'var(--bg)', padding: 3, border: `${p === proofs[0] ? '2px' : '1px'} solid ${p === proofs[0] ? 'var(--mauve-deep)' : 'var(--line)'}`, borderRadius: 10, display: 'block', cursor: 'zoom-in', boxSizing: 'border-box' }} />
+                                  </a>
+                                ) : (
+                                  <span className="tiny muted" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, fontSize: 9 }}>IMG</span>
+                                )}
+                                <button type="button" onClick={() => removeProof(idx, p)} title={`Remove ${nm}`}
+                                  style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid var(--rose-wash)', color: 'var(--rose)', cursor: 'pointer', fontSize: 13, fontWeight: 600, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}>×</button>
+                                <label title="Replace this design with a new file — the old one moves to Earlier versions"
+                                  style={{ position: 'absolute', bottom: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid var(--mauve-wash)', color: 'var(--mauve-deep)', cursor: uploadingProof === idx ? 'default' : 'pointer', fontSize: 12, fontWeight: 600, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}>
+                                  <input type="file" accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
+                                    onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; replaceProof(idx, p, f) } }} />
+                                  ⟳
+                                </label>
+                              </div>
+                            )
+                          })}
+                          {(proofs.length < 6 || item.approval_status === 'changes_requested') && (
+                            <label
+                              onDragOver={e => { e.preventDefault(); if (uploadingProof !== idx) setDragProof(idx) }}
+                              onDragLeave={() => setDragProof(prev => prev === idx ? null : prev)}
+                              onDrop={e => { e.preventDefault(); setDragProof(null); const fs = Array.from(e.dataTransfer.files ?? []); if (fs.length && uploadingProof !== idx) addProofs(idx, fs) }}
+                              title={item.approval_status === 'changes_requested' ? 'Upload the revised design(s) — the current one moves to Earlier versions' : 'Add a new design — it becomes the main preview and the current one moves down. Select several at once to add multiple.'}
+                              style={{ width: 56, height: 56, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 10, fontWeight: 500, color: uploadingProof === idx ? 'var(--muted)' : dragProof === idx ? 'var(--sage)' : 'var(--mauve-deep)', border: `1.5px dashed ${dragProof === idx ? 'var(--sage)' : 'var(--mauve)'}`, borderRadius: 10, background: dragProof === idx ? 'var(--sage-wash)' : '#fff', cursor: uploadingProof === idx ? 'default' : 'pointer' }}>
+                              <input type="file" multiple accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
+                                onChange={e => { const fs = Array.from(e.target.files ?? []); if (fs.length) { e.target.value = ''; addProofs(idx, fs) } }} />
+                              {uploadingProof === idx ? '…' : dragProof === idx ? 'Drop' : (<><span style={{ fontSize: 15, lineHeight: 1 }}>↑</span><span>New</span></>)}
+                            </label>
+                          )}
+                          {(proofs.length < 6 || item.approval_status === 'changes_requested') && (
+                            <button type="button" onClick={() => openLibrary(idx, 'proof')}
+                              title="Attach a saved stock design (white stage, backdrop, …) without re-uploading"
+                              style={{ width: 56, height: 56, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 10, fontWeight: 500, color: 'var(--mauve-deep)', border: '1.5px dashed var(--mauve)', borderRadius: 10, background: '#fff', cursor: 'pointer' }}>
+                              <span style={{ fontSize: 15, lineHeight: 1 }}>⊞</span><span>Library</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Multiple designs: all needed, alternatives, or latest-only? */}
+                      {proofs.length > 1 && (
+                        <div className="row" style={{ gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                          <span className="label">Multiple designs</span>
+                          {(['all', 'pick', 'latest'] as const).map(m => {
+                            const on = designsMode(item) === m
+                            const label = m === 'all' ? 'Print all' : m === 'pick' ? 'Client picks one' : 'Latest only'
+                            return (
+                              <button key={m}
+                                type="button"
+                                className="chip"
+                                aria-pressed={on}
+                                title={m === 'all' ? 'Every design is printed' : m === 'pick' ? 'They are alternatives — the client chooses one' : 'Only the newest design is shown big & printed; the earlier ones stay as small reference thumbnails'}
+                                onClick={() => setEditForm(prev => {
+                                  if (!prev) return prev
+                                  const items = [...prev.items]
+                                  // Only 'pick' uses a chosen design — clear it for the other modes.
+                                  items[idx] = { ...items[idx], designs_mode: m, ...(m === 'pick' ? {} : { approved_proof_url: undefined }) }
+                                  return { ...prev, items }
+                                })}
+                                style={{ padding: '6px 12px', fontSize: 12 }}>
+                                {label}
+                              </button>
+                            )
+                          })}
+                          <span className="tiny muted">{designsMode(item) === 'all' ? 'every design is printed' : designsMode(item) === 'pick' ? 'they are alternatives' : 'newest shown big, earlier ones kept small'}</span>
+                        </div>
+                      )}
+
+                      {/* Note & examples for the client (optional) */}
+                      <div style={{ marginTop: 14, paddingTop: 13, borderTop: '1px solid var(--line)' }}>
+                        <span className="label" style={{ display: 'block', marginBottom: 8 }}>Note &amp; examples for client <span className="muted">· optional</span></span>
+                        <textarea value={item.admin_note ?? ''} onChange={e => updateEditItem(idx, 'admin_note', e.target.value)} rows={2}
+                          placeholder="Explain the concept, finish, or how this will be made — shown above the proofs."
+                          className="input" />
+                        <div className="row" style={{ flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
+                          {itemExamplePhotos(item).map(p => {
+                            const signed = fileUrls[job.id]?.find(f => f.path === p)
+                            return (
+                              <div key={p} style={{ position: 'relative', width: 54, height: 54, flexShrink: 0 }}>
+                                {signed ? (
+                                  <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Example photo" style={{ display: 'block', width: '100%', height: '100%' }}>
+                                    <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', background: 'var(--bg)', padding: 3, boxSizing: 'border-box', border: '1px solid var(--line)', borderRadius: 10, display: 'block' }} />
+                                  </a>
+                                ) : <span className="tiny muted" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, fontSize: 9 }}>IMG</span>}
+                                <button type="button" onClick={() => removeExamplePhoto(idx, p)} title="Remove example photo"
+                                  style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid var(--rose-wash)', color: 'var(--rose)', cursor: 'pointer', fontSize: 13, fontWeight: 600, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}>×</button>
+                              </div>
+                            )
+                          })}
+                          {itemExamplePhotos(item).length < 8 && (
+                            <label title="Attach an example / inspiration photo for the client — these are NOT printed"
+                              onDragOver={e => { e.preventDefault(); if (uploadingExample !== idx) setDragExample(idx) }}
+                              onDragLeave={() => setDragExample(prev => prev === idx ? null : prev)}
+                              onDrop={e => { e.preventDefault(); setDragExample(null); const f = e.dataTransfer.files?.[0]; if (f && uploadingExample !== idx) addExamplePhoto(idx, f) }}
+                              style={{ width: 54, height: 54, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 10, fontWeight: 500, color: uploadingExample === idx ? 'var(--muted)' : dragExample === idx ? 'var(--sage)' : 'var(--mauve-deep)', border: `1.5px dashed ${dragExample === idx ? 'var(--sage)' : 'var(--mauve)'}`, borderRadius: 10, background: dragExample === idx ? 'var(--sage-wash)' : '#fff', cursor: uploadingExample === idx ? 'default' : 'pointer' }}>
+                              <input type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml" style={{ display: 'none' }} disabled={uploadingExample === idx}
+                                onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addExamplePhoto(idx, f) } }} />
+                              {uploadingExample === idx ? '…' : dragExample === idx ? 'Drop' : (<><span style={{ fontSize: 15, lineHeight: 1 }}>+</span><span>Example</span></>)}
+                            </label>
+                          )}
+                          {itemExamplePhotos(item).length < 8 && (
+                            <button type="button" onClick={() => openLibrary(idx, 'example')}
+                              title="Attach a saved stock photo from your library — no re-upload"
+                              style={{ width: 54, height: 54, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 10, fontWeight: 500, color: 'var(--mauve-deep)', border: '1.5px dashed var(--mauve)', borderRadius: 10, background: '#fff', cursor: 'pointer' }}>
+                              <span style={{ fontSize: 15, lineHeight: 1 }}>⊞</span><span>Library</span>
+                            </button>
+                          )}
+                        </div>
+                        {exampleError && <p className="err" style={{ marginTop: 4 }}>{exampleError}</p>}
+                      </div>
+                    </div>
+                  </div>
+                  </>)}
+                </div>
+              )})}
+              {proofError && <p className="err">{proofError}</p>}
+              {editForm.items.length < 10 && (
+                <button
+                  type="button"
+                  onClick={addEditItem}
+                  className="btn btn-quiet btn-sm"
+                  style={{ justifySelf: 'start', color: 'var(--mauve-deep)' }}
+                >
+                  + Add Item
+                </button>
+              )}
+            </div>
+
+            {/* Save / Cancel */}
+            <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" onClick={cancelEdit} className="btn btn-quiet btn-sm">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => saveEdit(job.id)}
+                disabled={savingEdit}
+                className="btn btn-ink btn-sm"
+              >
+                {savingEdit ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        )}
+      </>
+    )
+  }
+
   return (
-    <main style={{ minHeight: '100vh', background: '#f2f1ef', fontFamily: 'var(--font-body)' }}>
+    <main className="cx">
       <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .stat-btn:hover { opacity: 0.85; }
-        .filter-btn:hover { background: #f5f5f5 !important; }
-        .job-action-btn:hover:not(:disabled) { filter: brightness(0.95); }
-        .invoice-btn:hover:not(:disabled) { background: #dcfce7 !important; }
-        .file-link:hover { opacity: 0.8; }
-        .job-head:hover { background: #fcfbf9; }
-        .job-search:focus { outline: none; border-color: var(--coral); box-shadow: 0 0 0 3px var(--coral)22; }
+        .quote-row .input { padding: 10px 12px; font-size: 14px; }
+        .job-split { display: grid; grid-template-columns: minmax(200px, 34%) minmax(0, 1fr); gap: 14px; align-items: start; }
         @media (max-width: 640px) {
           .quote-row { grid-template-columns: 1fr 110px !important; }
           .quote-row > input { grid-column: 1 / -1; }
-          .admin-wrap { padding: 18px 14px 56px !important; }
-          .stats-grid { grid-template-columns: repeat(5, 1fr) !important; gap: 4px !important; }
-          .stats-grid .stat-num { font-size: 20px !important; }
-          .stats-grid .stat-lbl { font-size: 8px !important; letter-spacing: 1px !important; }
-          .filter-row { justify-content: flex-start !important; }
+          .job-split { grid-template-columns: 1fr; }
         }
         @keyframes chatIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .chat-backdrop { position: fixed; inset: 0; background: rgba(20,18,16,0.45); z-index: 200; animation: fadeIn 0.2s ease; }
         .chat-drawer { position: fixed; top: 0; right: 0; height: 100dvh; width: 420px; max-width: 100%; background: #faf9f7; z-index: 201; display: flex; flex-direction: column; box-shadow: -10px 0 30px rgba(0,0,0,0.18); animation: chatIn 0.22s ease; }
-        .chat-head { background: #131313; color: #fff; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 2px solid var(--coral); flex-shrink: 0; }
-        .chat-head-title { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chat-head { background: #131313; color: #fff; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid rgba(255,255,255,.12); flex-shrink: 0; }
+        .chat-head-title { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .chat-head-sub { font-size: 11px; color: #b9b4ad; margin-top: 2px; }
-        .chat-close { background: rgba(255,255,255,0.14); color: #fff; border: none; width: 32px; height: 32px; border-radius: 50%; font-size: 14px; cursor: pointer; flex-shrink: 0; }
+        .cx .chat-close { background: rgba(255,255,255,0.14); color: #fff; border: none; width: 32px; height: 32px; border-radius: 50%; font-size: 14px; cursor: pointer; flex-shrink: 0; }
         .chat-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
         .chat-empty { text-align: center; color: #888; font-size: 13.5px; line-height: 1.6; margin: auto 0; padding: 24px; }
         .chat-row { display: flex; flex-direction: column; max-width: 84%; }
@@ -1528,1089 +2351,134 @@ export default function AdminPage() {
         .chat-meta { font-size: 10.5px; color: #999; margin-top: 4px; padding: 0 4px; }
         .chat-foot { border-top: 1px solid #e6e3dc; padding: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom)); background: #fff; flex-shrink: 0; }
         .chat-compose { display: flex; gap: 8px; align-items: flex-end; }
-        .chat-input { flex: 1; padding: 10px 14px; border: 1px solid #d8d5cd; border-radius: 20px; font-size: 15px; font-family: var(--font-body); resize: none; max-height: 120px; box-sizing: border-box; outline: none; }
-        .chat-input:focus { border-color: var(--coral); }
-        .chat-send { background: var(--coral); color: #fff; border: none; border-radius: 20px; padding: 11px 18px; font-weight: 700; font-size: 14px; cursor: pointer; font-family: var(--font-body); flex-shrink: 0; }
-        .chat-send:disabled { opacity: 0.5; cursor: default; }
-        .chat-revise { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; margin-top: 10px; padding: 11px; border: 1px dashed #d6a85e; border-radius: 6px; background: #fff8ef; color: #9a6a00; font-size: 13px; font-weight: 700; cursor: pointer; font-family: var(--font-body); }
-        .chat-err { font-size: 12px; color: #dc2626; margin-bottom: 6px; }
+        .chat-input { flex: 1; padding: 10px 14px; border: 1px solid #d8d5cd; border-radius: 20px; font-size: 15px; font-family: inherit; resize: none; max-height: 120px; box-sizing: border-box; outline: none; }
+        .chat-input:focus { border-color: var(--ink); }
+        .cx .chat-send { background: var(--ink); color: #fff; border: none; border-radius: 20px; padding: 11px 18px; font-weight: 600; font-size: 14px; cursor: pointer; font-family: inherit; flex-shrink: 0; }
+        .cx .chat-send:disabled { opacity: 0.5; cursor: default; }
+        .chat-revise { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; margin-top: 10px; padding: 11px; border: 1px dashed #d6a85e; border-radius: 14px; background: #fff8ef; color: #9a6a00; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+        .chat-err { font-size: 12px; color: var(--rose); margin-bottom: 6px; }
         @media (max-width: 560px) { .chat-drawer { width: 100%; } }
       `}</style>
 
-      {/* Header */}
-      <header style={{
-        background: '#1a1a1a',
-        height: 54,
-        padding: '0 28px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        borderBottom: '2px solid var(--coral)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 50,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img src="/logo-ddfpixel.png" alt="DDF x Pixel" style={{ height: 30, width: 'auto', filter: 'brightness(0) invert(1)' }} />
-          <span style={{ fontSize: 9, background: 'var(--coral)', color: '#fff', padding: '2px 7px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase' }}>
-            ADMIN
-          </span>
-        </div>
-        <button
-          onClick={signOut}
-          style={{ background: 'none', border: '1px solid #3a3a3a', color: '#777', padding: '5px 14px', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}
-        >
-          Sign out
-        </button>
-      </header>
-
-      <div className="admin-wrap" style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 64px' }}>
-
-        {/* Page title */}
-        <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-          <div>
-            <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>
-              DDF x Pixel
-            </p>
-            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#1a1a1a' }}>
-              Job Dashboard
-            </h1>
+      <div className="admin">
+        <nav className="side" aria-label="Admin">
+          <img src="/logo-ddfpixel.png" alt="DDF x Pixel" className="logo" style={{ height: 34, width: 'auto' }} />
+          <div className="nav">
+            <button type="button" aria-current="page"><LayoutGrid size={16} /> Jobs</button>
+            <button type="button" onClick={printProductionSheet} disabled={buildingProdSheet} title="Print all approved designs across jobs, grouped by event date"><Printer size={16} /> {buildingProdSheet ? 'Building…' : 'Production sheet'}</button>
+            <button type="button" onClick={signOut}><LogOut size={16} /> Sign out</button>
           </div>
-          <button
-            onClick={printProductionSheet}
-            disabled={buildingProdSheet}
-            title="Print all approved designs across jobs, grouped by event date"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, padding: '9px 16px', background: '#1a1a1a', color: '#fff', border: 'none', cursor: buildingProdSheet ? 'default' : 'pointer', opacity: buildingProdSheet ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px', textTransform: 'uppercase' }}
-          >
-            <PrintIcon /> {buildingProdSheet ? 'Building…' : 'Production Sheet'}
-          </button>
-        </div>
+          {adminEmail && <div className="tiny muted side-who" style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>Signed in as<br /><span style={{ color: 'var(--ink)' }}>{adminEmail}</span></div>}
+        </nav>
 
-        {/* ── Loading ────────────────────────────────────────────────────────── */}
-        {loading ? (
-          <div style={{ padding: '80px 0', textAlign: 'center' }}>
-            <div style={{ width: 32, height: 32, border: '3px solid #e0e0e0', borderTopColor: 'var(--coral)', borderRadius: '50%', margin: '0 auto 14px', animation: 'spin 0.8s linear infinite' }} />
-            <p style={{ color: '#999', fontSize: 13, margin: 0 }}>Loading jobs…</p>
+        <div className="admin-main">
+          <div className="between stack-sm">
+            <div className="stack" style={{ gap: 10 }}>
+              <span className="eyebrow">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'America/Toronto' })}</span>
+              <h1 className="display" style={{ margin: 0, fontSize: 'clamp(34px, 7vw, 48px)' }}>Good {partOfDay}{firstName ? <>, <span className="serif">{firstName}.</span></> : '.'}</h1>
+            </div>
+            <div className="row glass" style={{ padding: '0 14px', gap: 8, borderRadius: 999 }}>
+              <Search size={15} color="var(--muted)" />
+              <input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search client, company, ref or event…" aria-label="Search jobs"
+                style={{ border: 0, background: 'transparent', padding: '12px 0', font: 'inherit', width: 260, maxWidth: '100%', flex: 1, minWidth: 0, outline: 'none' }} />
+            </div>
           </div>
 
-        ) : loadError ? (
-          <div style={{ background: '#fff0f0', border: '1px solid #fca5a5', padding: '14px 18px', color: '#b91c1c', fontSize: 13 }}>
-            {loadError}
-          </div>
-
-        ) : (
-          <>
-            {/* ── Stats bar ───────────────────────────────────────────────────── */}
-            <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginBottom: 24 }}>
-              {STATUSES.map(s => (
-                <button
-                  key={s}
-                  className="stat-btn"
-                  onClick={() => setFilter(prev => prev === s ? 'all' : s)}
-                  style={{
-                    background: filter === s ? STATUS_CONFIG[s].bg : '#fff',
-                    border: `1px solid ${filter === s ? STATUS_CONFIG[s].color + '55' : '#e0e0e0'}`,
-                    borderTop: `3px solid ${STATUS_CONFIG[s].color}`,
-                    padding: '14px 14px 12px',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font-body)',
-                    transition: 'opacity 0.15s',
-                  }}
-                >
-                  <div className="stat-num" style={{ fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-heading)', color: STATUS_CONFIG[s].color, lineHeight: 1, letterSpacing: '-0.5px' }}>
-                    {statCounts[s] ?? 0}
-                  </div>
-                  <div className="stat-lbl" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: '#999', marginTop: 5 }}>
-                    {STATUS_LABELS[s]}
-                  </div>
+          {loading ? (
+            <p className="muted" style={{ padding: '60px 0', textAlign: 'center' }}>Loading jobs…</p>
+          ) : loadError ? (
+            <div className="alert">{loadError}</div>
+          ) : (
+            <>
+              <div className="kpis k3">
+                <button type="button" className="kpi dark" onClick={() => setFilter('waiting')} style={{ textAlign: 'left', cursor: 'pointer' }}>
+                  <span className="label">Waiting on client</span><span className="k-val num">{kpis.awaiting}</span><span className="tiny muted">jobs with designs out</span>
                 </button>
-              ))}
-            </div>
-
-            {/* ── Search ──────────────────────────────────────────────────────── */}
-            <div style={{ position: 'relative', marginBottom: 12 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
-                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
-              </svg>
-              <input
-                type="search"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search client, company, ref or event…"
-                aria-label="Search jobs"
-                className="job-search"
-                style={{ width: '100%', boxSizing: 'border-box', height: 44, padding: '0 14px 0 38px', fontSize: 14, border: '1px solid #ddd', background: '#fff', fontFamily: 'var(--font-body)', color: '#1a1a1a' }}
-              />
-              {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  aria-label="Clear search"
-                  style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#999', fontSize: 18, lineHeight: 1, cursor: 'pointer', padding: 6 }}
-                >×</button>
-              )}
-            </div>
-
-            {/* ── Toolbar ─────────────────────────────────────────────────────── */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
-              <p style={{ margin: 0, fontSize: 12, color: '#999' }}>
-                {search
-                  ? `${filtered.length} match${filtered.length !== 1 ? 'es' : ''}`
-                  : filter === 'all'
-                    ? `${jobs.length} job${jobs.length !== 1 ? 's' : ''} total`
-                    : `${filtered.length} ${STATUS_LABELS[filter]?.toLowerCase()}`}
-              </p>
-              <div className="filter-row" style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                {(['all', ...STATUSES] as string[]).map(s => (
-                  <button
-                    key={s}
-                    className="filter-btn"
-                    onClick={() => setFilter(s)}
-                    style={{
-                      padding: '4px 11px',
-                      fontSize: 11,
-                      fontWeight: filter === s ? 700 : 500,
-                      background: filter === s ? '#1a1a1a' : '#fff',
-                      color: filter === s ? '#fff' : '#666',
-                      border: `1px solid ${filter === s ? '#1a1a1a' : '#ddd'}`,
-                      cursor: 'pointer',
-                      fontFamily: 'var(--font-body)',
-                      letterSpacing: '0.3px',
-                    }}
-                  >
-                    {s === 'all' ? 'All' : STATUS_LABELS[s]}
-                  </button>
-                ))}
+                <div className="kpi"><span className="label">Due in 7 days</span><span className="k-val num">{kpis.soon}</span><span className="tiny muted">events and orders</span></div>
+                <button type="button" className="kpi" onClick={() => setFilter('in_progress')} style={{ textAlign: 'left', cursor: 'pointer' }}>
+                  <span className="label">In production</span><span className="k-val num">{kpis.inProduction}</span><span className="tiny muted">on the board</span>
+                </button>
+                {/* Plan B: a fourth "Deposits due" KPI (kpis.depositsOutstanding) goes here once deposits ship. */}
               </div>
-            </div>
 
-            {/* ── Empty state ──────────────────────────────────────────────────── */}
-            {filtered.length === 0 ? (
-              <div style={{ background: '#fff', border: '1px solid #e0e0e0', padding: '48px 32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>
-                {search
-                  ? `No jobs match “${search}”.`
-                  : `No ${filter !== 'all' ? STATUS_LABELS[filter]?.toLowerCase() + ' ' : ''}jobs.`}
-              </div>
-            ) : (
-
-              /* ── Job list ──────────────────────────────────────────────────── */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {filtered.map(job => {
-                  const proofed = job.items.filter(it => itemProofs(it).length > 0)
-                  const approvedCount = proofed.filter(it => it.approval_status === 'approved').length
-                  // "Needs attention": a proof is attached but not yet approved, or the client asked for changes.
-                  const needsAttention = proofed.some(it =>
-                    it.approval_status === 'changes_requested' ||
-                    !it.approval_status || it.approval_status === 'pending'
-                  )
-                  // Always start collapsed — the amber dot still flags jobs that need attention.
-                  const baseOpen = job.id in openOverride ? openOverride[job.id] : false
-                  const open = baseOpen || editingJob === job.id
-                  return (
-                  <div
-                    key={job.id}
-                    style={{
-                      background: '#fff',
-                      border: '1px solid #e0e0e0',
-                      borderLeft: `4px solid ${STATUS_COLORS[job.status] ?? '#ccc'}`,
-                    }}
-                  >
-                    {/* Card top: identity + date — click to expand/collapse */}
-                    <div
-                      className="job-head"
-                      onClick={() => setOpenOverride(prev => ({ ...prev, [job.id]: !open }))}
-                      style={{ padding: '15px 18px 13px', borderBottom: open ? '1px solid #f2f2f2' : 'none', cursor: 'pointer' }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          {/* Ref + status + file badge */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
-                            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 14, color: 'var(--coral)', letterSpacing: '0.5px' }}>
-                              {job.reference_number}
-                            </span>
-                            <StatusPill status={job.status} />
-                            {job.file_paths.length > 0 && (
-                              <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.8px', color: '#999', background: '#f5f5f5', border: '1px solid #e0e0e0', padding: '1px 6px' }}>
-                                {job.file_paths.length} FILE{job.file_paths.length !== 1 ? 'S' : ''}
-                              </span>
-                            )}
-                            {proofed.length > 0 && (
-                              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', padding: '1px 7px', border: '1px solid', color: approvedCount === proofed.length ? '#15803d' : '#9a6a00', background: approvedCount === proofed.length ? '#dcfce7' : '#fff7e6', borderColor: approvedCount === proofed.length ? '#86efac' : '#f0d28a' }}>
-                                {approvedCount}/{proofed.length} approved
-                              </span>
-                            )}
-                          </div>
-                          {/* Client name + company */}
-                          <p style={{ margin: '0 0 3px', fontWeight: 700, fontSize: 14, color: '#1a1a1a' }}>
-                            {job.client_name}
-                            {job.company_name && (
-                              <span style={{ fontWeight: 400, color: '#888', fontSize: 13 }}> — {job.company_name}</span>
-                            )}
-                          </p>
-                          {/* Meta row */}
-                          <div style={{ fontSize: 12, color: '#999', display: 'flex', flexWrap: 'wrap', columnGap: 14, rowGap: 2, marginTop: 1 }}>
-                            <a href={`mailto:${job.contact_email}`} onClick={e => e.stopPropagation()} style={{ color: '#999', textDecoration: 'none' }}>
-                              {job.contact_email}
-                            </a>
-                            <span>
-                              Due&nbsp;
-                              <strong style={{ color: '#1a1a1a', fontWeight: 700 }}>{job.date_required}</strong>
-                            </span>
-                            {job.event_name && <span>{job.event_name}</span>}
-                          </div>
-                        </div>
-                        {/* Submitted date + expand chevron */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, paddingTop: 1 }}>
-                          {!open && needsAttention && (
-                            <span title="Needs attention" aria-label="Needs attention" style={{ width: 7, height: 7, borderRadius: '50%', background: '#C8702A', display: 'inline-block' }} />
-                          )}
-                          <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
-                            {new Date(job.submitted_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}
-                          </span>
-                          <button
-                            onClick={e => { e.stopPropagation(); setOpenOverride(prev => ({ ...prev, [job.id]: !open })) }}
-                            aria-label={open ? 'Collapse job' : 'Expand job'}
-                            aria-expanded={open}
-                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, background: 'none', border: 'none', cursor: 'pointer', color: '#999', flexShrink: 0 }}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.18s' }}>
-                              <path d="m6 9 6 6 6-6" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    {open && (<>
-
-
-                    {/* Items */}
-                    <div style={{ padding: '10px 18px', borderBottom: '1px solid #f2f2f2', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {job.items.map((item, i) => {
-                        const refs = itemRefPhotos(item)
+              {/* Plan B: the print-schedule aside (ScheduleAside) sits beside this table once it ships. */}
+              <section className="panel" style={{ minWidth: 0, overflow: 'hidden' }}>
+                <div className="row" style={{ padding: '14px 16px', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid var(--line)' }}>
+                  {FILTERS.map(f => <button key={f.key} type="button" className="chip" aria-pressed={filter === f.key} onClick={() => setFilter(f.key)}>{f.label}</button>)}
+                  <span className="tiny muted" style={{ marginLeft: 'auto' }}>{filtered.length} job{filtered.length === 1 ? '' : 's'}</span>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="table">
+                    <thead><tr><th>Job</th><th>Date</th><th className="hide-xs">Approvals</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {filtered.map(job => {
+                        const a = approvalSummary(job.items)
+                        const d = daysUntil(job.date_required)
                         return (
-                        <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12, color: '#444' }}>
-                            <span style={{ background: '#f8f7f5', border: '1px solid #eaeaea', padding: '3px 9px' }}>
-                              <strong style={{ color: 'var(--coral)', marginRight: 2 }}>{item.quantity}×</strong>
-                              {item.name}
-                              {item.size     && <span style={{ color: '#999' }}> · {item.size}</span>}
-                              {item.material && <span style={{ color: '#bbb' }}> · {item.material}</span>}
-                            </span>
-                            {refs.length > 0 && (() => {
-                              const key = `${job.id}:${i}`
-                              const isOpen = openRefs === key
-                              return (
-                                <button
-                                  onClick={() => {
-                                    if (isOpen) { setOpenRefs(null); return }
-                                    void loadFiles(job.id, refs)
-                                    setOpenRefs(key)
-                                  }}
-                                  title={`${refs.length} client reference photo${refs.length > 1 ? 's' : ''} — click to view`}
-                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: isOpen ? '#fff' : '#5a8a6f', background: isOpen ? '#5a8a6f' : '#f0fbf4', border: '1px solid #cfe9d8', borderRadius: 4, padding: '2px 7px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}
-                                >📎 {refs.length}</button>
-                              )
-                            })()}
-                            {itemProofs(item).length > 0 && (
-                              item.approval_status && item.approval_status !== 'pending'
-                                ? <ApprovalPill status={item.approval_status} />
-                                : <span title="Proof attached — not yet approved for print" style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#888', background: '#f0f0f0', border: '1px solid #ddd', padding: '1px 6px', textTransform: 'uppercase' }}>Awaiting Approval</span>
-                            )}
-                            {item.proof_source === 'client' && (() => {
-                              const proofs = itemProofs(item)
-                              const first = proofs[0]
-                              const cached = first ? fileUrls[job.id]?.find(f => f.path === first) : undefined
-                              const href = cached?.fileUrl ?? cached?.url
-                              const title = `The client uploaded this print-ready file themselves${item.proof_uploaded_at ? ` on ${new Date(item.proof_uploaded_at).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}` : ''} — click to open${first ? ` the ${fileKindLabel(first)} file` : ''}`
-                              const style = { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#1B4D3E', background: '#E8EFEB', border: '1px solid #b9d3c7', padding: '1px 6px', textTransform: 'uppercase' as const, textDecoration: 'none', cursor: first ? 'pointer' : 'default', fontFamily: 'var(--font-body)' }
-                              if (href) {
-                                return <a href={href} target="_blank" rel="noopener noreferrer" download title={title} style={style}>📥 Client File</a>
-                              }
-                              return (
-                                <button
-                                  type="button"
-                                  disabled={!first}
-                                  title={title}
-                                  style={style}
-                                  onClick={async () => {
-                                    if (!first) return
-                                    // Open the tab synchronously so Safari/Chrome popup blockers don't eat it, then point it at the signed URL once we have one.
-                                    const w = window.open('', '_blank')
-                                    const files = await loadFiles(job.id, proofs)
-                                    const signed = files.find(f => f.path === first)
-                                    const url = signed?.fileUrl ?? signed?.url
-                                    if (url) { if (w) w.location.href = url; else window.open(url, '_blank') }
-                                    else w?.close()
-                                  }}
-                                >📥 Client File</button>
-                              )
-                            })()}
-                            {item.added_at && (
-                              <span title={`Client added this after submitting, on ${new Date(item.added_at).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}`} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', color: '#9a6a00', background: '#fff6e5', border: '1px solid #f0d79a', padding: '1px 6px', textTransform: 'uppercase' }}>🆕 Added Later</span>
-                            )}
-                          </span>
-                          {refs.length > 0 && openRefs === `${job.id}:${i}` && (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingLeft: 2, marginTop: 4 }}>
-                              {refs.map(p => {
-                                const signed = fileUrls[job.id]?.find(f => f.path === p)
-                                return signed ? (
-                                  <a key={p} href={signed.url} target="_blank" rel="noopener noreferrer" title={`Open ${signed.name}`} style={{ display: 'block', width: 64, height: 64 }}>
-                                    <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#eceae5', padding: 3, boxSizing: 'border-box', border: '1px solid #cfe9d8', borderRadius: 6, display: 'block' }} />
-                                  </a>
-                                ) : (
-                                  <span key={p} style={{ width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f4f2', border: '1px solid #e7e5e1', borderRadius: 6, color: '#bbb', fontSize: 11 }}>
-                                    {fileError === job.id ? '!' : loadingFiles === job.id ? '…' : '·'}
-                                  </span>
-                                )
-                              })}
-                            </div>
-                          )}
-                          {item.description && <span style={{ fontSize: 11.5, color: '#777', lineHeight: 1.4, paddingLeft: 2 }}>{item.description}</span>}
-                        </div>
+                          <tr key={job.id} aria-selected={drawerId === job.id} tabIndex={0}
+                            onClick={() => openJob(job.id)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJob(job.id) } }}>
+                            <td className="job-cell">
+                              <span style={{ fontWeight: 500 }}>{job.event_name || job.company_name || job.client_name}</span>
+                              <div className="row tiny muted" style={{ gap: 6, marginTop: 4 }}>
+                                <span className="type-tag">{job.job_type === 'product' ? 'Product' : 'Event'}</span>{job.company_name || job.client_name} · {job.reference_number}
+                              </div>
+                            </td>
+                            <td className="num">
+                              <b style={{ whiteSpace: 'nowrap' }}>{prettyDate(job.date_required)}</b>
+                              <div className="tiny" style={{ color: d >= 0 && d <= 4 && job.status !== 'completed' ? 'var(--rose)' : 'var(--muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>{countdownLabel(d)}</div>
+                            </td>
+                            <td className="hide-xs">
+                              {a.total ? (
+                                <div className="row" style={{ gap: 8 }}>
+                                  <span className="mini-bar"><span style={{ width: `${(a.approved / a.total) * 100}%`, background: a.approved === a.total ? 'var(--sage)' : 'var(--mauve)' }} /></span>
+                                  <span className="tiny num">{a.approved}/{a.total}</span>
+                                  {job.items.some(it => it.approval_status === 'changes_requested') && (
+                                    <span className="tiny row" title="Changes requested" style={{ gap: 4, color: 'var(--rose)', fontWeight: 500 }}>
+                                      <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--rose)' }} />changes
+                                    </span>
+                                  )}
+                                </div>
+                              ) : <span className="tiny muted">No proofs yet</span>}
+                            </td>
+                            <td><JobStatusPill status={job.status} /></td>
+                          </tr>
                         )
                       })}
-                    </div>
+                      {filtered.length === 0 && (
+                        <tr><td colSpan={4} className="muted small" style={{ padding: 28, textAlign: 'center' }}>{search ? `No jobs match “${search}”.` : 'No jobs in this view.'}</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </>
+          )}
+        </div>
 
-                    {/* Setup / removal logistics */}
-                    {(job.setup_location || job.setup_time || job.removal_location || job.removal_time) && (
-                      <div style={{ padding: '10px 18px', borderBottom: '1px solid #f2f2f2', display: 'flex', flexWrap: 'wrap', gap: '4px 28px' }}>
-                        {(job.setup_location || job.setup_time) && (
-                          <div style={{ fontSize: 12, color: '#555' }}>
-                            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb', marginRight: 6 }}>Setup</span>
-                            {[job.setup_location, job.setup_time].filter(Boolean).join(' · ')}
-                          </div>
-                        )}
-                        {(job.removal_location || job.removal_time) && (
-                          <div style={{ fontSize: 12, color: '#555' }}>
-                            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb', marginRight: 6 }}>Removal</span>
-                            {[job.removal_location, job.removal_time].filter(Boolean).join(' · ')}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Design approval — admin marks items approved for print */}
-                    {(() => {
-                      const proofed = job.items.map((it, i) => ({ it, i })).filter(x => itemProofs(x.it).length > 0)
-                      if (proofed.length === 0) return null
-                      return (
-                        <div style={{ padding: '10px 18px', borderBottom: '1px solid #f2f2f2', background: '#fbfaf8' }}>
-                          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: '#bbb', marginBottom: 8 }}>Design Approval</div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            {proofed.map(({ it, i }) => {
-                              const key = `${job.id}:${i}`
-                              const approved = it.approval_status === 'approved'
-                              const busy = approvingItem === key
-                              const thread = itemThread(it)
-                              const lastFromClient = thread.length > 0 && thread[thread.length - 1].from === 'client'
-                              const needsAction = !approved && (it.approval_status === 'changes_requested' || lastFromClient)
-                              return (
-                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: needsAction ? '#fff8ef' : '#fff', border: '1px solid #efeee9', borderLeft: `3px solid ${needsAction ? '#e0922a' : approved ? '#1B7F4F' : '#e0ded7'}`, borderRadius: 4 }}>
-                                  <span style={{ fontSize: 12.5, color: '#333', flex: 1, minWidth: 0, lineHeight: 1.3 }}>
-                                    <strong style={{ color: 'var(--coral)' }}>{it.quantity}×</strong> {it.name}
-                                    {approved && it.approved_proof_url && itemProofs(it).length > 1 && (
-                                      <span style={{ display: 'inline-block', marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#15803d' }}>· picked {itemProofs(it).indexOf(it.approved_proof_url) + 1}/{itemProofs(it).length}</span>
-                                    )}
-                                  </span>
-                                  {it.approval_status && it.approval_status !== 'pending' && <ApprovalPill status={it.approval_status} />}
-                                  <button
-                                    onClick={() => setChatItem({ jobId: job.id, idx: i })}
-                                    title={thread.length > 0 ? `${thread.length} message${thread.length > 1 ? 's' : ''}` : 'Open conversation'}
-                                    style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '6px 11px', background: needsAction ? '#e0922a' : '#fff', color: needsAction ? '#fff' : '#555', border: `1px solid ${needsAction ? '#e0922a' : '#dcdad3'}`, borderRadius: 4, cursor: 'pointer', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap' }}>
-                                    💬 {thread.length > 0 ? thread.length : 'Reply'}
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      if (approved) { approveItem(job, i, false); return }
-                                      // Alternatives (pick-one) → make the team choose which design. All-needed
-                                      // items (the default for multiple designs) approve the whole set directly.
-                                      if (designsMode(it) === 'pick' && itemProofs(it).length > 1 && !it.approved_proof_url) {
-                                        setPickerChoice(null)
-                                        setApprovePicker({ jobId: job.id, idx: i })
-                                        void loadFiles(job.id, itemProofs(it))
-                                      } else {
-                                        approveItem(job, i, true)
-                                      }
-                                    }}
-                                    disabled={busy}
-                                    style={{
-                                      fontSize: 11, fontWeight: 700, padding: '6px 12px', borderRadius: 4,
-                                      cursor: busy ? 'default' : 'pointer', fontFamily: 'var(--font-body)', whiteSpace: 'nowrap',
-                                      color: approved ? '#15803d' : '#fff',
-                                      background: approved ? '#dcfce7' : '#1B7F4F',
-                                      border: approved ? '1px solid #86efac' : 'none',
-                                      opacity: busy ? 0.6 : 1,
-                                    }}
-                                  >
-                                    {busy ? '…' : approved ? '✓ Approved' : designsMode(it) === 'pick' && itemProofs(it).length > 1 && !it.approved_proof_url ? 'Approve…' : 'Approve'}
-                                  </button>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )
-                    })()}
-
-                    {/* Notes */}
-                    {job.notes && (
-                      <div style={{ padding: '9px 18px', borderBottom: '1px solid #f2f2f2', background: '#fafafa', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: '#bbb', paddingTop: 1, flexShrink: 0 }}>Notes</span>
-                        <span style={{ fontSize: 12, color: '#666', lineHeight: 1.5 }}>{job.notes}</span>
-                      </div>
-                    )}
-
-                    {/* Quote — admin only, never sent to the client */}
-                    {(() => {
-                      const { total, quoted } = jobQuoteTotal(job.items)
-                      const fmt = (n: number) => n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 2 })
-                      return (
-                        <div style={{ padding: '9px 18px 10px', borderBottom: '1px solid #f2f2f2', background: '#fbfaf6' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--coral)' }}>Quote</span>
-                              <span style={{ fontSize: 10, color: '#aaa' }}>internal · clients never see this</span>
-                            </span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: quoted > 0 ? '#1B4D3E' : '#bbb' }}>
-                              {quoted > 0 ? `Total ${fmt(total)}` : 'Nothing quoted yet'}
-                              {quoted > 0 && quoted < job.items.length && <span style={{ fontWeight: 400, color: '#999' }}> · {quoted} of {job.items.length} items</span>}
-                            </span>
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            {job.items.map((item, i) => {
-                              const key = `${job.id}:${i}`
-                              const draft = quoteDraft[key] ?? { price: item.quote_price != null ? String(item.quote_price) : '', note: item.quote_note ?? '' }
-                              const st = quoteState[key]
-                              const setDraft = (patch: Partial<{ price: string; note: string }>) => setQuoteDraft(prev => ({ ...prev, [key]: { ...draft, ...patch } }))
-                              return (
-                                <div key={i} className="quote-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1.2fr) 120px minmax(160px, 2fr) 70px', gap: 8, alignItems: 'center' }}>
-                                  <span style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.name}>
-                                    <b>{item.quantity}×</b> {item.name}
-                                  </span>
-                                  <span style={{ position: 'relative' }}>
-                                    <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#999', pointerEvents: 'none' }}>$</span>
-                                    <input inputMode="decimal" placeholder="0.00" value={draft.price}
-                                      onChange={e => setDraft({ price: e.target.value })} onBlur={() => saveQuote(job, i)}
-                                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                                      style={{ width: '100%', boxSizing: 'border-box', padding: '5px 8px 5px 18px', fontSize: 12, fontWeight: 600, border: `1px solid ${st === 'error' ? '#dc2626' : '#ddd'}`, background: '#fff', fontFamily: 'var(--font-body)', textAlign: 'right' }} />
-                                  </span>
-                                  <input placeholder="Note to self — options, assumptions, what you told them…" value={draft.note}
-                                    onChange={e => setDraft({ note: e.target.value })} onBlur={() => saveQuote(job, i)}
-                                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                                    style={{ width: '100%', boxSizing: 'border-box', padding: '5px 8px', fontSize: 12, border: '1px solid #ddd', background: '#fff', fontFamily: 'var(--font-body)' }} />
-                                  <span style={{ fontSize: 10, whiteSpace: 'nowrap', color: st === 'saving' ? '#999' : st === 'saved' ? '#1B7F4F' : st === 'error' ? '#dc2626' : '#bbb' }}>
-                                    {st === 'saving' ? 'Saving…' : st === 'saved' ? '✓ Saved' : st === 'error' ? 'Not saved' : item.quoted_at ? new Date(item.quoted_at).toLocaleDateString('en-CA', { day: 'numeric', month: 'short' }) : ''}
-                                  </span>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )
-                    })()}
-
-                    {/* Files */}
-                    {job.file_paths.length > 0 && (
-                      <div style={{ padding: '9px 18px', borderBottom: '1px solid #f2f2f2', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        {fileUrls[job.id] ? (
-                          <>
-                            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: '#bbb' }}>Files</span>
-                            {fileUrls[job.id].map(f => (
-                              <a
-                                key={f.path}
-                                href={f.fileUrl ?? f.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="file-link"
-                                style={{ fontSize: 12, color: 'var(--coral)', textDecoration: 'none', fontWeight: 600, background: '#fff8f6', border: '1px solid var(--coral)44', padding: '2px 9px' }}
-                              >
-                                ↓ {f.name}
-                              </a>
-                            ))}
-                          </>
-                        ) : fileError === job.id ? (
-                          <span style={{ fontSize: 12, color: '#b91c1c' }}>Failed to load files.</span>
-                        ) : (
-                          <button
-                            onClick={() => loadFiles(job.id, job.file_paths)}
-                            disabled={loadingFiles === job.id}
-                            style={{ fontSize: 12, fontWeight: 600, color: 'var(--coral)', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-body)' }}
-                          >
-                            {loadingFiles === job.id
-                              ? 'Loading…'
-                              : `View ${job.file_paths.length} attached file${job.file_paths.length !== 1 ? 's' : ''} →`}
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Actions footer */}
-                    <div style={{ padding: '10px 18px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, background: '#fafafa', flexWrap: 'wrap' }}>
-
-                      {/* Edit */}
-                      <button
-                        onClick={() => editingJob === job.id ? cancelEdit() : startEdit(job)}
-                        className="job-action-btn"
-                        title="Edit brief"
-                        style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: editingJob === job.id ? 'var(--coral)' : '#555', background: editingJob === job.id ? '#fff8f6' : '#fff', border: `1px solid ${editingJob === job.id ? 'var(--coral)44' : '#ddd'}`, padding: '5px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}
-                      >
-                        <EditIcon /> {editingJob === job.id ? 'Cancel' : 'Edit Brief'}
-                      </button>
-
-                      {/* Print */}
-                      <button
-                        onClick={() => printJobTicket(job)}
-                        className="job-action-btn"
-                        title="Print job ticket"
-                        style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: '#555', background: '#fff', border: '1px solid #ddd', padding: '5px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}
-                      >
-                        <PrintIcon /> Print
-                      </button>
-
-                      {/* Copy public approval link */}
-                      {(() => {
-                        const hasProof = job.items.some(i => itemProofs(i).length > 0)
-                        const isCopied = copiedLink === job.id
-                        return (
-                          <button
-                            onClick={() => copyApprovalLink(job.id)}
-                            disabled={!hasProof || copyingLink === job.id}
-                            className="job-action-btn"
-                            title={hasProof ? 'Copy a no-login approval link to send to the client' : 'Attach a proof to an item first'}
-                            style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: isCopied ? '#15803d' : 'var(--coral)', background: isCopied ? '#dcfce7' : '#fff8f6', border: `1px solid ${isCopied ? '#86efac' : 'var(--coral)44'}`, padding: '5px 11px', cursor: hasProof ? 'pointer' : 'not-allowed', opacity: hasProof ? (copyingLink === job.id ? 0.6 : 1) : 0.45, fontFamily: 'var(--font-body)' }}
-                          >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
-                              <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
-                            </svg>
-                            {isCopied ? 'Copied!' : copyingLink === job.id ? 'Copying…' : 'Approval Link'}
-                          </button>
-                        )
-                      })()}
-
-                      {/* Approved designs sheet — appears as soon as any item is approved (partial OK) */}
-                      {(() => {
-                        const proofItems = job.items.filter(i => itemProofs(i).length > 0)
-                        const approvedCount = proofItems.filter(i => i.approval_status === 'approved').length
-                        if (approvedCount === 0) return null
-                        const isFull = approvedCount === proofItems.length
-                        return (
-                          <button
-                            onClick={() => printApprovedSheet(job)}
-                            className="job-action-btn"
-                            title={isFull ? 'Print all approved designs' : `Print the ${approvedCount} approved item${approvedCount !== 1 ? 's' : ''} so the team can start`}
-                            style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: '#15803d', background: '#dcfce7', border: '1px solid #86efac', padding: '5px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}
-                          >
-                            <CheckIcon /> Approved Sheet {isFull ? '' : `(${approvedCount}/${proofItems.length})`}
-                          </button>
-                        )
-                      })()}
-
-                      {/* Invoice → Command Centre */}
-                      <button
-                        onClick={() => sendToCommandCentre(job)}
-                        disabled={sendingToCC === job.id || sentToCC.has(job.id)}
-                        className="job-action-btn invoice-btn"
-                        title={sentToCC.has(job.id) ? 'Draft invoice created in Command Centre' : 'Create draft invoice in Command Centre'}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 5,
-                          fontSize: 11, fontWeight: 700,
-                          color: sentToCC.has(job.id) ? '#15803d' : '#166534',
-                          background: sentToCC.has(job.id) ? '#dcfce7' : '#f0fdf4',
-                          border: `1px solid ${sentToCC.has(job.id) ? '#86efac' : '#bbf7d0'}`,
-                          padding: '5px 11px',
-                          cursor: (sendingToCC === job.id || sentToCC.has(job.id)) ? 'default' : 'pointer',
-                          opacity: sendingToCC === job.id ? 0.6 : 1,
-                          fontFamily: 'var(--font-body)',
-                        }}
-                      >
-                        {sentToCC.has(job.id)
-                          ? <><CheckIcon /> Invoiced</>
-                          : sendingToCC === job.id
-                            ? 'Sending…'
-                            : <><InvoiceIcon /> Invoice</>}
-                      </button>
-
-                      {/* Re-sync approved items to the Command Centre Kanban board */}
-                      {(() => {
-                        const approvedCount = job.items.filter(i => itemProofs(i).length > 0 && i.approval_status === 'approved').length
-                        if (approvedCount === 0) return null
-                        const done = resynced.has(job.id)
-                        return (
-                          <button
-                            onClick={() => resyncToKanban(job)}
-                            disabled={resyncing === job.id}
-                            className="job-action-btn"
-                            title="Push this job's approved items to the Command Centre Kanban board again — refreshes client notes, designs and specs on the tile"
-                            style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: done ? '#15803d' : '#555', background: done ? '#dcfce7' : '#fff', border: `1px solid ${done ? '#86efac' : '#ddd'}`, padding: '5px 11px', cursor: resyncing === job.id ? 'default' : 'pointer', opacity: resyncing === job.id ? 0.6 : 1, fontFamily: 'var(--font-body)' }}
-                          >
-                            {done ? <><CheckIcon /> Synced</> : resyncing === job.id ? 'Syncing…' : (
-                              <>
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points="23 4 23 10 17 10"/>
-                                  <polyline points="1 20 1 14 7 14"/>
-                                  <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-                                </svg>
-                                Re-sync
-                              </>
-                            )}
-                          </button>
-                        )
-                      })()}
-
-                      {/* Notify client toggle */}
-                      <button
-                        onClick={() => toggleNotify(job.id, job.notify_client)}
-                        disabled={togglingNotify === job.id}
-                        title={job.notify_client ? 'Client notifications ON — click to disable' : 'Client notifications OFF — click to enable'}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 5,
-                          padding: '5px 9px',
-                          fontSize: 11,
-                          fontWeight: 600,
-                          border: '1px solid',
-                          borderColor: job.notify_client ? '#C8702A' : '#ddd',
-                          background: job.notify_client ? '#fff7ed' : '#fff',
-                          color: job.notify_client ? '#C8702A' : '#999',
-                          cursor: togglingNotify === job.id ? 'wait' : 'pointer',
-                          opacity: togglingNotify === job.id ? 0.6 : 1,
-                          fontFamily: 'var(--font-body)',
-                        }}
-                      >
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                          <path d="M13.73 21a2 2 0 01-3.46 0"/>
-                        </svg>
-                        {job.notify_client ? 'Notify: ON' : 'Notify: OFF'}
-                      </button>
-
-                      {/* Status dropdown */}
-                      <select
-                        value={job.status}
-                        disabled={updating === job.id}
-                        onChange={e => updateStatus(job.id, e.target.value)}
-                        style={{ padding: '5px 9px', fontSize: 11, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontFamily: 'var(--font-body)', color: '#333', fontWeight: 600 }}
-                      >
-                        {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-                      </select>
-                    </div>
-
-                    {/* ── Edit panel ───────────────────────────────────────── */}
-                    {editingJob === job.id && editForm && (
-                      <div style={{ padding: '18px', borderTop: '2px solid var(--coral)', background: '#fffdf9' }}>
-                        <p style={{ margin: '0 0 14px', fontSize: 10, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--coral)' }}>Edit Brief</p>
-
-                        {/* Date + Event */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-                          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
-                            Due Date
-                            <input
-                              type="date"
-                              value={editForm.date_required}
-                              onChange={e => setEditForm(prev => prev ? { ...prev, date_required: e.target.value } : prev)}
-                              style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', color: '#1a1a1a' }}
-                            />
-                          </label>
-                          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
-                            Event / Location
-                            <input
-                              type="text"
-                              value={editForm.event_name}
-                              onChange={e => setEditForm(prev => prev ? { ...prev, event_name: e.target.value } : prev)}
-                              placeholder="Optional"
-                              style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', color: '#1a1a1a' }}
-                            />
-                          </label>
-                        </div>
-
-                        {/* Notes */}
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 14 }}>
-                          Notes / Special Instructions
-                          <textarea
-                            value={editForm.notes}
-                            onChange={e => setEditForm(prev => prev ? { ...prev, notes: e.target.value } : prev)}
-                            rows={3}
-                            placeholder="Optional"
-                            style={{ padding: '8px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', color: '#1a1a1a', resize: 'vertical' }}
-                          />
-                        </label>
-
-                        {/* Setup & Removal logistics */}
-                        <p style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', paddingBottom: 6, borderBottom: '1px solid #ececec', fontSize: 11, fontWeight: 700, color: 'var(--charcoal)', textTransform: 'uppercase', letterSpacing: '1px' }}><span style={{ width: 3, height: 12, background: 'var(--coral)', borderRadius: 2 }} />Setup &amp; Removal</p>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
-                          {([
-                            ['Setup location', 'setup_location', 'Venue / address'],
-                            ['Setup time', 'setup_time', 'e.g. Fri 8:00 AM'],
-                            ['Removal location', 'removal_location', 'Same as setup, or other'],
-                            ['Removal time', 'removal_time', 'e.g. Sun 11:00 PM'],
-                          ] as const).map(([label, key, ph]) => (
-                            <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
-                              {label}
-                              <input
-                                type="text"
-                                value={editForm[key]}
-                                onChange={e => setEditForm(prev => prev ? { ...prev, [key]: e.target.value } : prev)}
-                                placeholder={ph}
-                                style={{ padding: '6px 9px', border: '1px solid #ddd', fontSize: 12, fontFamily: 'var(--font-body)', color: '#1a1a1a' }}
-                              />
-                            </label>
-                          ))}
-                        </div>
-
-                        {/* Reference Photos */}
-                        <div style={{ marginBottom: 14 }}>
-                          <p style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', paddingBottom: 6, borderBottom: '1px solid #ececec', fontSize: 11, fontWeight: 700, color: 'var(--charcoal)', textTransform: 'uppercase', letterSpacing: '1px' }}><span style={{ width: 3, height: 12, background: 'var(--coral)', borderRadius: 2 }} />Reference Photos <span style={{ color: '#aaa', fontWeight: 600, letterSpacing: 0 }}>· job-wide</span></p>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-                            {editForm.file_paths.map(path => {
-                              const name = path.split('/').pop() ?? path
-                              const cached = fileUrls[job.id]?.find(f => f.path === path)
-                              return (
-                                <div key={path} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f8f7f5', border: '1px solid #e0e0e0', padding: '4px 8px 4px 4px' }}>
-                                  {cached && (
-                                    <img src={cached.url} alt={name} style={{ width: 36, height: 36, objectFit: 'cover', flexShrink: 0 }} />
-                                  )}
-                                  <span style={{ fontSize: 11, color: '#555', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-                                  <button
-                                    onClick={() => setEditForm(prev => prev ? { ...prev, file_paths: prev.file_paths.filter(p => p !== path) } : prev)}
-                                    title="Remove photo"
-                                    style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 14, fontWeight: 700, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
-                                  >×</button>
-                                </div>
-                              )
-                            })}
-                            {editForm.file_paths.length < MAX_FILES && (
-                              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: uploadingPhoto ? '#aaa' : 'var(--coral)', background: 'none', border: '1px dashed var(--coral)66', padding: '5px 12px', cursor: uploadingPhoto ? 'default' : 'pointer' }}>
-                                <input
-                                  type="file"
-                                  accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps,.dxf"
-                                  style={{ display: 'none' }}
-                                  disabled={uploadingPhoto}
-                                  onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addPhoto(f) } }}
-                                />
-                                {uploadingPhoto ? 'Uploading…' : '+ Add Photo'}
-                              </label>
-                            )}
-                          </div>
-                          {uploadPhotoError && <p style={{ margin: '0 0 4px', fontSize: 11, color: '#dc2626' }}>{uploadPhotoError}</p>}
-                          {editForm.file_paths.length > 0 && <p style={{ margin: 0, fontSize: 11, color: '#aaa' }}>Removing a photo cannot be undone after saving.</p>}
-                        </div>
-
-                        {/* Items */}
-                        <div style={{ marginBottom: 14 }}>
-                          <p style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', paddingBottom: 6, borderBottom: '1px solid #ececec', fontSize: 11, fontWeight: 700, color: 'var(--charcoal)', textTransform: 'uppercase', letterSpacing: '1px' }}><span style={{ width: 3, height: 12, background: 'var(--coral)', borderRadius: 2 }} />Items <span style={{ color: '#aaa', fontWeight: 600, letterSpacing: 0 }}>({editForm.items.length})</span></p>
-                          {editForm.items.map((item, idx) => {
-                            const proofs = itemProofs(item)
-                            const itemStatus = item.completed ? 'completed' : (item.approval_status === 'approved' ? 'approved' : 'pending')
-                            const collapsed = collapsedItems.has(idx)
-                            const statusBusy = approvingItem === `${job.id}:${idx}`
-                            return (
-                            <div key={idx} style={{ background: '#fff', border: '1px solid #e7e5e1', borderRadius: 8, padding: '12px 12px 14px', marginBottom: 10, boxShadow: '0 1px 2px rgba(20,18,16,0.04)' }}>
-                              {/* Item header: number badge + name + status + remove */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                                <span onClick={() => setCollapsedItems(prev => { const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n })}
-                                  title={collapsed ? 'Open item' : 'Collapse item'}
-                                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 6, background: 'var(--coral)', color: '#fff', fontSize: 12, fontWeight: 800, flexShrink: 0, cursor: 'pointer' }}>{idx + 1}</span>
-                                {collapsed ? (
-                                  <button type="button"
-                                    onClick={() => setCollapsedItems(prev => { const n = new Set(prev); n.delete(idx); return n })}
-                                    title="Click to open this item"
-                                    style={{ flex: 1, minWidth: 0, textAlign: 'left', padding: '5px 8px', border: '1px solid transparent', borderRadius: 6, fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-body)', color: 'var(--charcoal)', background: 'transparent', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {item.name || 'Item name'} <span style={{ fontSize: 11, fontWeight: 600, color: '#b3ada3', textTransform: 'none', letterSpacing: 0 }}>· click to open</span>
-                                  </button>
-                                ) : (
-                                  <input
-                                    type="text" value={item.name}
-                                    onChange={e => updateEditItem(idx, 'name', e.target.value)}
-                                    placeholder="Item name"
-                                    style={{ flex: 1, minWidth: 0, padding: '5px 8px', border: '1px solid transparent', borderRadius: 6, fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-body)', color: 'var(--charcoal)', background: 'transparent' }}
-                                    onFocus={e => { e.currentTarget.style.borderColor = '#dcdcdc'; e.currentTarget.style.background = '#fff' }}
-                                    onBlur={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'transparent' }}
-                                  />
-                                )}
-                                <span style={{ display: 'inline-flex', border: '1px solid #e2ded7', borderRadius: 6, overflow: 'hidden', flexShrink: 0, opacity: statusBusy ? 0.55 : 1 }}>
-                                  {([['pending', 'Awaiting', '#b08968'], ['approved', 'Approved', '#15803d'], ['completed', 'Completed', '#131313']] as const).map(([k, label, on]) => {
-                                    const active = itemStatus === k
-                                    return (
-                                      <button key={k} disabled={statusBusy} onClick={() => setItemStatus(job, idx, k)}
-                                        title={k === 'completed' ? 'Mark this item done — collapses it; once every item is done the job rolls up to Completed' : k === 'approved' ? 'Approve the design for print' : 'Send back to awaiting approval'}
-                                        style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px', textTransform: 'uppercase', padding: '3px 9px', cursor: statusBusy ? 'default' : 'pointer', fontFamily: 'var(--font-body)', border: 'none', borderLeft: k === 'pending' ? 'none' : '1px solid #ece9e4', background: active ? on : '#fff', color: active ? '#fff' : '#8a857c' }}>
-                                        {label}
-                                      </button>
-                                    )
-                                  })}
-                                </span>
-                                <button onClick={() => setCollapsedItems(prev => { const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n })}
-                                  title={collapsed ? 'Open item' : 'Collapse item'}
-                                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, height: 24, flexShrink: 0, padding: collapsed ? '0 9px' : '0', width: collapsed ? 'auto' : 24, background: collapsed ? '#fff8f6' : '#fff', border: `1px solid ${collapsed ? 'var(--coral)55' : '#e2ded7'}`, borderRadius: 6, color: collapsed ? 'var(--coral)' : '#8a857c', cursor: 'pointer', fontSize: collapsed ? 10 : 11, fontWeight: 700, letterSpacing: collapsed ? '0.4px' : 0, textTransform: 'uppercase', lineHeight: 1, fontFamily: 'var(--font-body)' }}>
-                                  {collapsed ? '▸ Open' : '▾'}
-                                </button>
-                                <button
-                                  onClick={() => removeEditItem(idx)}
-                                  disabled={editForm.items.length === 1}
-                                  title={editForm.items.length === 1 ? 'A job needs at least one item' : 'Remove this item'}
-                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: editForm.items.length === 1 ? '#ccc' : '#C62828', cursor: editForm.items.length === 1 ? 'default' : 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-body)', padding: 4, flexShrink: 0 }}
-                                >✕ Remove</button>
-                              </div>
-                              {!collapsed && (<>
-                              {item.approval_status === 'changes_requested' && item.client_note && (
-                                <p style={{ margin: '0 0 12px', fontSize: 12, color: '#C62828', background: '#fff0f0', border: '1px solid #f6caca', borderRadius: 6, padding: '6px 10px' }}>Client asked: “{item.client_note}”</p>
-                              )}
-                              {/* Spec chips */}
-                              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-                                <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#8a857c' }}>Qty
-                                  <input type="number" min={1} value={item.quantity} onChange={e => updateEditItem(idx, 'quantity', parseInt(e.target.value) || 1)}
-                                    style={{ width: 60, padding: '6px 8px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', boxSizing: 'border-box', textAlign: 'center' }} />
-                                </label>
-                                <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#8a857c' }}>Size
-                                  <input type="text" value={item.size} onChange={e => updateEditItem(idx, 'size', e.target.value)} placeholder="e.g. 22×28"
-                                    style={{ width: 150, padding: '6px 8px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', boxSizing: 'border-box' }} />
-                                </label>
-                                <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#8a857c' }}>Material
-                                  <select value={item.material} onChange={e => updateEditItem(idx, 'material', e.target.value)}
-                                    style={{ width: 140, padding: '6px 8px', border: '1px solid #dcdcdc', borderRadius: 6, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', boxSizing: 'border-box' }}>
-                                    {['vinyl','fabric','foam-board','acrylic','cardstock','wood','pvc','metal','other'].map(m => (<option key={m} value={m}>{m}</option>))}
-                                  </select>
-                                </label>
-                              </div>
-
-                              {/* Split: client brief (left) · design proofs for approval (right) */}
-                              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 34%) minmax(0, 1fr)', gap: 14, alignItems: 'start' }}>
-
-                                {/* LEFT — From the client */}
-                                <div style={{ borderRadius: 10, border: '1px solid #eceae5', background: '#faf9f7', padding: '12px 14px' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-                                    <span style={{ width: 14, height: 2, background: '#cfc9bf', borderRadius: 2 }} />
-                                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.1px', textTransform: 'uppercase', color: '#8a857c' }}>From the client</span>
-                                  </div>
-                                  <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#6f6a62' }}>Brief
-                                    <textarea value={item.description ?? ''} onChange={e => updateEditItem(idx, 'description', e.target.value)} rows={5}
-                                      placeholder="What the client asked for — finishing, sides, easel back, etc."
-                                      style={{ padding: '8px 10px', border: '1px solid #e2ded7', borderRadius: 7, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', resize: 'vertical' }} />
-                                  </label>
-                                  {itemRefPhotos(item).length > 0 && (
-                                    <div style={{ marginTop: 11 }}>
-                                      <span style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase', color: '#6f6a62', marginBottom: 8 }}>Reference photos · {itemRefPhotos(item).length}</span>
-                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                        {itemRefPhotos(item).map(p => {
-                                          const signed = fileUrls[job.id]?.find(f => f.path === p)
-                                          return signed ? (
-                                            <a key={p} href={signed.url} target="_blank" rel="noopener noreferrer" title="Reference photo" style={{ display: 'block', width: 54, height: 54 }}>
-                                              <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', border: '1px solid #e0ddd6', borderRadius: 8, display: 'block' }} />
-                                            </a>
-                                          ) : <span key={p} style={{ width: 54, height: 54, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1efea', border: '1px solid #e7e5e1', borderRadius: 8, color: '#bbb', fontSize: 8, fontWeight: 700 }}>IMG</span>
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* RIGHT — Design proofs for approval (hero) + note/examples */}
-                                <div style={{ borderRadius: 10, border: '1px solid #f1d9d1', background: '#fff', padding: '12px 14px 14px' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
-                                    <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                                      <span style={{ width: 14, height: 2, background: 'var(--coral)', borderRadius: 2 }} />
-                                      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.1px', textTransform: 'uppercase', color: 'var(--coral)' }}>Design proofs — for approval</span>
-                                    </span>
-                                    {proofs.length > 0 && (
-                                      <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: item.approval_status === 'changes_requested' ? '#C62828' : '#b08968' }}>{item.approval_status === 'changes_requested' ? 'Upload replaces current →' : 'New design goes on top →'}</span>
-                                    )}
-                                  </div>
-
-                                  {/* Hero: large preview of the current proof, or a big dropzone when none */}
-                                  {proofs.length > 0 ? (() => {
-                                    const hero = proofs[0]
-                                    const heroSigned = fileUrls[job.id]?.find(f => f.path === hero)
-                                    return (
-                                      <>
-                                      <a href={heroSigned?.fileUrl ?? heroSigned?.url ?? undefined} target="_blank" rel="noopener noreferrer" title={heroSigned?.fileUrl ? `Open ${fileKindLabel(hero)} file` : 'Open full size'}
-                                        style={{ display: 'block', border: '1px solid #d6f0dd', borderRadius: 8, overflow: 'hidden', background: '#eceae5' }}>
-                                        {heroSigned
-                                          ? <img src={heroSigned.url} alt="Design proof" style={{ display: 'block', width: '100%', maxHeight: 260, objectFit: 'contain', cursor: 'zoom-in' }} />
-                                          : <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ac3a8', fontSize: 12, fontWeight: 700 }}>Loading proof…</div>}
-                                      </a>
-                                      {heroSigned?.fileUrl && (
-                                        <a href={heroSigned.fileUrl} target="_blank" rel="noopener noreferrer" download
-                                           style={{ display: 'inline-block', marginTop: 6, fontSize: 11, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--charcoal-60)', textDecoration: 'none' }}>
-                                          ⬇ Open {fileKindLabel(hero)} file (print original)
-                                        </a>
-                                      )}
-                                      </>
-                                    )
-                                  })() : (
-                                    <label
-                                      onDragOver={e => { e.preventDefault(); if (uploadingProof !== idx) setDragProof(idx) }}
-                                      onDragLeave={() => setDragProof(prev => prev === idx ? null : prev)}
-                                      onDrop={e => { e.preventDefault(); setDragProof(null); const fs = Array.from(e.dataTransfer.files ?? []); if (fs.length && uploadingProof !== idx) addProofs(idx, fs) }}
-                                      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, height: 200, textAlign: 'center', borderRadius: 8, border: `1.5px dashed ${dragProof === idx ? '#15803d' : 'var(--coral)77'}`, background: dragProof === idx ? '#f0fdf4' : '#fffaf8', cursor: uploadingProof === idx ? 'default' : 'pointer', color: uploadingProof === idx ? '#aaa' : dragProof === idx ? '#15803d' : 'var(--coral)' }}>
-                                      <input type="file" multiple accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
-                                        onChange={e => { const fs = Array.from(e.target.files ?? []); if (fs.length) { e.target.value = ''; addProofs(idx, fs) } }} />
-                                      <span style={{ fontSize: 28, lineHeight: 1 }}>{uploadingProof === idx ? '…' : '+'}</span>
-                                      <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{uploadingProof === idx ? 'Uploading…' : dragProof === idx ? 'Drop the designs here' : 'Add new design'}</span>
-                                      <span style={{ fontSize: 10.5, fontWeight: 600, color: '#b9a59d' }}>JPG · PNG · SVG · PDF · AI · EPS</span>
-                                      <button type="button" title="Attach a saved stock design (white stage, backdrop, …) without re-uploading"
-                                        onClick={e => { e.preventDefault(); e.stopPropagation(); openLibrary(idx, 'proof') }}
-                                        style={{ marginTop: 2, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: 'var(--coral)', background: '#fff', border: '1px solid var(--coral)55', borderRadius: 6, padding: '4px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
-                                        ⊞ Pick from library
-                                      </button>
-                                    </label>
-                                  )}
-
-                                  {/* Thumbnail strip — all proofs + add tile */}
-                                  {proofs.length > 0 && (
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-                                      {proofs.map(p => {
-                                        const nm = p.split('/').pop() ?? p
-                                        const signed = fileUrls[job.id]?.find(f => f.path === p)
-                                        return (
-                                          <div key={p} title={nm} style={{ position: 'relative', width: 56, height: 56, flexShrink: 0 }}>
-                                            {signed ? (
-                                              <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Click to view full image" style={{ display: 'block', width: '100%', height: '100%' }}>
-                                                <img src={signed.url} alt={nm} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#eceae5', padding: 3, border: `${p === proofs[0] ? '2px' : '1px'} solid ${p === proofs[0] ? 'var(--coral)' : '#d6f0dd'}`, borderRadius: 7, display: 'block', cursor: 'zoom-in', boxSizing: 'border-box' }} />
-                                              </a>
-                                            ) : (
-                                              <span style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 7, color: '#86c8a0', fontSize: 8, fontWeight: 700 }}>IMG</span>
-                                            )}
-                                            <button onClick={() => removeProof(idx, p)} title={`Remove ${nm}`}
-                                              style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}>×</button>
-                                            <label title="Replace this design with a new file — the old one moves to Earlier versions"
-                                              style={{ position: 'absolute', bottom: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid var(--coral)55', color: 'var(--coral)', cursor: uploadingProof === idx ? 'default' : 'pointer', fontSize: 12, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}>
-                                              <input type="file" accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
-                                                onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; replaceProof(idx, p, f) } }} />
-                                              ⟳
-                                            </label>
-                                          </div>
-                                        )
-                                      })}
-                                      {(proofs.length < 6 || item.approval_status === 'changes_requested') && (
-                                        <label
-                                          onDragOver={e => { e.preventDefault(); if (uploadingProof !== idx) setDragProof(idx) }}
-                                          onDragLeave={() => setDragProof(prev => prev === idx ? null : prev)}
-                                          onDrop={e => { e.preventDefault(); setDragProof(null); const fs = Array.from(e.dataTransfer.files ?? []); if (fs.length && uploadingProof !== idx) addProofs(idx, fs) }}
-                                          title={item.approval_status === 'changes_requested' ? 'Upload the revised design(s) — the current one moves to Earlier versions' : 'Add a new design — it becomes the main preview and the current one moves down. Select several at once to add multiple.'}
-                                          style={{ width: 56, height: 56, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', color: uploadingProof === idx ? '#aaa' : dragProof === idx ? '#15803d' : 'var(--coral)', border: `1.5px dashed ${dragProof === idx ? '#15803d' : 'var(--coral)77'}`, borderRadius: 7, background: dragProof === idx ? '#f0fdf4' : '#fff', cursor: uploadingProof === idx ? 'default' : 'pointer' }}>
-                                          <input type="file" multiple accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingProof === idx}
-                                            onChange={e => { const fs = Array.from(e.target.files ?? []); if (fs.length) { e.target.value = ''; addProofs(idx, fs) } }} />
-                                          {uploadingProof === idx ? '…' : dragProof === idx ? 'Drop' : (<><span style={{ fontSize: 15, lineHeight: 1 }}>↑</span><span>New</span></>)}
-                                        </label>
-                                      )}
-                                      {(proofs.length < 6 || item.approval_status === 'changes_requested') && (
-                                        <button type="button" onClick={() => openLibrary(idx, 'proof')}
-                                          title="Attach a saved stock design (white stage, backdrop, …) without re-uploading"
-                                          style={{ width: 56, height: 56, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', color: 'var(--coral)', border: '1.5px dashed var(--coral)77', borderRadius: 7, background: '#fff', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
-                                          <span style={{ fontSize: 15, lineHeight: 1 }}>⊞</span><span>Library</span>
-                                        </button>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {/* Multiple designs: all needed, alternatives, or latest-only? */}
-                                  {proofs.length > 1 && (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                                      <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#bbb' }}>Multiple designs</span>
-                                      {(['all', 'pick', 'latest'] as const).map(m => {
-                                        const on = designsMode(item) === m
-                                        const label = m === 'all' ? 'Print all' : m === 'pick' ? 'Client picks one' : 'Latest only'
-                                        return (
-                                          <button key={m}
-                                            title={m === 'all' ? 'Every design is printed' : m === 'pick' ? 'They are alternatives — the client chooses one' : 'Only the newest design is shown big & printed; the earlier ones stay as small reference thumbnails'}
-                                            onClick={() => setEditForm(prev => {
-                                              if (!prev) return prev
-                                              const items = [...prev.items]
-                                              // Only 'pick' uses a chosen design — clear it for the other modes.
-                                              items[idx] = { ...items[idx], designs_mode: m, ...(m === 'pick' ? {} : { approved_proof_url: undefined }) }
-                                              return { ...prev, items }
-                                            })}
-                                            style={{ fontSize: 11, fontWeight: 700, padding: '4px 11px', cursor: 'pointer', fontFamily: 'var(--font-body)', background: on ? '#131313' : '#fff', color: on ? '#fff' : '#666', border: `1px solid ${on ? '#131313' : '#ddd'}` }}>
-                                            {label}
-                                          </button>
-                                        )
-                                      })}
-                                      <span style={{ fontSize: 10, color: '#999' }}>{designsMode(item) === 'all' ? 'every design is printed' : designsMode(item) === 'pick' ? 'they are alternatives' : 'newest shown big, earlier ones kept small'}</span>
-                                    </div>
-                                  )}
-
-                                  {/* Note & examples for the client (optional) */}
-                                  <div style={{ marginTop: 14, paddingTop: 13, borderTop: '1px solid #f0efec' }}>
-                                    <span style={{ display: 'block', marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase', color: '#6f6a62' }}>Note &amp; examples for client <span style={{ fontWeight: 600, letterSpacing: 0, textTransform: 'none', color: '#b3ada3' }}>· optional</span></span>
-                                    <textarea value={item.admin_note ?? ''} onChange={e => updateEditItem(idx, 'admin_note', e.target.value)} rows={2}
-                                      placeholder="Explain the concept, finish, or how this will be made — shown above the proofs."
-                                      style={{ padding: '8px 10px', border: '1px solid #e2ded7', borderRadius: 7, fontSize: 12.5, fontFamily: 'var(--font-body)', color: '#1a1a1a', background: '#fff', width: '100%', boxSizing: 'border-box', resize: 'vertical' }} />
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-                                      {itemExamplePhotos(item).map(p => {
-                                        const signed = fileUrls[job.id]?.find(f => f.path === p)
-                                        return (
-                                          <div key={p} style={{ position: 'relative', width: 54, height: 54, flexShrink: 0 }}>
-                                            {signed ? (
-                                              <a href={signed.url} target="_blank" rel="noopener noreferrer" title="Example photo" style={{ display: 'block', width: '100%', height: '100%' }}>
-                                                <img src={signed.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#eceae5', padding: 3, boxSizing: 'border-box', border: '1px solid #e0e0e0', borderRadius: 7, display: 'block' }} />
-                                              </a>
-                                            ) : <span style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f4f2', border: '1px solid #e7e5e1', borderRadius: 7, color: '#bbb', fontSize: 8, fontWeight: 700 }}>IMG</span>}
-                                            <button onClick={() => removeExamplePhoto(idx, p)} title="Remove example photo"
-                                              style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}>×</button>
-                                          </div>
-                                        )
-                                      })}
-                                      {itemExamplePhotos(item).length < 8 && (
-                                        <label title="Attach an example / inspiration photo for the client — these are NOT printed"
-                                          onDragOver={e => { e.preventDefault(); if (uploadingExample !== idx) setDragExample(idx) }}
-                                          onDragLeave={() => setDragExample(prev => prev === idx ? null : prev)}
-                                          onDrop={e => { e.preventDefault(); setDragExample(null); const f = e.dataTransfer.files?.[0]; if (f && uploadingExample !== idx) addExamplePhoto(idx, f) }}
-                                          style={{ width: 54, height: 54, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', color: uploadingExample === idx ? '#aaa' : dragExample === idx ? '#15803d' : 'var(--coral)', border: `1.5px dashed ${dragExample === idx ? '#15803d' : 'var(--coral)77'}`, borderRadius: 7, background: dragExample === idx ? '#f0fdf4' : '#fff', cursor: uploadingExample === idx ? 'default' : 'pointer' }}>
-                                          <input type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml" style={{ display: 'none' }} disabled={uploadingExample === idx}
-                                            onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; addExamplePhoto(idx, f) } }} />
-                                          {uploadingExample === idx ? '…' : dragExample === idx ? 'Drop' : (<><span style={{ fontSize: 15, lineHeight: 1 }}>+</span><span>Example</span></>)}
-                                        </label>
-                                      )}
-                                      {itemExamplePhotos(item).length < 8 && (
-                                        <button type="button" onClick={() => openLibrary(idx, 'example')}
-                                          title="Attach a saved stock photo from your library — no re-upload"
-                                          style={{ width: 54, height: 54, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, textAlign: 'center', lineHeight: 1.15, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', color: 'var(--coral)', border: '1.5px dashed var(--coral)77', borderRadius: 7, background: '#fff', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
-                                          <span style={{ fontSize: 15, lineHeight: 1 }}>⊞</span><span>Library</span>
-                                        </button>
-                                      )}
-                                    </div>
-                                    {exampleError && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#dc2626' }}>{exampleError}</p>}
-                                  </div>
-                                </div>
-                              </div>
-                              </>)}
-                            </div>
-                          )})}
-                          {proofError && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#dc2626' }}>{proofError}</p>}
-                          {editForm.items.length < 10 && (
-                            <button
-                              onClick={addEditItem}
-                              style={{ fontSize: 11, fontWeight: 600, color: 'var(--coral)', background: 'none', border: '1px dashed var(--coral)66', padding: '5px 14px', cursor: 'pointer', fontFamily: 'var(--font-body)', marginTop: 4 }}
-                            >
-                              + Add Item
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Save / Cancel */}
-                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                          <button onClick={cancelEdit} style={{ fontSize: 12, padding: '7px 18px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
-                            Cancel
-                          </button>
-                          <button
-                            onClick={() => saveEdit(job.id)}
-                            disabled={savingEdit}
-                            style={{ fontSize: 12, fontWeight: 700, padding: '7px 20px', background: '#1a1a1a', color: '#fff', border: 'none', cursor: savingEdit ? 'default' : 'pointer', opacity: savingEdit ? 0.6 : 1, fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}
-                          >
-                            {savingEdit ? 'Saving…' : 'Save Changes'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    </>)}
-
+        {drawerJob && (
+          <>
+            <div className="drawer-backdrop" onClick={() => setDrawerId(null)} />
+            <aside className="drawer" role="dialog" aria-modal="true" aria-label={`Job ${drawerJob.reference_number}`} style={{ width: 'min(720px, calc(100% - 32px))' }}>
+              <div style={{ padding: 22, display: 'grid', gap: 18 }}>
+                <div className="between">
+                  <span className="tiny" style={{ color: 'var(--mauve-deep)', letterSpacing: '.06em', fontWeight: 500 }}>{drawerJob.reference_number} · {drawerJob.job_type === 'product' ? 'Product' : 'Event'}</span>
+                  <button type="button" ref={drawerCloseRef} className="link tiny" onClick={() => setDrawerId(null)}>Close</button>
+                </div>
+                <h2 className="display" style={{ margin: 0, fontSize: 30 }}>{drawerJob.event_name || drawerJob.company_name || drawerJob.client_name}</h2>
+                <div className="stack" style={{ gap: 6 }}>
+                  <span className="small muted">{drawerJob.client_name}{drawerJob.company_name ? ` · ${drawerJob.company_name}` : ''} · {prettyDate(drawerJob.date_required)} · {countdownLabel(daysUntil(drawerJob.date_required))}</span>
+                  <div className="row tiny muted" style={{ gap: 10, flexWrap: 'wrap' }}>
+                    <JobStatusPill status={drawerJob.status} />
+                    <a className="link" href={`mailto:${drawerJob.contact_email}`}>{drawerJob.contact_email}</a>
+                    <span>Submitted {new Date(drawerJob.submitted_at).toLocaleDateString('en-CA', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                    {drawerJob.file_paths.length > 0 && <span>{drawerJob.file_paths.length} file{drawerJob.file_paths.length !== 1 ? 's' : ''}</span>}
                   </div>
-                  )
-                })}
+                </div>
+                {/* Plan B: JobFeaturesPanel (deposit, reminders, floor preview) goes here once it ships. */}
+                <hr className="rule" />
+                {renderJobDetail(drawerJob)}
               </div>
-            )}
+            </aside>
           </>
         )}
       </div>
@@ -2693,33 +2561,32 @@ export default function AdminPage() {
           <div onClick={() => setApprovePicker(null)}
             style={{ position: 'fixed', inset: 0, background: 'rgba(20,18,16,0.5)', zIndex: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
             <div onClick={e => e.stopPropagation()}
-              style={{ background: '#fff', width: 460, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', borderRadius: 8, boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
-              <div style={{ padding: '16px 18px', borderBottom: '1px solid #eee' }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#131313' }}>Which design is approved?</div>
-                <div style={{ fontSize: 12.5, color: '#777', marginTop: 3 }}>{it.quantity}× {it.name} — only the chosen design goes to print.</div>
+              className="panel" style={{ width: 460, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+              <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)' }}>
+                <div className="sec-title" style={{ fontSize: 22 }}>Which design is approved?</div>
+                <div className="small muted" style={{ marginTop: 3 }}>{it.quantity}× {it.name} — only the chosen design goes to print.</div>
               </div>
               <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {proofs.map((p, pi) => {
                   const u = fileUrls[job.id]?.find(f => f.path === p)?.url
                   const chosen = pickerChoice === p
                   return (
-                    <button key={p} onClick={() => setPickerChoice(p)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, textAlign: 'left', background: chosen ? '#eef7f3' : '#fafafa', border: `2px solid ${chosen ? '#1B7F4F' : '#e6e3dc'}`, borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
-                      <span style={{ width: 18, height: 18, borderRadius: '50%', flexShrink: 0, border: `2px solid ${chosen ? '#1B7F4F' : '#bbb'}`, background: chosen ? '#1B7F4F' : '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700 }}>{chosen ? '✓' : ''}</span>
-                      <span style={{ width: 64, height: 64, flexShrink: 0, background: '#f0eee9', border: '1px solid #e6e3dc', overflow: 'hidden' }}>
+                    <button key={p} type="button" onClick={() => setPickerChoice(p)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, textAlign: 'left', background: chosen ? 'var(--sage-wash)' : 'var(--surface)', border: `2px solid ${chosen ? 'var(--sage)' : 'var(--line)'}`, borderRadius: 16, cursor: 'pointer' }}>
+                      <span style={{ width: 18, height: 18, borderRadius: '50%', flexShrink: 0, border: `2px solid ${chosen ? 'var(--sage)' : 'var(--line)'}`, background: chosen ? 'var(--sage)' : '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700 }}>{chosen ? '✓' : ''}</span>
+                      <span style={{ width: 64, height: 64, flexShrink: 0, background: 'var(--bg)', borderRadius: 10, overflow: 'hidden' }}>
                         {u && <img src={u} alt={`Design ${pi + 1}`} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 3, boxSizing: 'border-box', display: 'block' }} />}
                       </span>
-                      <span style={{ fontSize: 13.5, fontWeight: 700, color: '#333' }}>Design {pi + 1}</span>
+                      <span className="small" style={{ fontWeight: 600 }}>Design {pi + 1}</span>
                     </button>
                   )
                 })}
               </div>
-              <div style={{ padding: '12px 14px', borderTop: '1px solid #eee', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button onClick={() => setApprovePicker(null)}
-                  style={{ fontSize: 13, padding: '9px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 5, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Cancel</button>
-                <button disabled={!pickerChoice || busy}
+              <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button type="button" onClick={() => setApprovePicker(null)} className="link tiny" style={{ padding: '0 8px' }}>Cancel</button>
+                <button type="button" disabled={!pickerChoice || busy}
                   onClick={async () => { await approveItem(job, approvePicker.idx, true, pickerChoice!); setApprovePicker(null) }}
-                  style={{ fontSize: 13, fontWeight: 700, padding: '9px 16px', background: '#1B7F4F', color: '#fff', border: 'none', borderRadius: 5, cursor: (!pickerChoice || busy) ? 'default' : 'pointer', opacity: (!pickerChoice || busy) ? 0.5 : 1, fontFamily: 'var(--font-body)' }}>
+                  className="btn btn-forest btn-sm">
                   {busy ? 'Approving…' : '✓ Approve this design'}
                 </button>
               </div>
@@ -2733,17 +2600,17 @@ export default function AdminPage() {
         <div onClick={() => setLibraryPicker(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(20,18,16,0.5)', zIndex: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', width: 560, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', borderRadius: 8, boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
-            <div style={{ padding: '16px 18px', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+            className="panel" style={{ width: 560, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#131313' }}>Design library</div>
-                <div style={{ fontSize: 12.5, color: '#777', marginTop: 3 }}>
+                <div className="sec-title" style={{ fontSize: 22 }}>Design library</div>
+                <div className="small muted" style={{ marginTop: 3 }}>
                   {libraryPicker.kind === 'proof'
                     ? 'Click a design to attach it as a proof — no re-upload needed.'
                     : 'Click a photo to attach it as an example for the client.'}
                 </div>
               </div>
-              <label style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.3px', textTransform: 'uppercase', color: uploadingLibrary ? '#aaa' : 'var(--coral)', border: '1px dashed var(--coral)77', borderRadius: 6, padding: '7px 12px', cursor: uploadingLibrary ? 'default' : 'pointer' }}>
+              <label className="btn btn-quiet btn-sm" style={{ flexShrink: 0, color: uploadingLibrary ? 'var(--muted)' : 'var(--mauve-deep)', cursor: uploadingLibrary ? 'default' : 'pointer' }}>
                 <input type="file" accept="image/jpeg,image/png,image/svg+xml,application/pdf,.ai,.eps" style={{ display: 'none' }} disabled={uploadingLibrary}
                   onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; uploadToLibrary(f) } }} />
                 {uploadingLibrary ? 'Uploading…' : '+ Add to library'}
@@ -2751,9 +2618,9 @@ export default function AdminPage() {
             </div>
             <div style={{ padding: 14, overflowY: 'auto' }}>
               {library === null ? (
-                <p style={{ margin: 0, fontSize: 12.5, color: '#999' }}>Loading library…</p>
+                <p className="small muted" style={{ margin: 0 }}>Loading library…</p>
               ) : library.length === 0 ? (
-                <p style={{ margin: 0, fontSize: 12.5, color: '#999' }}>
+                <p className="small muted" style={{ margin: 0 }}>
                   Nothing saved yet. Upload your reusable designs — a white stage, standard backdrops, common signage — with “+ Add to library”, then attach them to any job with one click.
                 </p>
               ) : (
@@ -2761,26 +2628,25 @@ export default function AdminPage() {
                   {library.map(entry => (
                     <div key={entry.id} style={{ position: 'relative' }}>
                       <button type="button" onClick={() => attachFromLibrary(entry)} title={`Attach “${entry.name}”`}
-                        style={{ display: 'block', width: '100%', padding: 0, background: '#fafafa', border: '1px solid #e6e3dc', borderRadius: 7, cursor: 'pointer', overflow: 'hidden', fontFamily: 'var(--font-body)' }}>
-                        <span style={{ display: 'block', height: 90, background: '#f0eee9' }}>
+                        style={{ display: 'block', width: '100%', padding: 0, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 14, cursor: 'pointer', overflow: 'hidden' }}>
+                        <span style={{ display: 'block', height: 90, background: 'var(--bg)' }}>
                           {entry.url && (
                             <img src={entry.url} alt={entry.name} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 5, boxSizing: 'border-box', display: 'block' }} />
                           )}
                         </span>
-                        <span style={{ display: 'block', padding: '6px 8px', fontSize: 11, fontWeight: 700, color: '#333', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>{entry.name}</span>
+                        <span className="tiny" style={{ display: 'block', padding: '6px 8px', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>{entry.name}</span>
                       </button>
                       <button type="button" onClick={() => deleteFromLibrary(entry.id)}
                         title="Remove from library — jobs already using it keep their copy"
-                        style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid #f0caca', color: '#C62828', cursor: 'pointer', fontSize: 13, fontWeight: 700, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}>×</button>
+                        style={{ position: 'absolute', top: -8, right: -8, width: 23, height: 23, borderRadius: '50%', background: '#fff', border: '1px solid var(--rose-wash)', color: 'var(--rose)', cursor: 'pointer', fontSize: 13, fontWeight: 600, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }}>×</button>
                     </div>
                   ))}
                 </div>
               )}
-              {libraryError && <p style={{ margin: '10px 0 0', fontSize: 11.5, color: '#dc2626' }}>{libraryError}</p>}
+              {libraryError && <p className="err" style={{ marginTop: 10 }}>{libraryError}</p>}
             </div>
-            <div style={{ padding: '12px 14px', borderTop: '1px solid #eee', display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={() => setLibraryPicker(null)}
-                style={{ fontSize: 13, padding: '9px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 5, cursor: 'pointer', fontFamily: 'var(--font-body)' }}>Close</button>
+            <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end' }}>
+              <button type="button" onClick={() => setLibraryPicker(null)} className="btn btn-quiet btn-sm">Close</button>
             </div>
           </div>
         </div>

@@ -16,7 +16,7 @@ export async function GET() {
   const jobId = verifyPortalToken(cookieStore.get(PORTAL_COOKIE)?.value)
   if (jobId === null) return NextResponse.json({ error: 'No portal session' }, { status: 401 })
 
-  const { data: job } = await getJob(jobId, ['id', 'reference_number', 'event_name', 'date_required', 'notes', 'status', 'submitted_at', 'items', 'file_paths', 'contact_email'])
+  const { data: job } = await getJob(jobId, ['id', 'reference_number', 'event_name', 'date_required', 'notes', 'status', 'submitted_at', 'items', 'file_paths', 'contact_email', 'setup_location', 'setup_time', 'removal_location', 'removal_time', 'job_type', 'fulfillment'])
 
   if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 

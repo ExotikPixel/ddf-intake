@@ -1,6 +1,7 @@
 import 'server-only'
 import { BrevoClient } from '@getbrevo/brevo'
 import type { NotificationStatus } from '@/lib/job-types'
+import { renderEmail, esc } from '@/lib/email-layout'
 
 const brevo = new BrevoClient({ apiKey: process.env.BREVO_API_KEY! })
 
@@ -24,171 +25,113 @@ export interface JobEmailData {
   eventName?: string
   dateRequired: string
   notes?: string
-  items: Array<{
-    name: string
-    quantity: number
-    size: string
-    material: string
-  }>
+  items: Array<{ name: string; quantity: number; size: string; material: string }>
   signedFileUrls: string[]
   submittedAt: string
   portalUrl?: string   // absolute link to the client portal (/portal), if known
 }
 
+const FONT = "Helvetica,Arial,sans-serif"
+const firstName = (full: string) => (full || '').trim().split(/\s+/)[0] || 'there'
+const sender = (brand: EmailBrand) => ({ email: process.env.SENDER_EMAIL!, name: brand.businessName })
+
+/** Label/value rows as one email block. Values are escaped here. */
+function detailRows(rows: [string, string | null | undefined][]): string {
+  const body = rows.filter(([, v]) => v).map(([k, v]) =>
+    `<tr><td style="padding:5px 0;width:130px;font:400 13px ${FONT};color:#756e68;vertical-align:top">${esc(k)}</td><td style="padding:5px 0;font:500 14px ${FONT};color:#121212">${esc(v)}</td></tr>`).join('')
+  return `<tr><td style="padding:18px 28px 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${body}</table></td></tr>`
+}
+
+function itemsBlock(items: JobEmailData['items']): string {
+  const rows = items.map(it =>
+    `<tr><td style="padding:10px 0;border-bottom:1px solid #e6dfd8;font:500 14px ${FONT};color:#121212">${esc(it.quantity)} × ${esc(it.name)}</td><td style="padding:10px 0;border-bottom:1px solid #e6dfd8;font:400 13px ${FONT};color:#756e68;text-align:right">${esc([it.size, it.material].filter(Boolean).join(' · '))}</td></tr>`).join('')
+  return `<tr><td style="padding:18px 28px 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table></td></tr>`
+}
+
+function noteBlock(label: string, text: string): string {
+  return `<tr><td style="padding:16px 28px 0"><div style="background:#f3eaf0;border-radius:16px;padding:14px 16px;font:400 14px/1.5 ${FONT};color:#2c2a29"><b style="font-weight:600">${esc(label)}</b><br>${esc(text)}</div></td></tr>`
+}
+
+function refBlock(ref: string): string {
+  return `<tr><td style="padding:18px 28px 0"><div style="background:#1a1418;border-radius:20px;padding:18px 20px"><div style="font:500 11px ${FONT};color:#b9adb4">Your reference</div><div style="font:500 18px ${FONT};letter-spacing:2px;color:#e4c9da;margin-top:6px">${esc(ref)}</div></div></td></tr>`
+}
+
+// ── New brief (to the shop) ──────────────────────────────────────────
 export async function sendNotificationEmail(job: JobEmailData, brand: EmailBrand = DDF_BRAND) {
-  const itemRows = job.items
-    .map(
-      (item, i) =>
-        `<tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#ffffff'}">
-          <td style="padding:8px 12px;border:1px solid #e0e0e0">${item.name}</td>
-          <td style="padding:8px 12px;border:1px solid #e0e0e0;text-align:center">${item.quantity}</td>
-          <td style="padding:8px 12px;border:1px solid #e0e0e0">${item.size}</td>
-          <td style="padding:8px 12px;border:1px solid #e0e0e0;text-transform:capitalize">${item.material}</td>
-        </tr>`
-    )
-    .join('')
-
-  const fileLinks = job.signedFileUrls.length
-    ? job.signedFileUrls.map((url, i) => `<a href="${url}">File ${i + 1}</a>`).join(' &nbsp;|&nbsp; ')
+  const files = job.signedFileUrls.length
+    ? job.signedFileUrls.map((u, i) => `<a href="${esc(u)}" style="color:#7a4c69">File ${i + 1}</a>`).join(' · ') + ' <span style="color:#756e68">(links valid for 30 days)</span>'
     : 'No files uploaded'
-
-  const html = `
-<!DOCTYPE html>
-<html>
-<body style="font-family:sans-serif;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px">
-  <div style="background:#1a1a1a;color:#fff;padding:16px 20px;margin-bottom:24px">
-    <span style="font-weight:800;font-size:18px;letter-spacing:2px">${brand.businessName}</span>
-    <span style="float:right;background:${brand.brandColor};color:#fff;padding:4px 10px;font-size:12px;font-weight:700;border-radius:3px">${job.referenceNumber}</span>
-  </div>
-
-  <h2 style="margin:0 0 16px">New Job Brief</h2>
-
-  <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
-    <tr><td style="padding:6px 0;color:#666;width:140px">Client</td><td style="padding:6px 0;font-weight:600">${job.clientName}</td></tr>
-    <tr><td style="padding:6px 0;color:#666">Company</td><td style="padding:6px 0;font-weight:600">${job.companyName}</td></tr>
-    <tr><td style="padding:6px 0;color:#666">Email</td><td style="padding:6px 0"><a href="mailto:${job.contactEmail}">${job.contactEmail}</a></td></tr>
-    <tr><td style="padding:6px 0;color:#666">Date Required</td><td style="padding:6px 0;font-weight:600;color:${brand.brandColor}">${job.dateRequired}</td></tr>
-    ${job.eventName ? `<tr><td style="padding:6px 0;color:#666">Event/Project</td><td style="padding:6px 0">${job.eventName}</td></tr>` : ''}
-    <tr><td style="padding:6px 0;color:#666">Submitted</td><td style="padding:6px 0">${job.submittedAt}</td></tr>
-  </table>
-
-  <h3 style="margin:0 0 12px;font-size:14px;text-transform:uppercase;letter-spacing:1px;color:#666">Job Items</h3>
-  <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px">
-    <thead>
-      <tr style="background:#1a1a1a;color:#fff">
-        <th style="padding:8px 12px;text-align:left">Item</th>
-        <th style="padding:8px 12px;text-align:center">Qty</th>
-        <th style="padding:8px 12px;text-align:left">Size</th>
-        <th style="padding:8px 12px;text-align:left">Material</th>
-      </tr>
-    </thead>
-    <tbody>${itemRows}</tbody>
-  </table>
-
-  ${job.notes ? `<div style="background:#f8f6f2;padding:12px 16px;margin-bottom:20px;border-left:3px solid ${brand.brandColor}"><strong>Notes:</strong> ${job.notes}</div>` : ''}
-
-  <div style="margin-bottom:20px">
-    <strong>Files:</strong> ${fileLinks}
-    ${job.signedFileUrls.length ? '<br><small style="color:#666">Links valid for 30 days</small>' : ''}
-  </div>
-
-  <p style="color:#666;font-size:13px">Reply to this email to contact ${job.clientName} directly at ${job.contactEmail}</p>
-</body>
-</html>`
-
+  const html = renderEmail({
+    businessName: brand.businessName,
+    preheader: `${job.companyName} · ${job.items.length} piece${job.items.length === 1 ? '' : 's'} · needed ${job.dateRequired}`,
+    heading: 'New', accent: 'brief.',
+    paragraphs: [`<b>${esc(job.clientName)}</b> from <b>${esc(job.companyName)}</b> sent a brief.`],
+    blocks: [
+      detailRows([['Email', job.contactEmail], ['Date required', job.dateRequired], ['Event / project', job.eventName], ['Submitted', job.submittedAt]]),
+      itemsBlock(job.items),
+      ...(job.notes ? [noteBlock('Notes', job.notes)] : []),
+      `<tr><td style="padding:16px 28px 0;font:400 14px ${FONT};color:#2c2a29"><b style="font-weight:600">Files:</b> ${files}</td></tr>`,
+    ],
+    footnote: `Reply to this email to reach ${job.clientName} at ${job.contactEmail}.`,
+    reference: job.referenceNumber,
+  })
   await brevo.transactionalEmails.sendTransacEmail({
     to: [{ email: process.env.NOTIFICATION_EMAIL! }],
     replyTo: { email: job.contactEmail, name: job.clientName },
-    sender: { email: process.env.SENDER_EMAIL!, name: brand.businessName },
+    sender: sender(brand),
     subject: `New Job Brief: ${job.companyName} — ${job.referenceNumber}`,
     htmlContent: html,
   })
 }
 
+// ── Brief received (to the client) ────────────────────────────────────
 export async function sendConfirmationEmail(job: JobEmailData, brand: EmailBrand = DDF_BRAND) {
-  const itemList = job.items
-    .map((item) => `  • ${item.name} — Qty: ${item.quantity}, Size: ${item.size}, Material: ${item.material}`)
-    .join('\n')
-
-  const html = `
-<!DOCTYPE html>
-<html>
-<body style="font-family:sans-serif;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px">
-  <div style="background:#1a1a1a;color:#fff;padding:16px 20px;margin-bottom:24px">
-    <span style="font-weight:800;font-size:18px;letter-spacing:2px">${brand.businessName}</span>
-  </div>
-
-  <h2 style="margin:0 0 8px">Job Brief Received</h2>
-  <p style="margin:0 0 24px;color:#666">Your reference number is:</p>
-  <div style="background:#fff2ef;border:2px solid ${brand.brandColor};padding:16px;text-align:center;font-size:24px;font-weight:800;letter-spacing:2px;color:${brand.brandColor};margin-bottom:24px">${job.referenceNumber}</div>
-
-  <p>Hi ${job.clientName},</p>
-  <p>We've received your job brief. Here's a summary of what you submitted:</p>
-
-  <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
-    <tr><td style="padding:6px 0;color:#666;width:140px">Company</td><td style="padding:6px 0">${job.companyName}</td></tr>
-    <tr><td style="padding:6px 0;color:#666">Date Required</td><td style="padding:6px 0;font-weight:600">${job.dateRequired}</td></tr>
-    ${job.eventName ? `<tr><td style="padding:6px 0;color:#666">Event/Project</td><td style="padding:6px 0">${job.eventName}</td></tr>` : ''}
-    <tr><td style="padding:6px 0;color:#666">Submitted</td><td style="padding:6px 0">${job.submittedAt}</td></tr>
-  </table>
-
-  <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px">Items Ordered</h3>
-  <div style="background:#f8f6f2;padding:12px 16px;font-family:monospace;font-size:13px;white-space:pre-wrap;margin-bottom:20px">${itemList}</div>
-
-  ${job.notes ? `<p><strong>Notes:</strong> ${job.notes}</p>` : ''}
-
-  ${job.portalUrl ? `
-  <hr style="border:none;border-top:1px solid #e0deda;margin:24px 0">
-  <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px">Track &amp; approve your job online</h3>
-  <p style="margin:0 0 16px;color:#444">View progress, approve designs, or add to this job anytime — no password needed. Just your reference number and this email.</p>
-  <p style="margin:0 0 8px"><a href="${job.portalUrl}" style="display:inline-block;background:${brand.brandColor};color:#fff;text-decoration:none;padding:12px 22px;font-weight:700;letter-spacing:0.5px">View my job →</a></p>
-  ` : ''}
-
-  <hr style="border:none;border-top:1px solid #e0deda;margin:24px 0">
-  <p>${brand.businessName} will review your brief and be in touch shortly.</p>
-  <p style="color:#666;font-size:13px"><strong>Please keep your reference number:</strong> ${job.referenceNumber}<br>Do not re-submit — your job has been saved.</p>
-</body>
-</html>`
-
+  const html = renderEmail({
+    businessName: brand.businessName,
+    preheader: `We’ve got your brief. Reference ${job.referenceNumber}.`,
+    heading: 'Brief', accent: 'received.',
+    paragraphs: [
+      `Hi ${esc(firstName(job.clientName))}, thanks — we’ve got your brief${job.eventName ? ` for <b>${esc(job.eventName)}</b>` : ''}. We’ll review it and come back with a quote or your first proofs.`,
+    ],
+    blocks: [
+      refBlock(job.referenceNumber),
+      itemsBlock(job.items),
+      detailRows([['Company', job.companyName], ['Date required', job.dateRequired], ['Submitted', job.submittedAt]]),
+      ...(job.notes ? [noteBlock('Your notes', job.notes)] : []),
+    ],
+    cta: job.portalUrl ? { label: 'View my job', url: job.portalUrl } : undefined,
+    footnote: 'Track progress, approve designs and add pieces any time with your reference and this email. No need to send the brief again.',
+    reference: job.referenceNumber,
+  })
   await brevo.transactionalEmails.sendTransacEmail({
     to: [{ email: job.contactEmail, name: job.clientName }],
-    sender: { email: process.env.SENDER_EMAIL!, name: brand.businessName },
+    sender: sender(brand),
     subject: `Job Brief Received — ${job.referenceNumber}`,
     htmlContent: html,
   })
 }
 
+// ── Change request (to the shop) ──────────────────────────────────────
 export async function sendChangeRequestNotification(
   job: { reference_number: string; client_name: string; contact_email: string },
   item: { name: string; note?: string },
-  brand: EmailBrand = DDF_BRAND
+  brand: EmailBrand = DDF_BRAND,
 ): Promise<void> {
-  const html = `
-<!DOCTYPE html>
-<html>
-<body style="font-family:sans-serif;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px">
-  <div style="background:#1a1a1a;color:#fff;padding:16px 20px;margin-bottom:24px">
-    <span style="font-weight:800;font-size:18px;letter-spacing:2px">${brand.businessName}</span>
-    <span style="float:right;background:${brand.brandColor};color:#fff;padding:4px 10px;font-size:12px;font-weight:700;border-radius:3px">${job.reference_number}</span>
-  </div>
-
-  <h2 style="margin:0 0 16px">Changes Requested on a Proof</h2>
-  <p><strong>${job.client_name}</strong> (${job.contact_email}) requested changes on:</p>
-  <div style="background:#fff2ef;border-left:3px solid ${brand.brandColor};padding:12px 16px;margin-bottom:16px">
-    <strong>${job.reference_number}</strong> — ${item.name}
-  </div>
-  ${item.note ? `<div style="background:#f8f6f2;padding:12px 16px;margin-bottom:20px"><strong>Client note:</strong><br>${item.note}</div>` : '<p style="color:#666">No note was provided.</p>'}
-  <hr style="border:none;border-top:1px solid #e0deda;margin:24px 0">
-  <p style="color:#666;font-size:13px">Reply to this email to contact ${job.client_name} directly.</p>
-</body>
-</html>`
-
+  const html = renderEmail({
+    businessName: brand.businessName,
+    preheader: `${job.client_name} asked for changes on ${item.name}`,
+    heading: 'Changes', accent: 'requested.',
+    paragraphs: [`<b>${esc(job.client_name)}</b> (${esc(job.contact_email)}) asked for changes on <b>${esc(item.name)}</b>.`],
+    blocks: [item.note ? noteBlock('Client note', item.note) : `<tr><td style="padding:12px 28px 0;font:400 14px ${FONT};color:#756e68">No note was provided.</td></tr>`],
+    footnote: `Reply to this email to reach ${job.client_name} directly.`,
+    reference: job.reference_number,
+  })
   // Best-effort — a transient email failure must not block the approval write.
   try {
     await brevo.transactionalEmails.sendTransacEmail({
       to: [{ email: process.env.NOTIFICATION_EMAIL! }],
       replyTo: { email: job.contact_email, name: job.client_name },
-      sender: { email: process.env.SENDER_EMAIL!, name: brand.businessName },
+      sender: sender(brand),
       subject: `Changes requested: ${job.reference_number} — ${item.name}`,
       htmlContent: html,
     })
@@ -197,46 +140,31 @@ export async function sendChangeRequestNotification(
   }
 }
 
+// ── Status (to the client) ────────────────────────────────────────────
 export async function sendStatusNotification(
   job: { reference_number: string; client_name: string; contact_email: string },
   status: NotificationStatus,
-  brand: EmailBrand = DDF_BRAND
+  brand: EmailBrand = DDF_BRAND,
 ): Promise<void> {
-  const isInProgress = status === 'in_progress'
-
-  const subject = isInProgress
-    ? `Your job is in production — ${job.reference_number}`
-    : `Your job is ready — ${job.reference_number}`
-
-  const bodyText = isInProgress
-    ? `Good news — your job is now in production. We'll be in touch when it's ready for pickup.`
-    : `Great news — your job is ready! Come collect at your convenience during business hours.`
-
-  const html = `
-<!DOCTYPE html>
-<html>
-<body style="font-family:sans-serif;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px">
-  <div style="background:#1a1a1a;color:#fff;padding:16px 20px;margin-bottom:24px">
-    <span style="font-weight:800;font-size:18px;letter-spacing:2px">${brand.businessName}</span>
-    <span style="float:right;background:${brand.brandColor};color:#fff;padding:4px 10px;font-size:12px;font-weight:700;border-radius:3px">${job.reference_number}</span>
-  </div>
-
-  <p>Hi ${job.client_name},</p>
-  <p>${bodyText}</p>
-  <p><strong>Job Reference:</strong> ${job.reference_number}</p>
-  <hr style="border:none;border-top:1px solid #e0deda;margin:24px 0">
-  <p style="color:#666;font-size:13px">If you have any questions, feel free to contact us.</p>
-  <p style="color:#666;font-size:13px">— The ${brand.businessName} team</p>
-</body>
-</html>`
-
-  // Best-effort delivery — swallow errors so a transient email failure
-  // never prevents the status update from being persisted.
+  const inProduction = status === 'in_progress'
+  const html = renderEmail({
+    businessName: brand.businessName,
+    preheader: inProduction ? 'Your job is in production.' : 'Your job is ready.',
+    heading: inProduction ? 'Your job is in' : 'Your job is', accent: inProduction ? 'production.' : 'ready.',
+    paragraphs: [
+      `Hi ${esc(firstName(job.client_name))}, ${inProduction
+        ? 'good news: your job is now in production. We’ll be in touch when it’s ready.'
+        : 'great news: your job is ready. We’ll confirm the hand-over with you.'}`,
+    ],
+    footnote: 'Questions? Just reply to this email.',
+    reference: job.reference_number,
+  })
+  // Best-effort delivery — never block the status update.
   try {
     await brevo.transactionalEmails.sendTransacEmail({
       to: [{ email: job.contact_email, name: job.client_name }],
-      sender: { email: process.env.SENDER_EMAIL!, name: brand.businessName },
-      subject,
+      sender: sender(brand),
+      subject: inProduction ? `Your job is in production — ${job.reference_number}` : `Your job is ready — ${job.reference_number}`,
       htmlContent: html,
     })
   } catch (err) {
@@ -244,42 +172,29 @@ export async function sendStatusNotification(
   }
 }
 
-// Alerts the team when a client appends items/files to a job already in
-// production (the append-only "Add to Job" flow). Mirrors the change-request
-// notification: best-effort, replies route back to the client.
+// ── Client added to a job in progress (to the shop) ───────────────────
 export async function sendAddedToJobNotification(
   job: { reference_number: string; client_name: string; contact_email: string },
   added: { items: Array<{ name: string; quantity: number; size: string }>; fileCount: number },
-  brand: EmailBrand = DDF_BRAND
+  brand: EmailBrand = DDF_BRAND,
 ): Promise<void> {
-  const itemRows = added.items.map(it =>
-    `<tr><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">${it.quantity}× ${it.name}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;color:#555">${it.size || '—'}</td></tr>`
-  ).join('')
-
-  const html = `
-<!DOCTYPE html>
-<html>
-<body style="font-family:sans-serif;color:#1a1a1a;max-width:600px;margin:0 auto;padding:24px">
-  <div style="background:#1a1a1a;color:#fff;padding:16px 20px;margin-bottom:24px">
-    <span style="font-weight:800;font-size:18px;letter-spacing:2px">${brand.businessName}</span>
-    <span style="float:right;background:${brand.brandColor};color:#fff;padding:4px 10px;font-size:12px;font-weight:700;border-radius:3px">${job.reference_number}</span>
-  </div>
-
-  <h2 style="margin:0 0 16px">Client Added to a Job In Progress</h2>
-  <p><strong>${job.client_name}</strong> (${job.contact_email}) added to <strong>${job.reference_number}</strong>:</p>
-  ${added.items.length > 0 ? `<table style="width:100%;border-collapse:collapse;margin-bottom:16px"><thead><tr><th style="text-align:left;padding:6px 12px;background:#f8f6f2;font-size:12px;color:#666">New Item</th><th style="text-align:left;padding:6px 12px;background:#f8f6f2;font-size:12px;color:#666">Size</th></tr></thead><tbody>${itemRows}</tbody></table>` : ''}
-  ${added.fileCount > 0 ? `<div style="background:#fff2ef;border-left:3px solid ${brand.brandColor};padding:12px 16px;margin-bottom:16px">📎 ${added.fileCount} new document${added.fileCount !== 1 ? 's' : ''} attached — view in the admin job card.</div>` : ''}
-  <p style="color:#666;font-size:13px">These additions are awaiting your quote and proof — existing items on the job are unchanged.</p>
-  <hr style="border:none;border-top:1px solid #e0deda;margin:24px 0">
-  <p style="color:#666;font-size:13px">Reply to this email to contact ${job.client_name} directly.</p>
-</body>
-</html>`
-
+  const html = renderEmail({
+    businessName: brand.businessName,
+    preheader: `${job.client_name} added to ${job.reference_number}`,
+    heading: 'Added to a job in', accent: 'progress.',
+    paragraphs: [`<b>${esc(job.client_name)}</b> (${esc(job.contact_email)}) added to <b>${esc(job.reference_number)}</b>. Existing pieces are unchanged; the new ones need a quote and a proof.`],
+    blocks: [
+      ...(added.items.length ? [itemsBlock(added.items.map(it => ({ ...it, material: '' })))] : []),
+      ...(added.fileCount > 0 ? [noteBlock('Files', `${added.fileCount} new document${added.fileCount === 1 ? '' : 's'} attached. View them in the admin job drawer.`)] : []),
+    ],
+    footnote: `Reply to this email to reach ${job.client_name} directly.`,
+    reference: job.reference_number,
+  })
   try {
     await brevo.transactionalEmails.sendTransacEmail({
       to: [{ email: process.env.NOTIFICATION_EMAIL! }],
       replyTo: { email: job.contact_email, name: job.client_name },
-      sender: { email: process.env.SENDER_EMAIL!, name: brand.businessName },
+      sender: sender(brand),
       subject: `Client added to ${job.reference_number}`,
       htmlContent: html,
     })

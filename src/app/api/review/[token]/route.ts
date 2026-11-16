@@ -17,7 +17,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
   const jobId = verifyReviewToken(token)
   if (jobId === null) return NextResponse.json({ error: 'Invalid or expired link' }, { status: 404 })
 
-  const { data: job } = await getJob(jobId, ['reference_number', 'event_name', 'date_required', 'items', 'client_name', 'tenant_id'])
+  const { data: job } = await getJob(jobId, ['reference_number', 'event_name', 'date_required', 'items', 'client_name', 'tenant_id', 'job_type'])
 
   // A validly-signed link whose job isn't here yet is a pre-migration job (Phase 2).
   if (!job) return NextResponse.json({ error: 'Not found', ...(legacyNoticeOn() ? { legacy: LEGACY_NOTICE } : {}) }, { status: 404 })
@@ -44,5 +44,6 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
     fileUrls,
     clientName: (job.client_name ?? '').split(' ')[0] || 'You',   // first name for thread attribution
     shopName: branding.businessName,
+    jobType: job.job_type ?? 'event',
   })
 }
