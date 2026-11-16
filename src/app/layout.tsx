@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next'
-import { Geist, Instrument_Serif } from 'next/font/google'
+import { Geist, Pinyon_Script } from 'next/font/google'
 import './globals.css'
 import './ui.css'
 
@@ -9,12 +9,11 @@ const geist = Geist({
   variable: '--font-geist-sans',
 })
 
-// The one italic accent word in headings ("Tell us what you're *making.*").
-const instrumentSerif = Instrument_Serif({
+// The one script accent word in headings ("Tell us what you're *making.*").
+const accent = Pinyon_Script({
   subsets: ['latin'],
   weight: '400',
-  style: ['normal', 'italic'],
-  variable: '--font-instrument-serif',
+  variable: '--font-accent',
 })
 
 export const viewport: Viewport = {
@@ -30,7 +29,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geist.variable} ${instrumentSerif.variable}`}>
+    <html lang="en" className={`${geist.variable} ${accent.variable}`}>
       <body className="min-h-screen">{children}</body>
     </html>
   )
