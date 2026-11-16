@@ -1,0 +1,7 @@
+name = "ddf-offline-page"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+workers_dev = false
+routes = [
+  { pattern = "jobs.ddfpixel.com/*", zone_name = "ddfpixel.com" }
+]
