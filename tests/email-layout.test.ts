@@ -26,4 +26,20 @@ describe('renderEmail', () => {
     expect(money(115000)).toBe('$1,150.00')
     expect(money(4999)).toBe('$49.99')
   })
+  it('header shows the logo when PUBLIC_BASE_URL is set, else the name', () => {
+    const prev = process.env.PUBLIC_BASE_URL
+    try {
+      process.env.PUBLIC_BASE_URL = 'http://localhost:3002/'
+      const withLogo = renderEmail({ preheader: 'p', heading: 'h', paragraphs: [], reference: 'REF-1' })
+      expect(withLogo).toContain('<img src="http://localhost:3002/logo-ddfpixel.png"')
+      expect(withLogo).toContain('height="30"')
+      expect(withLogo).toContain('REF-1')
+      delete process.env.PUBLIC_BASE_URL
+      const plain = renderEmail({ preheader: 'p', heading: 'h', paragraphs: [], businessName: 'Acme' })
+      expect(plain).not.toContain('<img')
+      expect(plain).toContain('Acme')
+    } finally {
+      if (prev === undefined) delete process.env.PUBLIC_BASE_URL; else process.env.PUBLIC_BASE_URL = prev
+    }
+  })
 })

@@ -36,6 +36,11 @@ export function renderEmail(p: EmailParts): string {
   const name = p.businessName ?? process.env.SENDER_NAME ?? 'DDF x Pixel'
   const row = (inner: string, pad = '12px 28px 0') =>
     `<tr><td style="padding:${pad};font:400 15px/1.6 ${SANS};color:#2c2a29">${inner}</td></tr>`
+  const base = (process.env.PUBLIC_BASE_URL ?? '').replace(/\/+$/, '')
+  const brand = base
+    ? `<img src="${esc(base)}/logo-ddfpixel.png" alt="${esc(name)}" height="30" style="display:block;height:30px;width:auto;border:0">`
+    : `<span style="font:500 15px ${SANS};color:#121212">${esc(name)}</span>`
+  const headerRow = `<tr><td style="padding:22px 28px;border-bottom:1px solid #e6dfd8"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="vertical-align:middle">${brand}</td>${p.reference ? `<td align="right" style="vertical-align:middle;font:400 12px ${SANS};color:#756e68">${esc(p.reference)}</td>` : ''}</tr></table></td></tr>`
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(p.heading)}</title></head>
 <body style="margin:0;padding:0;background:#ebe6e1">
@@ -43,7 +48,7 @@ export function renderEmail(p: EmailParts): string {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ebe6e1;padding:28px 12px">
 <tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:24px;overflow:hidden">
-<tr><td style="padding:22px 28px;border-bottom:1px solid #e6dfd8;font:500 15px ${SANS};color:#121212">${esc(name)}${p.reference ? `<span style="float:right;font:400 12px ${SANS};color:#756e68">${esc(p.reference)}</span>` : ''}</td></tr>
+${headerRow}
 <tr><td style="padding:30px 28px 6px"><h1 style="margin:0;font:300 30px/1.12 ${SANS};letter-spacing:-0.6px;color:#121212">${esc(p.heading)}${p.accent ? ` <span style="font-family:${SERIF};color:#772121;font-style:italic;font-weight:400">${esc(p.accent)}</span>` : ''}</h1></td></tr>
 ${p.paragraphs.map(t => row(t)).join('\n')}
 ${(p.blocks ?? []).join('\n')}
