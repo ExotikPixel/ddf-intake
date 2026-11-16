@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { getJob, updateJobItem } from '@/lib/jobs-repo'
 import { verifyReviewToken } from '@/lib/review-token'
 import { sendNtfy } from '@/lib/ntfy'
 import { publicItems, itemProofs, designsMode } from '@/lib/job-types'
@@ -25,11 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     }
   } catch { /* no body / bad JSON — treat as no selections */ }
 
-  const { data: job } = await supabaseAdmin
-    .from('jobs')
-    .select('reference_number, client_name, items, tenant_id')
-    .eq('id', jobId)
-    .single()
+  const { data: job } = await getJob(jobId, ['reference_number', 'client_name', 'items', 'tenant_id'])
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const existingItems = (job.items ?? []) as JobItem[]
@@ -61,14 +57,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
       approved_proof_url: approvedProof,
       client_note: null,
     }
-    const { error } = await supabaseAdmin.rpc('update_job_item', {
-      p_job_id: jobId, p_index: idx, p_patch: patch, p_append_message: null,
-    })
+    const { error } = await updateJobItem(jobId, idx, patch, null)
     if (!error) approvedNames.push(item.name)
   }
 
   // Re-read once for a consistent post-state to return and notify on.
-  const { data: fresh } = await supabaseAdmin.from('jobs').select('items').eq('id', jobId).single()
+  const { data: fresh } = await getJob(jobId, ['items'])
   const items = (fresh?.items ?? existingItems) as JobItem[]
 
   if (approvedNames.length > 0) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { getJob, updateJobItem } from '@/lib/jobs-repo'
 import { verifyReviewToken } from '@/lib/review-token'
 import { ApprovalActionSchema } from '@/lib/schemas'
 import { sendChangeRequestNotification } from '@/lib/email'
@@ -26,11 +26,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   if (!parsed.success) return NextResponse.json({ error: 'Invalid approval action' }, { status: 400 })
   const { itemIndex, action, note, selectedProof } = parsed.data
 
-  const { data: job } = await supabaseAdmin
-    .from('jobs')
-    .select('reference_number, client_name, contact_email, items, tenant_id')
-    .eq('id', jobId)
-    .single()
+  const { data: job } = await getJob(jobId, ['reference_number', 'client_name', 'contact_email', 'items', 'tenant_id'])
 
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -65,9 +61,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     appendMessage = { from: 'client', text, at: new Date().toISOString() }
   }
 
-  const { data: updatedItems, error } = await supabaseAdmin.rpc('update_job_item', {
-    p_job_id: jobId, p_index: itemIndex, p_patch: patch, p_append_message: appendMessage,
-  })
+  const { data: updatedItems, error } = await updateJobItem(jobId, itemIndex, patch, appendMessage)
   if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
   const items = (updatedItems ?? []) as JobItem[]
 

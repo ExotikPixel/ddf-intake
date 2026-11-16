@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { findJobBySubmissionId, insertJob, updateJob } from '@/lib/jobs-repo'
+import { exists } from '@/lib/file-store'
+import { signFileLink } from '@/lib/file-tokens'
 import { sendNotificationEmail, sendConfirmationEmail } from '@/lib/email'
 import { sendNtfy } from '@/lib/ntfy'
 
@@ -33,11 +35,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Idempotency: if this submissionId was already processed, return the saved ref
-  const { data: existing } = await supabaseAdmin
-    .from('jobs')
-    .select('reference_number')
-    .eq('submission_id', data.submissionId)
-    .maybeSingle()
+  const { data: existing } = await findJobBySubmissionId(data.submissionId)
 
   if (existing) {
     return NextResponse.json({ success: true, referenceNumber: existing.reference_number })
@@ -84,7 +82,7 @@ export async function POST(req: NextRequest) {
     ?? await getDefaultTenantId()
 
   // INSERT with status=pending — DB is source of truth before emails send
-  const { data: inserted, error: insertError } = await supabaseAdmin.from('jobs').insert({
+  const { data: inserted, error: insertError } = await insertJob({
     tenant_id: tenantId,
     reference_number: referenceNumber,
     client_name: data.clientName,
@@ -102,32 +100,26 @@ export async function POST(req: NextRequest) {
     submission_id: data.submissionId,
     submitted_at: submittedAt,
     status: 'pending',
-  }).select('id').single()
+  })
 
-  if (insertError) {
+  if (insertError || !inserted) {
     console.error('[submit] insert error:', insertError)
     return NextResponse.json({ error: 'Failed to save job. Please try again.' }, { status: 500 })
   }
 
   // Update status to received
-  await supabaseAdmin
-    .from('jobs')
-    .update({ status: 'received' })
-    .eq('reference_number', referenceNumber)
+  await updateJob(inserted.id, { status: 'received' })
 
   // Client-supplied finals are already approved → put them on the Kanban now,
   // exactly as a portal approval would. Best-effort (self-healing retries inside).
-  if (clientFinalCount > 0 && inserted?.id) {
+  if (clientFinalCount > 0) {
     await syncApprovedItemsToKanban(inserted.id).catch(e => console.error('[submit] kanban sync failed:', e))
   }
 
-  // Generate signed file URLs for the notification email (valid 30 days)
+  // File links for the notification email (valid 30 days)
   const signedFileUrls: string[] = []
   for (const path of data.filePaths) {
-    const { data: urlData } = await supabaseAdmin.storage
-      .from('job-files')
-      .createSignedUrl(path, 60 * 60 * 24 * 30)
-    if (urlData?.signedUrl) signedFileUrls.push(urlData.signedUrl)
+    if (await exists(path)) signedFileUrls.push(signFileLink(path, 60 * 60 * 24 * 30))
   }
 
   // Absolute portal link for the confirmation email, from the incoming request

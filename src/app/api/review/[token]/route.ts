@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { getJob } from '@/lib/jobs-repo'
+import { LEGACY_NOTICE, legacyNoticeOn } from '@/lib/legacy-notice'
 import { verifyReviewToken } from '@/lib/review-token'
 import { publicItems, itemProofs, itemExamplePhotos } from '@/lib/job-types'
 import { getTenantBranding } from '@/lib/tenant-settings'
@@ -16,13 +17,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
   const jobId = verifyReviewToken(token)
   if (jobId === null) return NextResponse.json({ error: 'Invalid or expired link' }, { status: 404 })
 
-  const { data: job } = await supabaseAdmin
-    .from('jobs')
-    .select('reference_number, event_name, date_required, items, client_name, tenant_id')
-    .eq('id', jobId)
-    .single()
+  const { data: job } = await getJob(jobId, ['reference_number', 'event_name', 'date_required', 'items', 'client_name', 'tenant_id'])
 
-  if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // A validly-signed link whose job isn't here yet is a pre-migration job (Phase 2).
+  if (!job) return NextResponse.json({ error: 'Not found', ...(legacyNoticeOn() ? { legacy: LEGACY_NOTICE } : {}) }, { status: 404 })
 
   const items = (job.items ?? []) as JobItem[]
   // Sign current proofs, archived previous versions (so the thread can show history),

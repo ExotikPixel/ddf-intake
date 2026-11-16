@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { getJobByReference, updateJob } from '@/lib/jobs-repo'
 import { approvedDayKeys } from '@/lib/kanban-days'
 import { NOTIFICATION_STATUSES } from '@/lib/job-types'
 import type { JobItem, NotificationStatus } from '@/lib/job-types'
@@ -9,7 +9,7 @@ import { sendNtfy } from '@/lib/ntfy'
 
 export const dynamic = 'force-dynamic'
 
-// Command Centre → intake status loop-back. A Supabase Database Webhook on CC's
+// Command Centre → intake status loop-back. A database webhook on Command Centre's
 // `tasks` table calls this on every task UPDATE; we map the changed day-sticky
 // back to its intake job, recompute the job's overall production status, and
 // (when it advances) update the client-facing status + email the client.
@@ -55,11 +55,7 @@ export async function POST(req: NextRequest) {
   const taskStatus = (record.status as TaskStatus) ?? 'todo'
 
   try {
-    const { data: job } = await supabaseAdmin
-      .from('jobs')
-      .select('id, status, production, items, date_required, reference_number, client_name, contact_email, notify_client, tenant_id')
-      .eq('reference_number', referenceNumber)
-      .single()
+    const { data: job } = await getJobByReference(referenceNumber, ['id', 'status', 'production', 'items', 'date_required', 'reference_number', 'client_name', 'contact_email', 'notify_client', 'tenant_id'])
     if (!job) return NextResponse.json({ ignored: 'job not found' })
 
     // Record this day's status, then roll the whole job up.
@@ -79,7 +75,7 @@ export async function POST(req: NextRequest) {
       && (rollup === 'in_progress' || rollup === 'completed')
     if (advanced) patch.status = rollup
 
-    await supabaseAdmin.from('jobs').update(patch).eq('id', job.id)
+    await updateJob(job.id, patch)
 
     // Tell the client when production starts / finishes (reuses the admin path).
     if (advanced && job.notify_client && job.contact_email

@@ -40,6 +40,7 @@ export default function ReviewClient({ token }: { token: string }) {
   const [data, setData] = useState<ReviewData | null>(null)
   const [loading, setLoading] = useState(true)
   const [invalid, setInvalid] = useState(false)
+  const [legacy, setLegacy] = useState('')
   const [openIdx, setOpenIdx] = useState<number | null>(null)
   const [actioning, setActioning] = useState<number | null>(null)
   const [actioningAll, setActioningAll] = useState(false)
@@ -60,7 +61,12 @@ export default function ReviewClient({ token }: { token: string }) {
   useEffect(() => {
     fetch(`/api/review/${token}`)
       .then(async res => {
-        if (!res.ok) { setInvalid(true); return }
+        if (!res.ok) {
+          const j = await res.json().catch(() => null)
+          if (j?.legacy) setLegacy(j.legacy)
+          setInvalid(true)
+          return
+        }
         setData(await res.json())
       })
       .catch(() => setInvalid(true))
@@ -164,7 +170,7 @@ export default function ReviewClient({ token }: { token: string }) {
         <div style={{ background: '#fff', border: '1px solid var(--charcoal-border)', padding: '48px 32px', textAlign: 'center' }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 20, fontWeight: 700, textTransform: 'uppercase', margin: '0 0 8px' }}>Link not valid</h2>
           <p style={{ color: 'var(--charcoal-60)', fontSize: 14, margin: 0, lineHeight: 1.6 }}>
-            This approval link is invalid or has expired. Please ask us to send you a fresh one.
+            {legacy || 'This approval link is invalid or has expired. Please ask us to send you a fresh one.'}
           </p>
         </div>
       </Shell>
