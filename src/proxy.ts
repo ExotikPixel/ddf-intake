@@ -25,6 +25,9 @@ export async function proxy(req: NextRequest) {
     const limit = kind === 'upload' ? MAX_UPLOAD_URL_REQUESTS : kind === 'login' ? MAX_LOGIN_REQUESTS : MAX_REQUESTS
     const bucket = `${clientIp(req)}:${kind}`
     const now = Date.now()
+    if (ipMap.size > 10_000) {
+      for (const [k, v] of ipMap) if (now > v.resetAt) ipMap.delete(k)
+    }
     const entry = ipMap.get(bucket)
     if (!entry || now > entry.resetAt) {
       ipMap.set(bucket, { count: 1, resetAt: now + WINDOW_MS })

@@ -23,9 +23,11 @@ async function main() {
       if (!email.includes('@')) throw new Error('usage: admin-user.ts set <email>  (password on stdin)')
       const password = await readStdin()
       if (password.length < 12) throw new Error('password must be at least 12 characters')
+      if (Buffer.byteLength(password, 'utf8') > 72) throw new Error('password must be at most 72 bytes (bcrypt limit)')
       const hash = await bcrypt.hash(password, 12)
       await sql`insert into admin_users (email, password_hash) values (${email}, ${hash})
-        on conflict (email) do update set password_hash = excluded.password_hash`
+        on conflict (email) do update set password_hash = excluded.password_hash,
+          session_version = admin_users.session_version + 1`
       console.log(`✅ admin ${email} saved`)
     } else if (cmd === 'list') {
       const rows = await sql`select id, email, created_at, last_login_at from admin_users order by id`

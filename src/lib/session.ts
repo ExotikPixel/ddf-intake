@@ -6,7 +6,7 @@ import { SignJWT, jwtVerify } from 'jose'
 export const ADMIN_COOKIE = 'ddf_admin'
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 
-export interface AdminSession { id: number; email: string }
+export interface AdminSession { id: number; email: string; v: number }
 
 function key(): Uint8Array {
   const s = process.env.AUTH_SECRET
@@ -16,7 +16,7 @@ function key(): Uint8Array {
 
 export async function signSession(s: AdminSession, ttlSeconds = SESSION_TTL_SECONDS): Promise<string> {
   const now = Math.floor(Date.now() / 1000)
-  return new SignJWT({ email: s.email })
+  return new SignJWT({ email: s.email, v: s.v })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(String(s.id))
     .setIssuedAt(now)
@@ -29,8 +29,10 @@ export async function verifySession(token: string | undefined): Promise<AdminSes
   try {
     const { payload } = await jwtVerify(token, key(), { algorithms: ['HS256'] })
     const id = Number(payload.sub)
-    if (!Number.isInteger(id) || typeof payload.email !== 'string') return null
-    return { id, email: payload.email }
+    const v = payload.v
+    // Cookies without a session version (pre-revocation) are invalid.
+    if (!Number.isInteger(id) || typeof payload.email !== 'string' || typeof v !== 'number' || !Number.isInteger(v)) return null
+    return { id, email: payload.email, v }
   } catch {
     return null
   }

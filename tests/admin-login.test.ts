@@ -39,4 +39,16 @@ describe.skipIf(!hasDb)('POST /api/admin/login', () => {
   it('400 when fields are missing', async () => {
     expect((await login('', '')).status).toBe(400)
   })
+
+  it('415 unless Content-Type is application/json', async () => {
+    const res = await POST(new NextRequest('http://localhost/api/admin/login', {
+      method: 'POST', body: 'email=a&password=b', headers: { 'content-type': 'text/plain' },
+    }))
+    expect(res.status).toBe(415)
+  })
+
+  it('rejects over-long passwords with the generic 401 (before bcrypt)', async () => {
+    const res = await login('tony@ddfpixel.com', 'x'.repeat(1025))
+    expect(res.status).toBe(401)
+  })
 })

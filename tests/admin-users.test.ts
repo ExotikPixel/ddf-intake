@@ -23,9 +23,18 @@ describe.skipIf(!hasDb)('admin-users', () => {
     await au.upsertAdmin('a@b.co', 'second password!!')
     const found = await au.findAdminByEmail('a@b.co')
     expect(await au.checkPassword('second password!!', found!.password_hash)).toBe(true)
-    expect(await au.adminExists(id)).toBe(true)
-    expect(await au.adminExists(999)).toBe(false)
+    const v = (await au.findAdminByEmail('a@b.co'))!.session_version
+    expect(await au.adminSessionValid(id, v)).toBe(true)
+    expect(await au.adminSessionValid(999, v)).toBe(false)
     await au.touchAdminLogin(id)
+  })
+
+  it('password reset bumps session_version, invalidating the old version', async () => {
+    const id = await au.upsertAdmin('a@b.co', 'first password!!')
+    const v1 = (await au.findAdminByEmail('a@b.co'))!.session_version
+    await au.upsertAdmin('a@b.co', 'second password!!')
+    expect(await au.adminSessionValid(id, v1)).toBe(false)
+    expect(await au.adminSessionValid(id, v1 + 1)).toBe(true)
   })
 
   it('dummyHash makes unknown-user checks cost the same and fail', async () => {

@@ -127,6 +127,8 @@ create table if not exists public.admin_users (
   created_at     timestamptz not null default now(),
   last_login_at  timestamptz
 );
+-- Bumped on every password set; cookies carry it so a reset revokes old sessions.
+alter table public.admin_users add column if not exists session_version int not null default 0;
 
 -- ── Atomic item update (verbatim from SUPABASE_APPROVAL_RACE_FIX.sql) ─
 create or replace function public.update_job_item(

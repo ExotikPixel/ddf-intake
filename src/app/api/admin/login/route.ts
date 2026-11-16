@@ -8,12 +8,16 @@ export const dynamic = 'force-dynamic'
 const FAILED = { error: 'Wrong email or password.' }
 
 export async function POST(req: NextRequest) {
+  if (!(req.headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')) {
+    return NextResponse.json({ error: 'Content-Type must be application/json' }, { status: 415 })
+  }
   let body: { email?: unknown; password?: unknown }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
 
   const email = normalizeEmail(typeof body.email === 'string' ? body.email : '')
   const password = typeof body.password === 'string' ? body.password : ''
   if (!email || !password) return NextResponse.json({ error: 'Enter your email and password.' }, { status: 400 })
+  if (password.length > 1024) return NextResponse.json(FAILED, { status: 401 })  // before bcrypt
 
   let admin
   try { admin = await findAdminByEmail(email) } catch (e) {
@@ -26,7 +30,7 @@ export async function POST(req: NextRequest) {
 
   await touchAdminLogin(admin.id).catch(e => console.error('[admin/login] touch failed:', e))
   const res = NextResponse.json({ ok: true })
-  res.cookies.set(ADMIN_COOKIE, await signSession({ id: admin.id, email: admin.email }), {
+  res.cookies.set(ADMIN_COOKIE, await signSession({ id: admin.id, email: admin.email, v: admin.session_version }), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
