@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getJob, updateJob, updateJobItem } from '@/lib/jobs-repo'
 import { remove as removeFiles } from '@/lib/file-store'
+import { validateJobFilePaths } from '@/lib/job-file-paths'
 import { requireAdmin } from '@/lib/admin-auth'
 import { STATUSES, NOTIFICATION_STATUSES, NotificationStatus, itemProofs, mergeItemsPreservingApproval } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
@@ -131,6 +132,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if ('date_required' in body || 'event_name' in body || 'notes' in body || 'items' in body || 'file_paths' in body
       || 'setup_location' in body || 'setup_time' in body || 'removal_location' in body || 'removal_time' in body) {
     const patch: Record<string, unknown> = {}
+    let removed: string[] = []
     if ('date_required' in body)    patch.date_required    = body.date_required
     if ('event_name' in body)       patch.event_name       = body.event_name ?? null
     if ('notes' in body)            patch.notes            = body.notes ?? null
@@ -151,18 +153,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     if ('file_paths' in body) {
-      const newPaths = body.file_paths as string[]
-      // delete removed files from storage
       const { data: current } = await getJob(jobId, ['file_paths'], auth.tenantId)
-      const removed = (current?.file_paths as string[] ?? []).filter(p => !newPaths.includes(p))
-      if (removed.length > 0) {
-        await removeFiles(removed)
-      }
-      patch.file_paths = newPaths
+      const currentPaths = (current?.file_paths as string[] | null) ?? []
+      const valid = await validateJobFilePaths(body.file_paths, currentPaths)
+      if (!valid) return NextResponse.json({ error: 'Invalid file_paths' }, { status: 400 })
+      removed = currentPaths.filter(p => !valid.includes(p))
+      patch.file_paths = valid
     }
     const { data: changed, error } = await updateJob(jobId, patch, auth.tenantId)
     if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
     if (!changed) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+
+    // Only delete files once the job no longer references them.
+    if (removed.length > 0) await removeFiles(removed)
 
     // Keep the Kanban in sync whenever items change (approvals, revised proofs).
     // No-op when nothing is approved; updates existing tickets in place.

@@ -17,12 +17,10 @@ export async function POST(req: NextRequest) {
   const jobId = Number(body.jobId)
   if (!Number.isInteger(jobId)) return NextResponse.json({ error: 'Invalid jobId' }, { status: 400 })
 
-  const { data: job } = await getJob(jobId, ['contact_email', 'items'])
+  if (!(await portalCanAccess(jobId))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
+  const { data: job } = await getJob(jobId, ['items'])
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (!(await portalCanAccess(jobId, job.contact_email))) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
 
   const items = (job.items ?? []) as JobItem[]
   const paths = items.flatMap(it => [...itemProofs(it), ...itemExamplePhotos(it)])

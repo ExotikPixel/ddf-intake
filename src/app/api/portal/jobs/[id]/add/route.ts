@@ -18,6 +18,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params
   const jobId = parseInt(id, 10)
   if (isNaN(jobId)) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
+  if (!(await portalCanAccess(jobId))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   let body: unknown
   try { body = await req.json() } catch {
@@ -34,9 +35,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data: job } = await getJob(jobId, ['contact_email', 'reference_number', 'company_name', 'client_name', 'status', 'tenant_id'])
 
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (!(await portalCanAccess(jobId, job.contact_email))) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
   if (!['received', 'in_progress'].includes(job.status)) {
     return NextResponse.json({ error: 'This job is closed and cannot take new items.' }, { status: 409 })
   }

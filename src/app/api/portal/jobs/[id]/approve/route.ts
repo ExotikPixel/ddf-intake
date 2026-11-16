@@ -18,6 +18,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params
   const jobId = parseInt(id, 10)
   if (isNaN(jobId)) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
+  if (!(await portalCanAccess(jobId))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   let body: unknown
   try { body = await req.json() } catch {
@@ -32,9 +33,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data: job } = await getJob(jobId, ['contact_email', 'reference_number', 'client_name', 'items', 'tenant_id'])
 
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (!(await portalCanAccess(jobId, job.contact_email))) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
 
   const existingItems = (job.items ?? []) as JobItem[]
   const item = existingItems[itemIndex]

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getJob, updateJob } from '@/lib/jobs-repo'
 import { remove as removeFiles } from '@/lib/file-store'
+import { validateJobFilePaths } from '@/lib/job-file-paths'
 import { mergeItemsPreservingApproval } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 import { portalCanAccess } from '@/lib/portal-auth'
@@ -12,11 +13,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const jobId = parseInt(id, 10)
   if (isNaN(jobId)) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
 
-  // Verify ownership and status
+  if (!(await portalCanAccess(jobId))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  // Verify status
   const { data: job } = await getJob(jobId, ['contact_email', 'status', 'file_paths', 'items'])
 
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (!(await portalCanAccess(jobId, job.contact_email))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   if (!['pending', 'received'].includes(job.status)) {
     return NextResponse.json({ error: 'This job is already in production, so its brief is locked. To add new items, use “Add to this job”, or contact us for other changes.' }, { status: 409 })
   }
@@ -27,6 +29,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const patch: Record<string, unknown> = {}
+  let removed: string[] = []
   if ('date_required' in body) patch.date_required = body.date_required
   if ('event_name' in body)   patch.event_name   = body.event_name ?? null
   if ('notes' in body)        patch.notes        = body.notes ?? null
@@ -34,12 +37,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // (or wipe them) via a full-array write. Merge onto the current DB items.
   if ('items' in body)        patch.items        = mergeItemsPreservingApproval((body.items ?? []) as JobItem[], (job.items ?? []) as JobItem[])
   if ('file_paths' in body) {
-    const newPaths = body.file_paths as string[]
-    const removed = (job.file_paths as string[] ?? []).filter((p: string) => !newPaths.includes(p))
-    if (removed.length > 0) {
-      await removeFiles(removed)
-    }
-    patch.file_paths = newPaths
+    const current = (job.file_paths as string[] | null) ?? []
+    const valid = await validateJobFilePaths(body.file_paths, current)
+    if (!valid) return NextResponse.json({ error: 'Invalid file_paths' }, { status: 400 })
+    removed = current.filter(p => !valid.includes(p))
+    patch.file_paths = valid
   }
 
   if (Object.keys(patch).length === 0) {
@@ -48,6 +50,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { error } = await updateJob(jobId, patch)
   if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+
+  // Only delete files once the job no longer references them.
+  if (removed.length > 0) await removeFiles(removed)
 
   return NextResponse.json({ success: true })
 }

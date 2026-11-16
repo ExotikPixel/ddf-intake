@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
   if (!name || !path.startsWith('uploads/') || path.includes('..')) {
     return NextResponse.json({ error: 'Invalid name or path' }, { status: 400 })
   }
+  if (!(await exists(path))) return NextResponse.json({ error: 'File not found' }, { status: 400 })
 
   const { data, error } = await insertLibraryEntry(auth.tenantId, name.slice(0, 120), path)
   if (error || !data) return NextResponse.json({ error: 'Failed to save library entry' }, { status: 500 })

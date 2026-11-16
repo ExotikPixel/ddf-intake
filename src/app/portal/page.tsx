@@ -66,7 +66,6 @@ export default function PortalPage() {
   const [lookupEmail, setLookupEmail] = useState('')
   const [lookupError, setLookupError] = useState('')
   const [lookingUp, setLookingUp] = useState(false)
-  const [usingToken, setUsingToken] = useState(false)  // arrived via ref+email, not a Supabase session
   const [editingJob, setEditingJob] = useState<number | null>(null)
   const [editForm, setEditForm] = useState<EditForm | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
@@ -113,7 +112,6 @@ export default function PortalPage() {
     if (res.ok) {
       const { jobs: list, email } = await res.json()
       setEmail(email ?? '')
-      setUsingToken(true)
       setNeedsLookup(false)
       showJobs((list ?? []) as Job[])
     } else {
@@ -547,7 +545,7 @@ export default function PortalPage() {
   async function signOut() {
     // Clear the portal token and return to the lookup form.
     await fetch('/api/portal/lookup', { method: 'DELETE' }).catch(() => {})
-    setJobs([]); setEmail(''); setUsingToken(false)
+    setJobs([]); setEmail('')
     setNeedsLookup(true)
   }
 
@@ -614,7 +612,7 @@ export default function PortalPage() {
             onClick={signOut}
             style={{ background: 'none', border: '1px solid #3a3a3a', color: '#888', padding: '6px 16px', fontSize: '12px', cursor: 'pointer', fontFamily: 'var(--font-body)', letterSpacing: '0.5px' }}
           >
-            {usingToken ? 'Look up a different job' : 'Sign out'}
+            Look up a different job
           </button>
         </div>
       </header>
