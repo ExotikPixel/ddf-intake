@@ -272,7 +272,12 @@
 .cx .day .d-date b { display: block; font-size: 22px; font-weight: 400; letter-spacing: -0.03em; line-height: 1; }
 @media (max-width: 900px) {
   .cx .admin { grid-template-columns: 1fr; }
-  .cx .side { display: none; }
+  /* The side nav collapses into a top bar so Production sheet and Sign out stay reachable. */
+  .cx .side { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 12px 0; padding: 10px 12px; height: auto; position: static; border-radius: var(--r-lg); }
+  .cx .side .logo { height: 26px !important; }
+  .cx .side .nav { display: flex; flex-wrap: wrap; gap: 4px; }
+  .cx .side .nav button { padding: 8px 12px; font-size: 13px; }
+  .cx .side .side-who { display: none; }
   .cx .kpis { grid-template-columns: 1fr 1fr; }
   .cx .table .hide-md { display: none; }
 }
@@ -329,3 +334,16 @@
 .cx .admin-main { padding: 22px 22px 60px; display: grid; gap: 22px; align-content: start; min-width: 0; }
 /* The dock is a flex row; .only-sm's display: revert would make it a block. */
 @media (max-width: 760px) { .cx .dock.only-sm { display: flex !important; } }
+/* Admin dashboard (Plan C, before Plan B): three KPI cards, disabled buttons, full-width drawer on phones. */
+.cx .btn:disabled { opacity: .55; cursor: default; }
+.cx .kpis.k3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 560px) {
+  .cx .kpis.k3 { gap: 8px; }
+  .cx .kpis.k3 .kpi { padding: 14px 12px; }
+  .cx .kpis.k3 .kpi .k-val { font-size: 30px; }
+  .cx .kpis.k3 .kpi .tiny { display: none; }
+}
+@media (max-width: 760px) {
+  .cx .drawer { top: 0; right: 0; bottom: 0; width: 100% !important; border-radius: 0; }
+  .cx .admin-main { padding: 16px 16px 48px; }
+}
