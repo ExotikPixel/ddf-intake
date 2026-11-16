@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyUploadToken } from '@/lib/file-tokens'
-import { writeStream, TooLargeError } from '@/lib/file-store'
+import { writeStream, TooLargeError, MAX_UPLOAD_BYTES } from '@/lib/file-store'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -22,7 +22,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ toke
   if (!req.body) return NextResponse.json({ error: 'Empty upload' }, { status: 400 })
 
   try {
-    await writeStream(claims.key, req.body, claims.size)
+    await writeStream(claims.key, req.body, Math.min(claims.size, MAX_UPLOAD_BYTES))
   } catch (e) {
     if (e instanceof TooLargeError) return NextResponse.json({ error: 'File too large' }, { status: 413 })
     console.error('[upload] write failed:', e)

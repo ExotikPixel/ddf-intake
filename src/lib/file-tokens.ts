@@ -31,10 +31,17 @@ function verify<T extends UploadClaims | FileClaims>(token: string, kind: T['k']
   let claims: T
   try { claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as T } catch { return null }
   if (claims.k !== kind || typeof claims.exp !== 'number' || claims.exp * 1000 < now) return null
+  if (kind === 'put') {
+    const size = (claims as UploadClaims).size
+    if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) return null
+  }
   return claims
 }
 
 export function baseUrl(): string {
+  if (!process.env.PUBLIC_BASE_URL && process.env.NODE_ENV === 'production') {
+    throw new Error('PUBLIC_BASE_URL is not set')
+  }
   return (process.env.PUBLIC_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '')
 }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { signUploadPath } from '@/lib/file-tokens'
+import { MAX_UPLOAD_BYTES } from '@/lib/file-store'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,7 +21,7 @@ const ALLOWED_TYPES = [
 ]
 // Allowed upload extensions — keep in sync with ALLOWED_TYPES.
 const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'pdf', 'ai', 'eps', 'svg']
-const MAX_BYTES = 50 * 1024 * 1024
+const MAX_BYTES = MAX_UPLOAD_BYTES
 
 interface FileRequest {
   name: string
@@ -41,6 +42,9 @@ export async function POST(req: NextRequest) {
   }
 
   for (const f of files) {
+    if (!Number.isSafeInteger(f.size) || f.size < 0) {
+      return NextResponse.json({ error: `${f.name}: invalid file size` }, { status: 400 })
+    }
     if (f.size > MAX_BYTES) {
       return NextResponse.json({ error: `${f.name} exceeds the 50MB limit` }, { status: 400 })
     }

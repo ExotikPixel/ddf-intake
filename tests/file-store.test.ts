@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { mkdtempSync, readFileSync, existsSync, readdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, existsSync, readdirSync, mkdirSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { isSafeKey, filePath, writeStream, exists, remove, TooLargeError } from '@/lib/file-store'
@@ -35,5 +35,20 @@ describe('file-store', () => {
   it('remove deletes safe keys and ignores unsafe or missing ones', async () => {
     await remove(['uploads/a.pdf', '../x', 'uploads/missing.pdf'])
     expect(await exists('uploads/a.pdf')).toBe(false)
+  })
+
+  it('rejects (does not crash) on a disk write error and leaves no temp file', async () => {
+    const ro = path.join(dir, 'ro')
+    mkdirSync(ro, { recursive: true })
+    chmodSync(ro, 0o555)
+    try {
+      await expect(writeStream('ro/x.pdf', streamOf(Buffer.from('hello')), 100)).rejects.toThrow()
+    } finally { chmodSync(ro, 0o755) }
+    expect(readdirSync(ro)).toEqual([])
+  })
+
+  it('rejects a body with an unusable size cap', async () => {
+    await expect(writeStream('uploads/nan.pdf', streamOf(Buffer.from('hello')), undefined as unknown as number)).rejects.toBeInstanceOf(TooLargeError)
+    expect(existsSync(path.join(dir, 'uploads/nan.pdf'))).toBe(false)
   })
 })

@@ -2,6 +2,8 @@ import 'server-only'
 import path from 'node:path'
 import { promises as fsp, createReadStream, createWriteStream } from 'node:fs'
 import { randomBytes } from 'node:crypto'
+import { Readable, Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 
 // Client files on local disk, under the exact keys Supabase Storage used
 // (e.g. "uploads/1763241122000-k3j2h1.pdf"), so DB paths never need rewriting.
@@ -23,6 +25,8 @@ export function filePath(key: string): string {
   if (!full.startsWith(root + path.sep)) throw new Error(`unsafe file key: ${key}`)
   return full
 }
+
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 export class TooLargeError extends Error {
   constructor() { super('file too large') }
@@ -53,23 +57,24 @@ export async function writeStream(key: string, body: ReadableStream<Uint8Array>,
   const dest = filePath(key)
   await fsp.mkdir(path.dirname(dest), { recursive: true })
   const tmp = `${dest}.part-${randomBytes(6).toString('hex')}`
-  const out = createWriteStream(tmp, { flags: 'wx' })
-  const reader = body.getReader()
+  if (typeof maxBytes !== 'number' || !Number.isFinite(maxBytes) || maxBytes < 0) throw new TooLargeError()
   let total = 0
+  const limiter = new Transform({
+    transform(chunk, _enc, cb) {
+      total += chunk.length
+      if (total > maxBytes) cb(new TooLargeError())
+      else cb(null, chunk)
+    },
+  })
   try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      total += value.byteLength
-      if (total > maxBytes) throw new TooLargeError()
-      if (!out.write(value)) await new Promise<void>(resolve => out.once('drain', () => resolve()))
-    }
-    await new Promise<void>((resolve, reject) => { out.once('error', reject); out.end(() => resolve()) })
+    await pipeline(
+      Readable.fromWeb(body as import('node:stream/web').ReadableStream<Uint8Array>),
+      limiter,
+      createWriteStream(tmp, { flags: 'wx' }),
+    )
     await fsp.rename(tmp, dest)
     return total
   } catch (e) {
-    out.destroy()
-    await reader.cancel().catch(() => {})
     await fsp.rm(tmp, { force: true })
     throw e
   }

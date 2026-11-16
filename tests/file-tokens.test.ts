@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, vi, afterEach } from 'vitest'
+import { createHmac } from 'node:crypto'
 import { signUploadToken, verifyUploadToken, signUploadPath, signFileLink, verifyFileToken } from '@/lib/file-tokens'
 
 describe('file-tokens', () => {
@@ -38,5 +39,32 @@ describe('file-tokens', () => {
     expect(verifyFileToken(signUploadToken('uploads/a.pdf', 'x', 1))).toBeNull()
     expect(verifyFileToken('nope')).toBeNull()
     expect(verifyUploadToken('a.b')).toBeNull()
+  })
+
+  afterEach(() => { vi.unstubAllEnvs(); process.env.PUBLIC_BASE_URL = 'https://jobs.example.com/' })
+
+  it('rejects a validly-signed upload token whose size is missing or invalid', () => {
+    const forge = (claims: object) => {
+      const payload = Buffer.from(JSON.stringify(claims)).toString('base64url')
+      const sig = createHmac('sha256', process.env.FILE_LINK_SECRET!).update(payload).digest('base64url')
+      return `${payload}.${sig}`
+    }
+    const exp = 9_999_999_999
+    expect(verifyUploadToken(forge({ k: 'put', key: 'uploads/a.pdf', type: 'x', exp }))).toBeNull()
+    expect(verifyUploadToken(forge({ k: 'put', key: 'uploads/a.pdf', type: 'x', size: -1, exp }))).toBeNull()
+    expect(verifyUploadToken(forge({ k: 'put', key: 'uploads/a.pdf', type: 'x', size: '5', exp }))).toBeNull()
+    expect(verifyUploadToken(forge({ k: 'put', key: 'uploads/a.pdf', type: 'x', size: 5, exp }))).not.toBeNull()
+  })
+
+  it('refuses to sign file links in production without PUBLIC_BASE_URL', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    delete process.env.PUBLIC_BASE_URL
+    expect(() => signFileLink('uploads/a.pdf', 60)).toThrow(/PUBLIC_BASE_URL/)
+  })
+
+  it('falls back to localhost outside production', () => {
+    vi.stubEnv('NODE_ENV', 'test')
+    delete process.env.PUBLIC_BASE_URL
+    expect(signFileLink('uploads/a.pdf', 60).startsWith('http://localhost:3000/f/')).toBe(true)
   })
 })
