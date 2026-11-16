@@ -73,8 +73,11 @@ type JobType = 'event' | 'product'
 type Fulfillment = keyof typeof FULFILL_LABELS
 
 // Decide image-ness by extension: DXF arrives as image/vnd.dxf but isn't a picture.
+// Files a browser can show as-is (SVG too), decided by extension: DXF can arrive
+// as image/vnd.dxf but never previews, so it always needs a screenshot.
 function isImageName(name: string) {
-  return IMG_EXTS.includes('.' + (name.split('.').pop() ?? '').toLowerCase())
+  const ext = '.' + (name.split('.').pop() ?? '').toLowerCase()
+  return ext === '.svg' || IMG_EXTS.includes(ext)
 }
 
 function genId() {
