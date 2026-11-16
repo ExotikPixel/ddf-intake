@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getJob, updateJob, updateJobItem } from '@/lib/jobs-repo'
 import { remove as removeFiles } from '@/lib/file-store'
-import { validateJobFilePaths } from '@/lib/job-file-paths'
+import { validateJobFilePaths, deletablePaths } from '@/lib/job-file-paths'
 import { requireAdmin } from '@/lib/admin-auth'
 import { STATUSES, NOTIFICATION_STATUSES, NotificationStatus, itemProofs, mergeItemsPreservingApproval } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
@@ -165,7 +165,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!changed) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
     // Only delete files once the job no longer references them.
-    if (removed.length > 0) await removeFiles(removed)
+    const toDelete = await deletablePaths(jobId, removed)
+    if (toDelete.length > 0) await removeFiles(toDelete)
 
     // Keep the Kanban in sync whenever items change (approvals, revised proofs).
     // No-op when nothing is approved; updates existing tickets in place.

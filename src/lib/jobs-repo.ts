@@ -158,3 +158,15 @@ export function appendToJob(jobId: number, items: unknown[], files: string[]): P
     return row.result as { items: unknown[]; file_paths: string[] }
   })
 }
+
+/** Which of `paths` are still listed in another job's file_paths (so they must not be deleted). */
+export function pathsReferencedElsewhere(jobId: number, paths: string[]): Promise<Result<string[]>> {
+  return attempt('pathsReferencedElsewhere', async () => {
+    if (paths.length === 0) return []
+    const sql = db()
+    const rows = await sql`
+      select distinct p from jobs, unnest(file_paths) as p
+      where id <> ${jobId} and file_paths && ${sql.array(paths)}::text[] and p = any(${sql.array(paths)}::text[])`
+    return rows.map(r => r.p as string)
+  })
+}

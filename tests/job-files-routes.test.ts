@@ -86,6 +86,24 @@ describe.skipIf(!hasDb)('job file_paths routes', () => {
     })
   }
 
+  for (const [name, call] of [
+    ['portal', (b: unknown) => portal.PATCH(patch(jobId, b), ctx(jobId))],
+    ['admin', (b: unknown) => admin.PATCH(patch(jobId, b), ctx(jobId))],
+  ] as const) {
+    it(`${name}: a removed file still on another job is NOT deleted`, async () => {
+      await repo.insertJob({
+        tenant_id: tenantId, reference_number: 'DDF-T-2', client_name: 'C', company_name: 'D', contact_email: 'c@d.co',
+        event_name: null, date_required: '2030-01-01', notes: null, setup_location: null, setup_time: null,
+        removal_location: null, removal_time: null, items: [], file_paths: ['uploads/mine.pdf'],
+        submission_id: crypto.randomUUID(), submitted_at: new Date().toISOString(), status: 'pending',
+      })
+      const res = await call({ file_paths: ['uploads/fresh.pdf'] })
+      expect(res.status).toBe(200)
+      expect(await paths()).toEqual(['uploads/fresh.pdf'])
+      expect(on('uploads/mine.pdf')).toBe(true)
+    })
+  }
+
   it('portal: no token → 403 before any lookup', async () => {
     tokenJob = null
     expect((await portal.PATCH(patch(jobId, { notes: 'x' }), ctx(jobId))).status).toBe(403)

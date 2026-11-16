@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getJob, updateJob } from '@/lib/jobs-repo'
 import { remove as removeFiles } from '@/lib/file-store'
-import { validateJobFilePaths } from '@/lib/job-file-paths'
+import { validateJobFilePaths, deletablePaths } from '@/lib/job-file-paths'
 import { mergeItemsPreservingApproval } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
 import { portalCanAccess } from '@/lib/portal-auth'
@@ -52,7 +52,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
 
   // Only delete files once the job no longer references them.
-  if (removed.length > 0) await removeFiles(removed)
+  const toDelete = await deletablePaths(jobId, removed)
+  if (toDelete.length > 0) await removeFiles(toDelete)
 
   return NextResponse.json({ success: true })
 }
