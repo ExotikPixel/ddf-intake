@@ -350,3 +350,9 @@
   .cx .drawer { top: 0; right: 0; bottom: 0; width: 100% !important; border-radius: 0; }
   .cx .admin-main { padding: 16px 16px 48px; }
 }
+/* The wash fills the whole window on short pages (no flat band under the content). */
+.cx .paper-grain, .cx .admin { min-height: 100vh; }
+@media (max-width: 560px) {
+  .cx .table td .row { flex-wrap: wrap; row-gap: 4px; }
+  .cx .table th, .cx .table td { padding-left: 10px; padding-right: 10px; }
+}
