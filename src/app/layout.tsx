@@ -1,32 +1,36 @@
 import type { Metadata, Viewport } from 'next'
-import { Oswald, Montserrat } from 'next/font/google'
+import { Geist, Instrument_Serif } from 'next/font/google'
 import './globals.css'
+import './ui.css'
 
-const oswald = Oswald({
+// Body + headings. Exposed as --font-geist-sans (Tailwind's font-sans and ui.css use it).
+const geist = Geist({
   subsets: ['latin'],
-  variable: '--font-heading',
-  weight: ['400', '600', '700'],
+  variable: '--font-geist-sans',
 })
 
-const montserrat = Montserrat({
+// The one italic accent word in headings ("Tell us what you're *making.*").
+const instrumentSerif = Instrument_Serif({
   subsets: ['latin'],
-  variable: '--font-body',
-  weight: ['400', '500', '600', '700'],
+  weight: '400',
+  style: ['normal', 'italic'],
+  variable: '--font-instrument-serif',
 })
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  themeColor: '#ebe6e1',
 }
 
 export const metadata: Metadata = {
-  title: 'Submit a Job Brief — DDF x Pixel',
-  description: 'Submit your print job brief to DDF x Pixel. All jobs submitted here only.',
+  title: 'Send a brief — DDF x Pixel',
+  description: 'Send your event or fabrication brief to DDF x Pixel. Quotes, proofs and approvals in one place.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${oswald.variable} ${montserrat.variable}`}>
+    <html lang="en" className={`${geist.variable} ${instrumentSerif.variable}`}>
       <body className="min-h-screen">{children}</body>
     </html>
   )

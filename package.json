@@ -18,6 +18,7 @@
     "bcryptjs": "^3.0.3",
     "file-type": "^22.0.1",
     "jose": "^6.2.17",
+    "lucide-react": "^1.73.0",
     "next": "16.2.6",
     "pdfjs-dist": "^6.3.289",
     "postgres": "^3.4.9",
