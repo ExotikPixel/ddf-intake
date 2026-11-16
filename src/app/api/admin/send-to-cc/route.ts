@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { getJob } from '@/lib/jobs-repo'
 import { requireAdmin } from '@/lib/admin-auth'
 
 export async function POST(req: NextRequest) {
@@ -19,12 +19,11 @@ export async function POST(req: NextRequest) {
   }
 
   // Fetch the job from our DB
-  const { data: job, error } = await supabaseAdmin
-    .from('jobs')
-    .select('reference_number, client_name, contact_email, date_required, event_name, notes, items')
-    .eq('id', jobId)
-    .eq('tenant_id', auth.tenantId)
-    .single()
+  const { data: job, error } = await getJob(
+    jobId,
+    ['reference_number', 'client_name', 'contact_email', 'date_required', 'event_name', 'notes', 'items'],
+    auth.tenantId,
+  )
 
   if (error || !job) {
     return NextResponse.json({ error: 'Job not found' }, { status: 404 })

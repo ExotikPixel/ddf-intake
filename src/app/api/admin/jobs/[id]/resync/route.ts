@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { getJob } from '@/lib/jobs-repo'
 import { requireAdmin } from '@/lib/admin-auth'
 import { syncApprovedItemsToKanban } from '@/lib/kanban-sync'
 
@@ -17,12 +17,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   if (isNaN(jobId)) return NextResponse.json({ error: 'Invalid job ID' }, { status: 400 })
 
   // Only resync a job in the admin's own workspace.
-  const { data: job } = await supabaseAdmin
-    .from('jobs')
-    .select('id')
-    .eq('id', jobId)
-    .eq('tenant_id', auth.tenantId)
-    .maybeSingle()
+  const { data: job } = await getJob(jobId, ['id'], auth.tenantId)
   if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   const result = await syncApprovedItemsToKanban(jobId)

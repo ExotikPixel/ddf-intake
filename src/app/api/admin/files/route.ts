@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { listJobFiles } from '@/lib/jobs-repo'
 import { requireAdmin } from '@/lib/admin-auth'
 import { itemProofs, itemRefPhotos, itemExamplePhotos } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
@@ -20,10 +20,7 @@ export async function POST(req: NextRequest) {
   // otherwise an admin could request another tenant's file paths. The allowlist
   // covers job-level files, per-item design proofs, reference photos, and the
   // example/inspiration photos shown to the client.
-  const { data: tenantJobs } = await supabaseAdmin
-    .from('jobs')
-    .select('file_paths, items')
-    .eq('tenant_id', auth.tenantId)
+  const { data: tenantJobs } = await listJobFiles(auth.tenantId)
   const allowed = new Set<string>()
   const allItems: JobItem[] = []
   for (const j of tenantJobs ?? []) {

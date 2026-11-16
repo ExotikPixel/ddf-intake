@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { getJob, updateJob, updateJobItem } from '@/lib/jobs-repo'
+import { remove as removeFiles } from '@/lib/file-store'
 import { requireAdmin } from '@/lib/admin-auth'
 import { STATUSES, NOTIFICATION_STATUSES, NotificationStatus, itemProofs, mergeItemsPreservingApproval } from '@/lib/job-types'
 import type { JobItem } from '@/lib/job-types'
@@ -36,11 +37,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid notify_client value' }, { status: 400 })
     }
-    const { error } = await supabaseAdmin
-      .from('jobs')
-      .update({ notify_client: parsed.data.notify_client })
-      .eq('id', jobId).eq('tenant_id', auth.tenantId)
+    const { data: changed, error } = await updateJob(jobId, { notify_client: parsed.data.notify_client }, auth.tenantId)
     if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+    if (!changed) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     return NextResponse.json({ success: true })
   }
 
@@ -49,20 +48,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!VALID_STATUSES.includes(body.status as string)) {
       return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
     }
-    const { error } = await supabaseAdmin
-      .from('jobs')
-      .update({ status: body.status })
-      .eq('id', jobId).eq('tenant_id', auth.tenantId)
+    const { data: changed, error } = await updateJob(jobId, { status: body.status }, auth.tenantId)
     if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+    if (!changed) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
     // Notification: re-fetch job and send if conditions met
     const newStatus = body.status as string
     if ((NOTIFICATION_STATUSES as readonly string[]).includes(newStatus)) {
-      const { data: job } = await supabaseAdmin
-        .from('jobs')
-        .select('reference_number, client_name, contact_email, notify_client')
-        .eq('id', jobId).eq('tenant_id', auth.tenantId)
-        .single()
+      const { data: job } = await getJob(jobId, ['reference_number', 'client_name', 'contact_email', 'notify_client'], auth.tenantId)
 
       if (!job) {
         return NextResponse.json({ error: 'Job not found' }, { status: 404 })
@@ -99,15 +92,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const appendMessage = (ip && typeof ip.appendMessage === 'object') ? ip.appendMessage : null
 
     // Gate by tenant before mutating (the RPC keys on job id alone).
-    const { data: cur } = await supabaseAdmin
-      .from('jobs').select('items, reference_number, company_name')
-      .eq('id', jobId).eq('tenant_id', auth.tenantId).single()
+    const { data: cur } = await getJob(jobId, ['items', 'reference_number', 'company_name'], auth.tenantId)
     if (!cur) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     const oldItems = (cur.items ?? []) as JobItem[]
 
-    const { data: updatedItems, error } = await supabaseAdmin.rpc('update_job_item', {
-      p_job_id: jobId, p_index: index, p_patch: itemPatch, p_append_message: appendMessage,
-    })
+    const { data: updatedItems, error } = await updateJobItem(jobId, index, itemPatch, appendMessage)
     if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
     const newItems = (updatedItems ?? []) as JobItem[]
 
@@ -157,27 +146,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // a brief save can no longer newly-approve anything → no push needed here.)
     if ('items' in body) {
       const incoming = (body.items ?? []) as JobItem[]
-      const { data: cur } = await supabaseAdmin
-        .from('jobs').select('items').eq('id', jobId).eq('tenant_id', auth.tenantId).single()
+      const { data: cur } = await getJob(jobId, ['items'], auth.tenantId)
       patch.items = mergeItemsPreservingApproval(incoming, (cur?.items ?? []) as JobItem[])
     }
 
     if ('file_paths' in body) {
       const newPaths = body.file_paths as string[]
       // delete removed files from storage
-      const { data: current } = await supabaseAdmin
-        .from('jobs').select('file_paths').eq('id', jobId).eq('tenant_id', auth.tenantId).single()
+      const { data: current } = await getJob(jobId, ['file_paths'], auth.tenantId)
       const removed = (current?.file_paths as string[] ?? []).filter(p => !newPaths.includes(p))
       if (removed.length > 0) {
-        await supabaseAdmin.storage.from('job-files').remove(removed)
+        await removeFiles(removed)
       }
       patch.file_paths = newPaths
     }
-    const { error } = await supabaseAdmin
-      .from('jobs')
-      .update(patch)
-      .eq('id', jobId).eq('tenant_id', auth.tenantId)
+    const { data: changed, error } = await updateJob(jobId, patch, auth.tenantId)
     if (error) return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+    if (!changed) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
     // Keep the Kanban in sync whenever items change (approvals, revised proofs).
     // No-op when nothing is approved; updates existing tickets in place.
