@@ -51,9 +51,9 @@ export async function POST(req: NextRequest) {
   // payload can't pre-approve a shop-designed item.
   const items: JobItem[] = (data.items as JobItem[]).map(raw => {
     const { proof_urls, proof_url, proof_history, proof_previews, proof_source, proof_uploaded_at, approval_status,
-      approved_at, approved_proof_url, designs_mode, messages, client_note, completed, completed_at, ...clean } = raw
+      approved_at, approved_proof_url, designs_mode, messages, client_note, completed, completed_at, admin_note, example_photos, ...clean } = raw
     void proof_url; void proof_history; void proof_uploaded_at; void approval_status; void approved_at
-    void approved_proof_url; void designs_mode; void messages; void client_note; void completed; void completed_at
+    void admin_note; void example_photos; void approved_proof_url; void designs_mode; void messages; void client_note; void completed; void completed_at
     const finals = proof_source === 'client' ? (proof_urls ?? []).filter(p => /^uploads\/[A-Za-z0-9._-]+$/.test(p)) : []
     if (finals.length === 0) return clean
     // Preview images (PNG/JPG) for PDF/AI/EPS finals — only for files we're keeping.

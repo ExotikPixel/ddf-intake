@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { getJobByReference, updateJob } from '@/lib/jobs-repo'
 import { approvedDayKeys } from '@/lib/kanban-days'
@@ -24,7 +25,10 @@ type TaskStatus = 'todo' | 'in_progress' | 'done'
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get('x-intake-secret')
-  if (!secret || secret !== process.env.INTAKE_WEBHOOK_SECRET) {
+  const expected = process.env.INTAKE_WEBHOOK_SECRET
+  const a = Buffer.from(secret ?? '')
+  const b = Buffer.from(expected ?? '')
+  if (!secret || !expected || a.length !== b.length || !timingSafeEqual(a, b)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

@@ -42,8 +42,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // Stamp each new item: mark when it was added and reset approval to pending so
   // it flows through the normal proof/approval cycle like any other item.
   const at = new Date().toISOString()
+  // Clients can't set shop-authored or approval fields: keep only the intake fields.
   const stamped: JobItem[] = newItems.map(it => ({
-    ...it,
+    name: it.name,
+    quantity: it.quantity,
+    size: it.size,
+    material: it.material,
+    ...(it.description !== undefined ? { description: it.description } : {}),
+    ...(it.ref_photos !== undefined ? { ref_photos: it.ref_photos } : {}),
     added_at: at,
     approval_status: 'pending' as const,
   }))

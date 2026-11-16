@@ -1,5 +1,9 @@
 import { z } from 'zod'
 
+// Keys the upload endpoint hands out: flat, under uploads/. Clients may only
+// reference such keys (never arbitrary storage paths).
+export const UPLOAD_KEY = /^uploads\/[A-Za-z0-9._-]+$/
+
 export const ItemSchema = z.object({
   name: z.string().min(1, 'Item name is required'),
   quantity: z.number().int().min(1, 'Quantity must be at least 1'),
@@ -7,10 +11,10 @@ export const ItemSchema = z.object({
   material: z.enum(['vinyl', 'fabric', 'foam-board', 'acrylic', 'cardstock', 'wood', 'pvc', 'other']),
   // Client-facing detail captured at intake (both optional).
   description: z.string().max(2000).optional(),   // richer free-text brief for this item
-  ref_photos: z.array(z.string()).max(8).optional(), // job-files paths to client reference/inspo images
+  ref_photos: z.array(z.string().regex(UPLOAD_KEY)).max(8).optional(), // job-files paths to client reference/inspo images
   // Shop-authored, client-facing detail added at proof/approval time.
   admin_note: z.string().max(2000).optional(),    // note explaining the design / how it'll be made
-  example_photos: z.array(z.string()).max(8).optional(), // job-files paths to shop example/inspiration images
+  example_photos: z.array(z.string().regex(UPLOAD_KEY)).max(8).optional(), // job-files paths to shop example/inspiration images
   // Optional approval fields — preserved on edit, set by admin (proof) and client (status)
   proof_urls: z.array(z.string()).optional(),
   proof_url: z.string().optional(),
@@ -44,7 +48,7 @@ export const SubmitSchema = z.object({
   removalLocation: z.string().max(300).optional(),
   removalTime: z.string().max(120).optional(),
   items: z.array(ItemSchema).min(1, 'At least one item is required').max(10),
-  filePaths: z.array(z.string()).max(3),
+  filePaths: z.array(z.string().regex(UPLOAD_KEY)).max(3),
   submissionId: z.string().uuid('Invalid submission ID'),
   // Which workspace this intake belongs to (from the /s/{slug} URL). Optional —
   // the root form omits it and the server falls back to the default tenant.
@@ -89,7 +93,7 @@ export type FinalDesignInput = z.infer<typeof FinalDesignSchema>
 // (append-only — existing items are never sent and cannot be changed here).
 export const AddToJobSchema = z.object({
   newItems: z.array(ItemSchema).max(10).optional(),
-  newFilePaths: z.array(z.string()).max(3).optional(),
+  newFilePaths: z.array(z.string().regex(UPLOAD_KEY)).max(3).optional(),
 }).refine(
   d => (d.newItems?.length ?? 0) > 0 || (d.newFilePaths?.length ?? 0) > 0,
   { message: 'Add at least one item or file' },
