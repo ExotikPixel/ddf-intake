@@ -125,7 +125,8 @@ export function insertJob(j: NewJob): Promise<Result<{ id: number }>> {
 export function updateJob(id: number, patch: Record<string, unknown>, tenantId?: string): Promise<Result<number>> {
   return attempt('updateJob', async () => {
     const sql = db()
-    const keys = Object.keys(patch)
+    // Like supabase-js, ignore keys whose value is undefined.
+    const keys = Object.keys(patch).filter((k) => patch[k] !== undefined)
     if (keys.length === 0) return 0
     const values: Row = {}
     for (const k of keys) {

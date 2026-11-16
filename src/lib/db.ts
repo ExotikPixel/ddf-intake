@@ -36,12 +36,13 @@ export function makeSql(url: string) {
 
 export type Sql = ReturnType<typeof makeSql>
 
-let client: Sql | null = null
+// Cached on globalThis so Next dev hot reloads reuse one pool instead of leaking a new one each time.
+const g = globalThis as typeof globalThis & { __ddfSql?: Sql }
 
 export function db(): Sql {
-  if (client) return client
+  if (g.__ddfSql) return g.__ddfSql
   const url = process.env.DATABASE_URL
   if (!url) throw new Error('DATABASE_URL is not set')
-  client = makeSql(url)
-  return client
+  g.__ddfSql = makeSql(url)
+  return g.__ddfSql
 }
