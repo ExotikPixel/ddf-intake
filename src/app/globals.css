@@ -3,14 +3,6 @@
 :root {
   --bg: #f8f7f4;
   --surface: #FFFFFF;
-  --charcoal: #131313;
-  --charcoal-60: #535353;
-  --charcoal-border: #e8e3d9;
-  --coral: #b8955a;
-  --coral-light: #faf6ef;
-  --coral-dark: #9d7d4d;
-  --green-ok: #1B7F4F;
-  --red-err: #C62828;
   /* Old heading/body fonts retired (client experience v2). Pages not yet restyled use Geist too. */
   --font-heading: var(--font-geist-sans), 'Helvetica Neue', Arial, sans-serif;
   --font-body: var(--font-geist-sans), 'Helvetica Neue', Arial, sans-serif;

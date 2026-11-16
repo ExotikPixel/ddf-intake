@@ -139,7 +139,8 @@ export async function POST(req: NextRequest) {
     items: data.items,
     signedFileUrls,
     portalUrl,
-    submittedAt: new Date(submittedAt).toLocaleString('en-ZA', {
+    submittedAt: new Date(submittedAt).toLocaleString('en-CA', {
+      timeZone: 'America/Toronto',
       dateStyle: 'medium',
       timeStyle: 'short',
     }),
