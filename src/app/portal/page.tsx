@@ -16,6 +16,8 @@ const HANDOVER: Record<string, string> = { pickup: 'Pickup at our shop', deliver
 
 // A removable file name chip (edit / add-to-job panels).
 const FILE_CHIP = { display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 10px', maxWidth: '100%', minWidth: 0 } as const
+// Scroll to an element once React has rendered it (e.g. a panel that was just opened).
+const scrollToId = (id: string) => setTimeout(() => requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })), 0)
 const FILE_NAME = { maxWidth: 180, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as const
 
 interface Job {
@@ -546,7 +548,7 @@ export default function PortalPage() {
         <section style={{ padding: '64px 0', display: 'grid', placeItems: 'center' }}>
           <form className="panel" style={{ padding: 32, width: '100%', maxWidth: 440, display: 'grid', gap: 18 }} onSubmit={handleLookup}>
             <span className="eyebrow">Track your job</span>
-            <h1 className="display" style={{ margin: 0, fontSize: 34 }}>Find your <span className="serif">job.</span></h1>
+            <h1 className="display" style={{ margin: 0, fontSize: 34 }}>Find your <span className="serif">brief.</span></h1>
             <p className="small muted" style={{ margin: 0 }}>Use the reference from your confirmation email and the email you sent the brief from. No password needed.</p>
             <div className="field">
               <label className="label" htmlFor="lk-ref">Reference number</label>
@@ -620,14 +622,14 @@ export default function PortalPage() {
                         <button type="button" className="btn btn-ink" onClick={() => document.getElementById(`proofs-${job.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Review designs</button>
                       </div>
                     )}
-                    {unproofed.length > 0 && (
+                    {unproofed.length > 0 && job.status !== 'cancelled' && (
                       <section className="stack" style={{ gap: 12 }}>
                         <SecHead n="01" title="In design" aside={<span className="tiny muted">{unproofed.length} piece{unproofed.length === 1 ? '' : 's'}</span>} />
                         {unproofed.map(({ it, idx }) => (
                           <article key={idx} className="item-card" style={{ gridTemplateColumns: '1fr' }}>
                             <div className="between" style={{ alignItems: 'start' }}>
                               <span className="stack" style={{ gap: 4, minWidth: 0, overflowWrap: 'anywhere' }}><b>{it.name}</b><span className="small muted">{it.quantity} × {[it.size, it.material].filter(Boolean).join(' · ')}</span></span>
-                              <span className="pill pill-neutral">Designing</span>
+                              {it.completed || job.status === 'completed' ? <span className="pill pill-ok">Done</span> : <span className="pill pill-neutral">Designing</span>}
                             </div>
                           </article>
                         ))}
@@ -836,7 +838,7 @@ export default function PortalPage() {
 
                     {/* Edit panel */}
                     {editingJob === job.id && editForm && (
-                      <section className="panel" style={{ padding: 20, display: 'grid', gap: 14 }}>
+                      <section id={`edit-${job.id}`} className="panel" style={{ padding: 20, display: 'grid', gap: 14, scrollMarginTop: 16 }}>
                         <h2 className="sec-title" style={{ margin: 0 }}>Edit brief</h2>
                         {editError && <div className="alert" role="alert">{editError}</div>}
                         <div className="grid2" style={{ gap: 10 }}>
@@ -906,6 +908,7 @@ export default function PortalPage() {
                                   style={{ textAlign: 'center', paddingLeft: 8, paddingRight: 8 }} />
                                 <input type="text" className="input" value={item.name}
                                   onChange={e => updateEditItem(idx, 'name', e.target.value)}
+                                  aria-label="Item name"
                                   placeholder="Item name" />
                                 <button type="button" className="link tiny" onClick={() => setEditForm(prev => prev ? { ...prev, items: prev.items.filter((_, i) => i !== idx) } : prev)}
                                   disabled={editForm.items.length === 1}
@@ -915,8 +918,9 @@ export default function PortalPage() {
                               <div className="grid2" style={{ gap: 8 }}>
                                 <input type="text" className="input" value={item.size}
                                   onChange={e => updateEditItem(idx, 'size', e.target.value)}
+                                  aria-label="Size"
                                   placeholder="Size" />
-                                <select className="input" value={item.material}
+                                <select className="input" aria-label="Material" value={item.material}
                                   onChange={e => updateEditItem(idx, 'material', e.target.value)}>
                                   {MATERIALS.map(m => (
                                     <option key={m} value={m}>{m}</option>
@@ -928,6 +932,7 @@ export default function PortalPage() {
                                 value={item.description ?? ''}
                                 rows={2}
                                 onChange={e => updateEditItem(idx, 'description', e.target.value)}
+                                aria-label="Notes for this item"
                                 placeholder="Notes for this item (optional) — colours, finish, placement…" />
                               <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
                                 {photos.map(path => {
@@ -974,7 +979,7 @@ export default function PortalPage() {
 
                     {/* Add-to-Job panel (append-only, in-progress jobs) */}
                     {addingJob === job.id && (
-                      <section className="panel" style={{ padding: 20, display: 'grid', gap: 14 }}>
+                      <section id={`add-${job.id}`} className="panel" style={{ padding: 20, display: 'grid', gap: 14, scrollMarginTop: 16 }}>
                         <div className="stack" style={{ gap: 6 }}>
                           <h2 className="sec-title" style={{ margin: 0 }}>Add to this job</h2>
                           <p className="small muted" style={{ margin: 0 }}>
@@ -996,6 +1001,7 @@ export default function PortalPage() {
                                   style={{ textAlign: 'center', paddingLeft: 8, paddingRight: 8 }} />
                                 <input type="text" className="input" value={item.name}
                                   onChange={e => updateAddItem(idx, 'name', e.target.value)}
+                                  aria-label="Item name"
                                   placeholder="Item name" />
                                 <button type="button" className="link tiny" onClick={() => setAddItems(prev => prev.filter((_, i) => i !== idx))}
                                   aria-label="Remove item"
@@ -1004,8 +1010,9 @@ export default function PortalPage() {
                               <div className="grid2" style={{ gap: 8 }}>
                                 <input type="text" className="input" value={item.size}
                                   onChange={e => updateAddItem(idx, 'size', e.target.value)}
+                                  aria-label="Size"
                                   placeholder="Size" />
-                                <select className="input" value={item.material}
+                                <select className="input" aria-label="Material" value={item.material}
                                   onChange={e => updateAddItem(idx, 'material', e.target.value)}>
                                   {MATERIALS.map(m => (
                                     <option key={m} value={m}>{m}</option>
@@ -1017,6 +1024,7 @@ export default function PortalPage() {
                                 value={item.description ?? ''}
                                 rows={2}
                                 onChange={e => updateAddItem(idx, 'description', e.target.value)}
+                                aria-label="Notes for this item"
                                 placeholder="Notes for this item (optional) — colours, finish, placement…" />
                               <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
                                 {photos.map(path => {
@@ -1099,21 +1107,21 @@ export default function PortalPage() {
                     {/* Plan B: deposit card */}
                     <div className="panel" style={{ padding: 22, display: 'grid', gap: 10, overflowWrap: 'anywhere' }}>
                       <span className="label">Details</span>
-                      <div className="small"><span className="muted">Sent</span><br />{prettyDate(job.submitted_at.slice(0, 10))}</div>
+                      <div className="small"><span className="muted">Sent</span><br />{(() => { const d = new Date(job.submitted_at); return prettyDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`) })()}</div>
                       {!isProduct && job.setup_location && <div className="small"><span className="muted">Setup</span><br />{[job.setup_time, job.setup_location].filter(Boolean).join(' · ')}</div>}
                       {!isProduct && job.removal_location && <div className="small"><span className="muted">Removal</span><br />{[job.removal_time, job.removal_location].filter(Boolean).join(' · ')}</div>}
                       {isProduct && <div className="small"><span className="muted">Hand-over</span><br />{place || '—'}{job.setup_time ? ` · ${job.setup_time}` : ''}</div>}
                       {job.notes && <div className="small"><span className="muted">Notes</span><br />{job.notes}</div>}
                       <hr className="rule" />
-                      {canEdit && <button type="button" className="btn btn-quiet btn-sm" onClick={() => editingJob === job.id ? cancelEdit() : startEdit(job)}>{editingJob === job.id ? 'Cancel editing' : 'Edit brief'}</button>}
-                      {canAdd && <button type="button" className="btn btn-quiet btn-sm" onClick={() => addingJob === job.id ? cancelAdd() : startAdd(job)}><Plus size={14} /> {addingJob === job.id ? 'Cancel' : 'Add a piece to this job'}</button>}
+                      {canEdit && <button type="button" className="btn btn-quiet btn-sm" onClick={() => { if (editingJob === job.id) { cancelEdit() } else { startEdit(job); scrollToId(`edit-${job.id}`) } }}>{editingJob === job.id ? 'Cancel editing' : 'Edit brief'}</button>}
+                      {canAdd && <button type="button" className="btn btn-quiet btn-sm" onClick={() => { if (addingJob === job.id) { cancelAdd() } else { startAdd(job); scrollToId(`add-${job.id}`) } }}><Plus size={14} /> {addingJob === job.id ? 'Cancel' : 'Add a piece to this job'}</button>}
                     </div>
                   </aside>
                 </div>
                 <nav className="dock only-sm" aria-label="Quick actions">
                   <button type="button" className="d-btn" aria-label="Top of page" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><Home size={18} /></button>
-                  {canAdd && <button type="button" className="fab" aria-label="Add a piece" onClick={() => startAdd(job)}><Plus size={22} /></button>}
-                  <button type="button" className="d-btn" aria-label="Designs" onClick={() => document.getElementById(`proofs-${job.id}`)?.scrollIntoView({ behavior: 'smooth' })}><MessageCircle size={18} /></button>
+                  {canAdd && <button type="button" className="fab" aria-label="Add a piece" onClick={() => { if (addingJob !== job.id) startAdd(job); scrollToId(`add-${job.id}`) }}><Plus size={22} /></button>}
+                  {proofItems.length > 0 && <button type="button" className="d-btn" aria-label="Designs" onClick={() => document.getElementById(`proofs-${job.id}`)?.scrollIntoView({ behavior: 'smooth' })}><MessageCircle size={18} /></button>}
                 </nav>
               </article>
             )
