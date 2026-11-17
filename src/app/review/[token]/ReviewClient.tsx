@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Check, MessageSquare } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Check, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react'
 import { itemProofs, itemExamplePhotos, itemThread, designsMode } from '@/lib/job-types'
 import type { JobItem, ApprovalStatus } from '@/lib/job-types'
 import { Page, SiteHead, SiteFoot } from '@/components/cx/kit'
@@ -47,6 +47,19 @@ export default function ReviewClient({ token }: { token: string }) {
   const [asking, setAsking] = useState<number | null>(null)             // item index with the change box open
   const [toast, setToast] = useState('')
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 2600); return () => clearTimeout(t) }, [toast])
+  // Left/right arrow keys step between pieces (ignored while typing). Set each render below.
+  const stepRef = useRef<(dir: -1 | 1) => void>(() => {})
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.closest('input, textarea, select, [contenteditable="true"]'))) return
+      stepRef.current(e.key === 'ArrowLeft' ? -1 : 1)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   useEffect(() => {
     fetch(`/api/review/${token}`)
@@ -173,6 +186,9 @@ export default function ReviewClient({ token }: { token: string }) {
   const days = daysUntil(data.date_required)
   const isProduct = data.jobType === 'product'
   const cur = reviewable.find(x => x.idx === active) ?? reviewable.find(x => x.it.approval_status !== 'approved') ?? reviewable[0]
+  const pos = cur ? reviewable.findIndex(x => x.idx === cur.idx) : -1
+  const goTo = (i: number) => { const x = reviewable[i]; if (!x) return; setActive(x.idx); setAsking(null) }
+  stepRef.current = dir => goTo(pos + dir)
 
   return (
     <Page>
@@ -294,6 +310,13 @@ export default function ReviewClient({ token }: { token: string }) {
                 </div>
 
                 <aside className="stack" style={{ gap: 18, alignContent: 'start' }}>
+                  {reviewable.length > 1 && (
+                    <nav className="piece-nav" aria-label="Pieces">
+                      <button type="button" aria-label="Previous item" disabled={pos <= 0} onClick={() => goTo(pos - 1)}><ChevronLeft size={18} /></button>
+                      <span className="small muted" aria-live="polite">Piece {pos + 1} of {reviewable.length}</span>
+                      <button type="button" aria-label="Next item" disabled={pos >= reviewable.length - 1} onClick={() => goTo(pos + 1)}><ChevronRight size={18} /></button>
+                    </nav>
+                  )}
                   <div className="between"><b style={{ fontSize: 18 }}>{it.name}</b><ApprovalPill status={status} /></div>
                   <div className="small muted">{it.quantity} × {[it.size, it.material].filter(Boolean).join(' · ')}</div>
                   {it.description && <p className="small" style={{ margin: 0 }}><span className="muted">Your brief: </span>{it.description}</p>}

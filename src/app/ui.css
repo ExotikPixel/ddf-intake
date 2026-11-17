@@ -478,3 +478,9 @@
 @media (max-width: 640px) {
   .cx .admin .adm-title { font-size: clamp(30px, 9vw, 40px); }
 }
+/* Approval page: step between pieces from the side panel (near the design and the approve button). */
+.cx .piece-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-line); }
+.cx .piece-nav button { width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 50%; border: 0; background: var(--ink); color: #fff; cursor: pointer; transition: background-color .2s, opacity .2s; }
+.cx .piece-nav button:hover:not(:disabled) { background: var(--mauve-deep); }
+.cx .piece-nav button:disabled { background: rgba(18,18,18,.08); color: var(--muted); cursor: default; }
+.cx .piece-nav button:focus-visible { outline: 2px solid var(--mauve-deep); outline-offset: 2px; }
