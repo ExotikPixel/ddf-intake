@@ -2412,7 +2412,7 @@ export default function AdminPage() {
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'America/Toronto' })}
                 {!loading && !loadError && <> · {needsYou > 0 ? `${needsYou} need${needsYou === 1 ? 's' : ''} you today` : 'nothing urgent'}</>}
               </span>
-              <h1 className="display adm-title">Good {partOfDay}{firstName ? <>, <span className="serif">{firstName}.</span></> : '.'}</h1>
+              <h1 className="display adm-title">Good {partOfDay}, <span className="serif">Team.</span></h1>
               {!loading && !loadError && <p className="adm-lead">{summaryLine}</p>}
             </div>
             <div className="row glass adm-search">
