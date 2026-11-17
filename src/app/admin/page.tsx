@@ -4,11 +4,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { STATUSES, STATUS_LABELS, itemProofs, itemRefPhotos, itemExamplePhotos, approvedProofs, itemThread, designsMode, fileKindLabel, fileTileDataUrl, jobQuoteTotal } from '@/lib/job-types'
 import type { JobItem, ItemMessage } from '@/lib/job-types'
-import { Search, LayoutGrid, LogOut, Printer } from 'lucide-react'
+import { Search, LayoutGrid, LogOut, Printer, CalendarDays, Hammer, ArrowUpRight, Mail } from 'lucide-react'
 import { ApprovalPill, JobStatusPill } from '@/components/cx/pills'
-import { Pill } from '@/components/cx/kit'
+import { Pill, SecHead } from '@/components/cx/kit'
+import { Avatar, ApprovalsBar, CountdownPill, DateBlock, DrawerSec } from '@/components/admin/dashboard-parts'
 import { adminKpis, approvalSummary, jobWaiting } from '@/lib/admin-kpis'
-import { torontoDate, torontoHour } from '@/lib/local-time'
+import { torontoDate, torontoHour, addDays } from '@/lib/local-time'
 import { daysUntil, countdownLabel, prettyDate } from '@/lib/countdown'
 import { renderPrintFilePreview, uploadPreviewFile, needsPreview } from '@/lib/proof-preview'
 import { MAX_FILES } from '@/lib/limits'
@@ -1493,6 +1494,29 @@ export default function AdminPage() {
     )
   }, [jobs, filter, search])
 
+  // ── Dashboard summaries (read-only views of `jobs`) ──────────────────────
+  const todayIso = torontoDate()
+  const isOpen = (j: Job) => j.status !== 'completed' && j.status !== 'cancelled'
+  const hasChanges = (j: Job) => j.items.some(it => it.approval_status === 'changes_requested')
+  // "Needs you": new submissions, change requests, or a client message the shop hasn't answered.
+  const needsYou = jobs.filter(j => isOpen(j) && (j.status === 'pending' || j.items.some(it => {
+    if (it.approval_status === 'approved') return false
+    const t = itemThread(it)
+    return it.approval_status === 'changes_requested' || (t.length > 0 && t[t.length - 1].from === 'client')
+  }))).length
+  const byDate = (a: Job, b: Job) => a.date_required.localeCompare(b.date_required)
+  const waitingJobs = jobs.filter(j => isOpen(j) && jobWaiting(j)).sort(byDate)
+  const comingUp = jobs
+    .filter(j => isOpen(j) && j.date_required >= todayIso && j.date_required <= addDays(todayIso, 14))
+    .sort(byDate)
+  const jobTitle = (j: Job) => j.event_name || j.company_name || j.client_name
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+  const summaryLine = [
+    kpis.awaiting > 0 && `${plural(kpis.awaiting, 'job', 'jobs')} waiting on clients`,
+    kpis.soon > 0 && `${plural(kpis.soon, 'job', 'jobs')} due this week`,
+    kpis.inProduction > 0 && `${kpis.inProduction} in production`,
+  ].filter(Boolean).join(' · ') || 'All quiet — nothing is waiting on anyone.'
+  const openCount = jobs.filter(isOpen).length
 
   // Keep the conversation drawer scrolled to the newest message.
   useEffect(() => {
@@ -1501,9 +1525,11 @@ export default function AdminPage() {
 
   // Everything a job shows once opened (tools, approvals, quotes, edit panel).
   function renderJobDetail(job: Job) {
+    let secN = 0 // numbers the drawer's section heads in render order
     return (
       <>
         {/* Items */}
+        <DrawerSec n={++secN} title="Pieces & approvals" aside={<span className="tiny muted">{job.items.length} piece{job.items.length === 1 ? '' : 's'}</span>} />
         <div className="panel" style={{ padding: 20, display: 'grid', gap: 12 }}>
           <span className="label">Pieces</span>
           {job.items.map((item, i) => {
@@ -1674,6 +1700,7 @@ export default function AdminPage() {
         })()}
 
         {/* Notes */}
+        {job.notes && <DrawerSec n={++secN} title="Client notes" />}
         {job.notes && (
           <div className="callout" style={{ justifyContent: 'flex-start', alignItems: 'flex-start' }}>
             <span className="label" style={{ paddingTop: 2, flexShrink: 0 }}>Notes</span>
@@ -1682,6 +1709,7 @@ export default function AdminPage() {
         )}
 
         {/* Quote — admin only, never sent to the client */}
+        <DrawerSec n={++secN} title="Pricing" />
         {(() => {
           const { total, quoted } = jobQuoteTotal(job.items)
           const fmt = (n: number) => n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 2 })
@@ -1732,8 +1760,9 @@ export default function AdminPage() {
         })()}
 
         {/* Files */}
+        {job.file_paths.length > 0 && <DrawerSec n={++secN} title="Files" />}
         {job.file_paths.length > 0 && (
-          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+          <div className="row panel" style={{ gap: 10, flexWrap: 'wrap', padding: 20 }}>
             {fileUrls[job.id] ? (
               <>
                 <span className="label">Files</span>
@@ -1768,7 +1797,8 @@ export default function AdminPage() {
         )}
 
         {/* Actions footer */}
-        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <DrawerSec n={++secN} title="Actions" />
+        <div className="row panel" style={{ gap: 8, flexWrap: 'wrap', padding: 16 }}>
 
           {/* Edit */}
           <button
@@ -2362,27 +2392,36 @@ export default function AdminPage() {
 
       <div className="admin">
         <nav className="side" aria-label="Admin">
-          <img src="/logo-ddfpixel.png" alt="DDF x Pixel" className="logo" style={{ height: 34, width: 'auto' }} />
+          <img src="/logo-ddfpixel.png" alt="DDF x Pixel" className="logo" style={{ height: 44, width: 'auto' }} />
           <div className="nav">
-            <button type="button" aria-current="page"><LayoutGrid size={16} /> Jobs</button>
+            <button type="button" aria-current="page"><LayoutGrid size={16} /> Jobs{openCount > 0 && <span className="nav-badge num" aria-label={`${openCount} open`}>{openCount}</span>}</button>
             <button type="button" onClick={printProductionSheet} disabled={buildingProdSheet} title="Print all approved designs across jobs, grouped by event date"><Printer size={16} /> {buildingProdSheet ? 'Building…' : 'Production sheet'}</button>
             <button type="button" onClick={signOut}><LogOut size={16} /> Sign out</button>
           </div>
-          {adminEmail && <div className="tiny muted side-who" style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>Signed in as<br /><span style={{ color: 'var(--ink)' }}>{adminEmail}</span></div>}
+          {adminEmail && (
+            <div className="side-who">
+              <Avatar name={firstName || adminEmail} size="sm" />
+              <span className="tiny muted" style={{ minWidth: 0 }}>Signed in as<br /><span style={{ color: 'var(--ink)', overflowWrap: 'anywhere' }}>{adminEmail}</span></span>
+            </div>
+          )}
         </nav>
 
         <div className="admin-main">
-          <div className="between stack-sm">
-            <div className="stack" style={{ gap: 10 }}>
-              <span className="eyebrow">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'America/Toronto' })}</span>
-              <h1 className="display" style={{ margin: 0, fontSize: 'clamp(34px, 7vw, 48px)' }}>Good {partOfDay}{firstName ? <>, <span className="serif">{firstName}.</span></> : '.'}</h1>
+          <header className="adm-hero">
+            <div className="stack" style={{ gap: 14, minWidth: 0 }}>
+              <span className="eyebrow">
+                {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'America/Toronto' })}
+                {!loading && !loadError && <> · {needsYou > 0 ? `${needsYou} need${needsYou === 1 ? 's' : ''} you today` : 'nothing urgent'}</>}
+              </span>
+              <h1 className="display adm-title">Good {partOfDay}{firstName ? <>, <span className="serif">{firstName}.</span></> : '.'}</h1>
+              {!loading && !loadError && <p className="adm-lead">{summaryLine}</p>}
             </div>
-            <div className="row glass" style={{ padding: '0 14px', gap: 8, borderRadius: 999 }}>
+            <div className="row glass adm-search">
               <Search size={15} color="var(--muted)" />
               <input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search client, company, ref or event…" aria-label="Search jobs"
-                style={{ border: 0, background: 'transparent', padding: '12px 0', font: 'inherit', width: 260, maxWidth: '100%', flex: 1, minWidth: 0, outline: 'none' }} />
+                style={{ border: 0, background: 'transparent', padding: '13px 0', font: 'inherit', width: 260, maxWidth: '100%', flex: 1, minWidth: 0, outline: 'none' }} />
             </div>
-          </div>
+          </header>
 
           {loading ? (
             <p className="muted" style={{ padding: '60px 0', textAlign: 'center' }}>Loading jobs…</p>
@@ -2390,97 +2429,152 @@ export default function AdminPage() {
             <div className="alert">{loadError}</div>
           ) : (
             <>
-              <div className="kpis k3">
-                <button type="button" className="kpi dark" onClick={() => setFilter('waiting')} style={{ textAlign: 'left', cursor: 'pointer' }}>
-                  <span className="label">Waiting on client</span><span className="k-val num">{kpis.awaiting}</span><span className="tiny muted">jobs with designs out</span>
-                </button>
-                <div className="kpi"><span className="label">Due in 7 days</span><span className="k-val num">{kpis.soon}</span><span className="tiny muted">events and orders</span></div>
-                <button type="button" className="kpi" onClick={() => setFilter('in_progress')} style={{ textAlign: 'left', cursor: 'pointer' }}>
-                  <span className="label">In production</span><span className="k-val num">{kpis.inProduction}</span><span className="tiny muted">on the board</span>
+              <div className="adm-kpis">
+                <div className="ticket adm-kpi-dark">
+                  <button type="button" className="adm-kpi-hit" onClick={() => setFilter('waiting')} aria-label={`Show ${kpis.awaiting} jobs waiting on client`}>
+                    <span className="t-label">Waiting on client</span>
+                    <span className="adm-k-row">
+                      <span className="adm-k-val num">{kpis.awaiting}</span>
+                      <span className="small" style={{ color: 'rgba(243,238,241,.65)' }}>job{kpis.awaiting === 1 ? '' : 's'} with designs out</span>
+                    </span>
+                  </button>
+                  {waitingJobs.length > 0 && (
+                    <>
+                      <div className="tear" />
+                      <ul className="adm-wait-list">
+                        {waitingJobs.slice(0, 3).map(j => (
+                          <li key={j.id}>
+                            <button type="button" onClick={() => openJob(j.id)}>
+                              <span className="adm-wait-name">{jobTitle(j)}</span>
+                              <span className="adm-wait-meta num">{prettyDate(j.date_required)}<ArrowUpRight size={14} aria-hidden="true" /></span>
+                            </button>
+                          </li>
+                        ))}
+                        {waitingJobs.length > 3 && <li className="tiny" style={{ color: 'rgba(243,238,241,.55)', paddingTop: 4 }}>+{waitingJobs.length - 3} more</li>}
+                      </ul>
+                    </>
+                  )}
+                </div>
+                <div className="adm-kpi">
+                  <span className="adm-kpi-top"><span className="label">Due in 7 days</span><span className="kind-icon"><CalendarDays size={18} /></span></span>
+                  <span className="adm-k-val num">{kpis.soon}</span>
+                  <span className="tiny muted">events and orders</span>
+                </div>
+                <button type="button" className="adm-kpi adm-kpi-btn" onClick={() => setFilter('in_progress')}>
+                  <span className="adm-kpi-top"><span className="label">In production</span><span className="kind-icon"><Hammer size={18} /></span></span>
+                  <span className="adm-k-val num">{kpis.inProduction}</span>
+                  <span className="tiny muted">on the board</span>
                 </button>
                 {/* Plan B: a fourth "Deposits due" KPI (kpis.depositsOutstanding) goes here once deposits ship. */}
               </div>
 
+              {comingUp.length > 0 && (
+                <section className="adm-coming" aria-label="Coming up in the next 14 days">
+                  <SecHead n="01" title="Coming up" aside={<span className="tiny muted">next 14 days</span>} />
+                  <div className="adm-strip">
+                    {comingUp.map(j => {
+                      const a = approvalSummary(j.items)
+                      return (
+                        <button key={j.id} type="button" className="adm-up" onClick={() => openJob(j.id)}>
+                          <span className="row" style={{ gap: 12, alignItems: 'flex-start' }}>
+                            <DateBlock iso={j.date_required} />
+                            <span className="stack" style={{ gap: 3, minWidth: 0 }}>
+                              <span className="adm-up-name">{jobTitle(j)}</span>
+                              <span className="tiny muted adm-ellipsis">{j.company_name || j.client_name}</span>
+                            </span>
+                          </span>
+                          <span className="between" style={{ gap: 8 }}>
+                            <CountdownPill days={daysUntil(j.date_required)} />
+                            <ApprovalsBar approved={a.approved} total={a.total} changes={hasChanges(j)} compact />
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </section>
+              )}
+
               {/* Plan B: the print-schedule aside (ScheduleAside) sits beside this table once it ships. */}
-              <section className="panel" style={{ minWidth: 0, overflow: 'hidden' }}>
-                <div className="row" style={{ padding: '14px 16px', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid var(--line)' }}>
+              <section className="adm-jobs" style={{ minWidth: 0 }}>
+                <SecHead n={comingUp.length > 0 ? '02' : '01'} title="All jobs" aside={<span className="tiny muted">{filtered.length} job{filtered.length === 1 ? '' : 's'}</span>} />
+                <div className="row adm-filters">
                   {FILTERS.map(f => <button key={f.key} type="button" className="chip" aria-pressed={filter === f.key} onClick={() => setFilter(f.key)}>{f.label}</button>)}
-                  <span className="tiny muted" style={{ marginLeft: 'auto' }}>{filtered.length} job{filtered.length === 1 ? '' : 's'}</span>
                 </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table className="table">
-                    <thead><tr><th>Job</th><th>Date</th><th className="hide-xs">Approvals</th><th>Status</th></tr></thead>
-                    <tbody>
-                      {filtered.map(job => {
-                        const a = approvalSummary(job.items)
-                        const d = daysUntil(job.date_required)
-                        return (
-                          <tr key={job.id} aria-selected={drawerId === job.id} tabIndex={0}
-                            onClick={() => openJob(job.id)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJob(job.id) } }}>
-                            <td className="job-cell">
-                              <span style={{ fontWeight: 500 }}>{job.event_name || job.company_name || job.client_name}</span>
-                              <div className="row tiny muted" style={{ gap: 6, marginTop: 4 }}>
-                                <span className="type-tag">{job.job_type === 'product' ? 'Product' : 'Event'}</span>{job.company_name || job.client_name} · {job.reference_number}
-                              </div>
-                            </td>
-                            <td className="num">
-                              <b style={{ whiteSpace: 'nowrap' }}>{prettyDate(job.date_required)}</b>
-                              <div className="tiny" style={{ color: d >= 0 && d <= 4 && job.status !== 'completed' ? 'var(--rose)' : 'var(--muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>{countdownLabel(d)}</div>
-                            </td>
-                            <td className="hide-xs">
-                              {a.total ? (
-                                <div className="row" style={{ gap: 8 }}>
-                                  <span className="mini-bar"><span style={{ width: `${(a.approved / a.total) * 100}%`, background: a.approved === a.total ? 'var(--sage)' : 'var(--mauve)' }} /></span>
-                                  <span className="tiny num">{a.approved}/{a.total}</span>
-                                  {job.items.some(it => it.approval_status === 'changes_requested') && (
-                                    <span className="tiny row" title="Changes requested" style={{ gap: 4, color: 'var(--rose)', fontWeight: 500 }}>
-                                      <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--rose)' }} />changes
-                                    </span>
-                                  )}
-                                </div>
-                              ) : <span className="tiny muted">No proofs yet</span>}
-                            </td>
-                            <td><JobStatusPill status={job.status} /></td>
-                          </tr>
-                        )
-                      })}
-                      {filtered.length === 0 && (
-                        <tr><td colSpan={4} className="muted small" style={{ padding: 28, textAlign: 'center' }}>{search ? `No jobs match “${search}”.` : 'No jobs in this view.'}</td></tr>
-                      )}
-                    </tbody>
-                  </table>
+                <div className="adm-list">
+                  <div className="adm-list-head" aria-hidden="true"><span>Job</span><span>Date</span><span>Approvals</span><span>Status</span></div>
+                  {filtered.map(job => {
+                    const a = approvalSummary(job.items)
+                    const d = daysUntil(job.date_required)
+                    const who = job.company_name || job.client_name
+                    return (
+                      <div key={job.id} role="button" className="adm-row" aria-current={drawerId === job.id ? 'true' : undefined} tabIndex={0}
+                        aria-label={`${jobTitle(job)}, ${who}, ${job.reference_number}`}
+                        onClick={() => openJob(job.id)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJob(job.id) } }}>
+                        <span className="adm-row-job">
+                          <Avatar name={who} />
+                          <span className="stack" style={{ gap: 5, minWidth: 0 }}>
+                            <span className="adm-row-name">{jobTitle(job)}</span>
+                            <span className="row tiny muted" style={{ gap: 6, flexWrap: 'wrap' }}>
+                              <span className="type-tag">{job.job_type === 'product' ? 'Product' : 'Event'}</span>
+                              <span className="adm-ellipsis">{who} · {job.reference_number}</span>
+                            </span>
+                          </span>
+                        </span>
+                        <span className="adm-row-date num">
+                          <b style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>{prettyDate(job.date_required)}</b>
+                          <span className="tiny" style={{ color: d >= 0 && d <= 4 && job.status !== 'completed' ? 'var(--rose)' : 'var(--muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>{countdownLabel(d)}</span>
+                        </span>
+                        <span className="adm-row-appr"><ApprovalsBar approved={a.approved} total={a.total} changes={hasChanges(job)} /></span>
+                        <span className="adm-row-status"><JobStatusPill status={job.status} /></span>
+                      </div>
+                    )
+                  })}
+                  {filtered.length === 0 && (
+                    <p className="muted small" style={{ padding: 28, margin: 0, textAlign: 'center' }}>{search ? `No jobs match “${search}”.` : 'No jobs in this view.'}</p>
+                  )}
                 </div>
               </section>
             </>
           )}
         </div>
 
-        {drawerJob && (
+        {drawerJob && (() => {
+          const dd = daysUntil(drawerJob.date_required)
+          return (
           <>
             <div className="drawer-backdrop" onClick={() => setDrawerId(null)} />
-            <aside className="drawer" role="dialog" aria-modal="true" aria-label={`Job ${drawerJob.reference_number}`} style={{ width: 'min(720px, calc(100% - 32px))' }}>
+            <aside className="drawer adm-drawer" role="dialog" aria-modal="true" aria-label={`Job ${drawerJob.reference_number}`} style={{ width: 'min(720px, calc(100% - 32px))' }}>
               <div style={{ padding: 22, display: 'grid', gap: 18 }}>
-                <div className="between">
-                  <span className="tiny" style={{ color: 'var(--mauve-deep)', letterSpacing: '.06em', fontWeight: 500 }}>{drawerJob.reference_number} · {drawerJob.job_type === 'product' ? 'Product' : 'Event'}</span>
-                  <button type="button" ref={drawerCloseRef} className="link tiny" onClick={() => setDrawerId(null)}>Close</button>
-                </div>
-                <h2 className="display" style={{ margin: 0, fontSize: 30 }}>{drawerJob.event_name || drawerJob.company_name || drawerJob.client_name}</h2>
-                <div className="stack" style={{ gap: 6 }}>
-                  <span className="small muted">{drawerJob.client_name}{drawerJob.company_name ? ` · ${drawerJob.company_name}` : ''} · {prettyDate(drawerJob.date_required)} · {countdownLabel(daysUntil(drawerJob.date_required))}</span>
-                  <div className="row tiny muted" style={{ gap: 10, flexWrap: 'wrap' }}>
+                <div className="ticket adm-dticket">
+                  <div className="between" style={{ position: 'relative', zIndex: 1 }}>
+                    <span className="t-ref">{drawerJob.reference_number} · {drawerJob.job_type === 'product' ? 'Product' : 'Event'}</span>
+                    <button type="button" ref={drawerCloseRef} className="adm-close" onClick={() => setDrawerId(null)}>Close</button>
+                  </div>
+                  <div className="adm-dticket-main">
+                    <div className="stack" style={{ gap: 6, minWidth: 0 }}>
+                      <h2 className="display" style={{ margin: 0, fontSize: 'clamp(28px, 5vw, 38px)', color: '#fff' }}>{jobTitle(drawerJob)}</h2>
+                      <span className="small" style={{ color: 'rgba(243,238,241,.72)' }}>{drawerJob.client_name}{drawerJob.company_name ? ` · ${drawerJob.company_name}` : ''} · {prettyDate(drawerJob.date_required)}</span>
+                    </div>
+                    <div className="adm-dcount">
+                      <span className="t-label">Countdown</span>
+                      <span className="display num" style={{ fontSize: 44, color: '#fff', whiteSpace: 'nowrap', lineHeight: 1 }}>{dd > 1 ? <>{dd}<span className="small" style={{ marginLeft: 6, color: 'rgba(243,238,241,.65)', letterSpacing: 0 }}>days</span></> : countdownLabel(dd)}</span>
+                    </div>
+                  </div>
+                  <div className="tear" />
+                  <div className="row tiny adm-dmeta">
                     <JobStatusPill status={drawerJob.status} />
-                    <a className="link" href={`mailto:${drawerJob.contact_email}`}>{drawerJob.contact_email}</a>
+                    <a className="adm-dmail" href={`mailto:${drawerJob.contact_email}`}><Mail size={13} aria-hidden="true" />{drawerJob.contact_email}</a>
                     <span>Submitted {new Date(drawerJob.submitted_at).toLocaleDateString('en-CA', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
                     {drawerJob.file_paths.length > 0 && <span>{drawerJob.file_paths.length} file{drawerJob.file_paths.length !== 1 ? 's' : ''}</span>}
                   </div>
                 </div>
                 {/* Plan B: JobFeaturesPanel (deposit, reminders, floor preview) goes here once it ships. */}
-                <hr className="rule" />
                 {renderJobDetail(drawerJob)}
               </div>
             </aside>
           </>
-        )}
+          )
+        })()}
       </div>
 
       {/* Conversation drawer — reply to the client + upload a revised version */}
