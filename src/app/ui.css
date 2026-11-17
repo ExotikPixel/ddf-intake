@@ -356,3 +356,125 @@
   .cx .table td .row { flex-wrap: wrap; row-gap: 4px; }
   .cx .table th, .cx .table td { padding-left: 10px; padding-right: 10px; }
 }
+
+/* ── Admin dashboard, premium pass: hero, ticket KPIs, coming-up strip, rich rows, ticket drawer ── */
+.cx .admin .side { gap: 28px; padding: 24px 14px 18px; grid-template-rows: auto auto 1fr; box-shadow: 0 24px 60px -40px rgba(74,44,64,.35); }
+.cx .admin .side > .logo { margin: 2px 6px 0; }
+.cx .admin .nav button { padding: 12px 14px; }
+.cx .admin .nav button[aria-current="page"] { box-shadow: 0 10px 24px -12px rgba(18,18,18,.55); }
+.cx .admin .nav-badge { margin-left: auto; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px; display: inline-grid; place-items: center; font: 600 11px/1 var(--body); background: var(--mauve-wash); color: var(--mauve-deep); }
+.cx .admin .nav button[aria-current="page"] .nav-badge { background: rgba(255,255,255,.18); color: #fff; }
+.cx .admin .side-who { align-self: end; display: flex; gap: 10px; align-items: center; padding: 12px; border-radius: var(--r-md); background: rgba(255,255,255,.55); border: 1px solid rgba(255,255,255,.9); }
+
+.cx .admin .admin-main { padding: 34px 32px 72px; gap: 34px; max-width: 1240px; width: 100%; }
+.cx .admin .adm-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.cx .admin .adm-title { margin: 0; font-size: clamp(40px, 6vw, 72px); }
+.cx .admin .adm-lead { margin: 0; color: var(--muted); font-size: 17px; line-height: 1.5; max-width: 60ch; }
+.cx .admin .adm-search { padding: 0 16px; gap: 8px; border-radius: 999px; flex: 0 1 320px; min-width: 0; box-shadow: 0 14px 30px -22px rgba(74,44,64,.4); }
+
+/* KPI cards */
+.cx .admin .adm-kpis { display: grid; grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 1fr)); gap: 16px; }
+.cx .admin .adm-kpi-dark { padding: 24px 24px 18px; display: grid; align-content: start; }
+.cx .admin .adm-kpi-hit { position: relative; z-index: 1; display: grid; gap: 12px; text-align: left; background: none; border: 0; padding: 0; color: inherit; cursor: pointer; border-radius: var(--r-md); }
+.cx .admin .adm-k-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.cx .admin .adm-k-val { font-family: var(--display); font-size: 64px; font-weight: 300; letter-spacing: -0.05em; line-height: .9; }
+.cx .admin .adm-kpi-dark .adm-k-val { color: #fff; }
+.cx .admin .adm-kpi-dark .tear { margin: 16px 0 6px; position: relative; z-index: 1; }
+.cx .admin .adm-wait-list { list-style: none; margin: 0; padding: 0; display: grid; position: relative; z-index: 1; }
+.cx .admin .adm-wait-list button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 10px; margin: 0 -10px; width: calc(100% + 20px); background: none; border: 0; border-radius: 12px; color: #f3eef1; cursor: pointer; text-align: left; transition: background-color .15s; }
+.cx .admin .adm-wait-list button:hover { background: rgba(255,255,255,.08); }
+.cx .admin .adm-wait-name { font: 500 14px/1.3 var(--body); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx .admin .adm-wait-meta { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: rgba(243,238,241,.6); white-space: nowrap; flex: none; }
+.cx .admin .adm-kpi { background: var(--surface); border: 1px solid rgba(255,255,255,.9); border-radius: var(--r-xl); box-shadow: var(--shadow); padding: 22px 24px; display: grid; gap: 10px; align-content: start; text-align: left; color: inherit; }
+.cx .admin .adm-kpi-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cx .admin .adm-kpi-btn { cursor: pointer; transition: transform .2s, box-shadow .2s; }
+.cx .admin .adm-kpi-btn:hover { transform: translateY(-2px); box-shadow: 0 30px 60px -34px rgba(74,44,64,.5), 0 2px 6px -2px rgba(74,44,64,.08); }
+.cx .admin .adm-kpi-btn:hover .kind-icon { background: var(--ink); color: #fff; }
+.cx .admin .adm-kpi .kind-icon { transition: background-color .2s, color .2s; }
+
+/* Coming-up strip */
+.cx .admin .adm-coming, .cx .admin .adm-jobs { display: grid; gap: 0; min-width: 0; }
+.cx .admin .adm-strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(240px, 268px); gap: 14px; overflow-x: auto; padding: 4px 4px 18px; margin: -4px -4px 0; scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
+.cx .admin .adm-up { scroll-snap-align: start; display: grid; gap: 16px; text-align: left; background: var(--surface); border: 1px solid rgba(255,255,255,.9); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 16px; cursor: pointer; color: inherit; transition: transform .2s, box-shadow .2s; }
+.cx .admin .adm-up:hover { transform: translateY(-2px); box-shadow: 0 30px 60px -34px rgba(74,44,64,.5), 0 2px 6px -2px rgba(74,44,64,.08); }
+.cx .admin .adm-date { flex: none; width: 54px; padding: 8px 0 7px; border-radius: 16px; background: var(--mauve-wash); color: var(--mauve-deep); display: grid; justify-items: center; gap: 2px; }
+.cx .admin .adm-date .wd, .cx .admin .adm-date .mo { font: 500 10.5px/1 var(--body); text-transform: uppercase; letter-spacing: .06em; }
+.cx .admin .adm-date b { font: 300 26px/1 var(--display); letter-spacing: -0.04em; color: var(--ink); }
+.cx .admin .adm-up-name { font: 500 15px/1.25 var(--body); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cx .admin .adm-ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Jobs list */
+.cx .admin .adm-filters { gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.cx .admin .adm-list { display: grid; gap: 10px; min-width: 0; }
+.cx .admin .adm-list-head, .cx .admin .adm-row { display: grid; grid-template-columns: minmax(0, 2.4fr) minmax(110px, 1fr) minmax(150px, 1.1fr) auto; gap: 18px; align-items: center; }
+.cx .admin .adm-list-head { padding: 0 22px; font: 500 12px var(--body); color: var(--muted); }
+.cx .admin .adm-list-head span:last-child { min-width: 112px; }
+.cx .admin .adm-row { background: var(--surface); border: 1px solid rgba(255,255,255,.9); border-radius: var(--r-lg); box-shadow: 0 14px 34px -28px rgba(74,44,64,.4), 0 1px 3px -1px rgba(74,44,64,.06); padding: 14px 22px 14px 14px; cursor: pointer; transition: transform .2s, box-shadow .2s, background-color .2s; }
+.cx .admin .adm-row:hover { transform: translateY(-2px); box-shadow: 0 26px 50px -30px rgba(74,44,64,.5), 0 2px 6px -2px rgba(74,44,64,.08); }
+.cx .admin .adm-row[aria-current="true"] { background: var(--mauve-wash); box-shadow: 0 0 0 2px var(--mauve), var(--shadow); }
+.cx .admin .adm-row-job { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.cx .admin .adm-row-name { font: 500 16.5px/1.25 var(--body); letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx .admin .adm-row-date { display: grid; gap: 3px; font-size: 14px; }
+.cx .admin .adm-row-status { min-width: 112px; display: flex; justify-content: flex-end; }
+.cx .admin .adm-avatar { flex: none; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; background: var(--mauve-wash); color: var(--mauve-deep); font: 500 15px/1 var(--body); letter-spacing: .02em; box-shadow: inset 0 0 0 1px rgba(122,76,105,.12); }
+.cx .admin .adm-avatar.sm { width: 34px; height: 34px; font-size: 12px; }
+
+/* Job drawer */
+.cx .admin .adm-drawer { background: rgba(247,243,240,.98); }
+.cx .admin .adm-dticket { padding: 22px 24px; }
+.cx .admin .adm-dticket-main { position: relative; z-index: 1; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-top: 14px; flex-wrap: wrap; }
+.cx .admin .adm-dcount { display: grid; gap: 8px; justify-items: end; }
+.cx .admin .adm-dmeta { position: relative; z-index: 1; gap: 12px; flex-wrap: wrap; color: rgba(243,238,241,.6); }
+.cx .admin .adm-dmail { display: inline-flex; align-items: center; gap: 6px; color: #e4c9da; font-weight: 500; text-decoration: none; overflow-wrap: anywhere; }
+.cx .admin .adm-dmail:hover { text-decoration: underline; text-underline-offset: 3px; }
+.cx .admin .adm-close { background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.16); color: #fff; font: 500 12.5px/1 var(--body); padding: 9px 14px; border-radius: 999px; cursor: pointer; transition: background-color .15s; }
+.cx .admin .adm-close:hover { background: rgba(255,255,255,.22); }
+.cx .admin .adm-dsec { margin: 10px 0 -6px; }
+.cx .admin .adm-dsec .sec-title { font-size: 22px; }
+.cx .admin .adm-drawer .panel { border-radius: var(--r-lg); }
+
+@media (max-width: 1100px) {
+  .cx .admin .adm-kpis { grid-template-columns: 1fr 1fr; }
+  .cx .admin .adm-kpi-dark { grid-column: 1 / -1; }
+}
+@media (max-width: 900px) {
+  .cx .admin .side { box-shadow: none; }
+  .cx .admin .side > .logo { margin: 0; }
+  .cx .admin .admin-main { padding: 24px 20px 60px; gap: 28px; }
+  .cx .admin .adm-list-head, .cx .admin .adm-row { grid-template-columns: minmax(0, 2fr) minmax(100px, 1fr) auto; }
+  .cx .admin .adm-list-head span:nth-child(3), .cx .admin .adm-row-appr { display: none; }
+}
+@media (max-width: 640px) {
+  .cx .admin .admin-main { padding: 18px 16px 48px; gap: 26px; }
+  .cx .admin .adm-title { font-size: clamp(38px, 11vw, 48px); }
+  .cx .admin .adm-lead { font-size: 15px; }
+  .cx .admin .adm-search { flex: 1 1 100%; }
+  .cx .admin .adm-kpis { gap: 10px; }
+  .cx .admin .adm-kpi { padding: 16px; border-radius: var(--r-lg); }
+  .cx .admin .adm-kpi .adm-k-val { font-size: 44px; }
+  .cx .admin .adm-kpi-dark .adm-k-val { font-size: 56px; }
+  .cx .admin .adm-strip { grid-auto-columns: minmax(232px, 78%); margin-right: -16px; padding-right: 16px; }
+  .cx .admin .adm-list-head { display: none; }
+  .cx .admin .adm-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "job job" "date status" "appr appr"; gap: 12px; padding: 16px; }
+  .cx .admin .adm-row-job { grid-area: job; }
+  .cx .admin .adm-row-date { grid-area: date; }
+  .cx .admin .adm-row-status { grid-area: status; min-width: 0; }
+  .cx .admin .adm-row-appr { grid-area: appr; display: block; padding-top: 10px; border-top: 1px solid var(--line); }
+  .cx .admin .adm-row-name { white-space: normal; }
+  .cx .admin .adm-avatar { width: 40px; height: 40px; font-size: 13px; }
+  .cx .admin .adm-dticket { padding: 18px; }
+  .cx .admin .adm-dcount { justify-items: start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cx .admin .adm-row:hover, .cx .admin .adm-up:hover, .cx .admin .adm-kpi-btn:hover { transform: none; }
+}
+/* Polish: keep the script name in one piece and clear of the line below; compact phone nav. */
+.cx .admin .adm-title { padding-bottom: 0.24em; }
+.cx .admin .adm-title .serif { white-space: nowrap; }
+@media (max-width: 900px) {
+  .cx .admin .side { gap: 14px; padding: 16px; }
+  .cx .admin .side-who { display: none; }
+}
+@media (max-width: 640px) {
+  .cx .admin .adm-title { font-size: clamp(30px, 9vw, 40px); }
+}
