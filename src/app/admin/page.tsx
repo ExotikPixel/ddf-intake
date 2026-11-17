@@ -2391,7 +2391,7 @@ export default function AdminPage() {
 
       <div className="admin">
         <nav className="side" aria-label="Admin">
-          <img src="/logo-ddfpixel.png" alt="DDF x Pixel" className="logo" style={{ height: 44, width: 'auto' }} />
+          <img src="/logo-ddfpixel.png" alt="DDF x Pixel" className="logo adm-logo" width={1233} height={202} />
           <div className="nav">
             <button type="button" aria-current="page"><LayoutGrid size={16} /> Jobs{openCount > 0 && <span className="nav-badge num" aria-label={`${openCount} open`}>{openCount}</span>}</button>
             <button type="button" onClick={printProductionSheet} disabled={buildingProdSheet} title="Print all approved designs across jobs, grouped by event date"><Printer size={16} /> {buildingProdSheet ? 'Building…' : 'Production sheet'}</button>
