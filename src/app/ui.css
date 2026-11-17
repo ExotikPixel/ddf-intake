@@ -468,3 +468,13 @@
 @media (prefers-reduced-motion: reduce) {
   .cx .admin .adm-row:hover, .cx .admin .adm-up:hover, .cx .admin .adm-kpi-btn:hover { transform: none; }
 }
+/* Polish: keep the script name in one piece and clear of the line below; compact phone nav. */
+.cx .admin .adm-title { padding-bottom: 0.24em; }
+.cx .admin .adm-title .serif { white-space: nowrap; }
+@media (max-width: 900px) {
+  .cx .admin .side { gap: 14px; padding: 16px; }
+  .cx .admin .side-who { display: none; }
+}
+@media (max-width: 640px) {
+  .cx .admin .adm-title { font-size: clamp(30px, 9vw, 40px); }
+}

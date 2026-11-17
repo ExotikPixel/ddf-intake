@@ -1531,7 +1531,6 @@ export default function AdminPage() {
         {/* Items */}
         <DrawerSec n={++secN} title="Pieces & approvals" aside={<span className="tiny muted">{job.items.length} piece{job.items.length === 1 ? '' : 's'}</span>} />
         <div className="panel" style={{ padding: 20, display: 'grid', gap: 12 }}>
-          <span className="label">Pieces</span>
           {job.items.map((item, i) => {
             const refs = itemRefPhotos(item)
             return (
