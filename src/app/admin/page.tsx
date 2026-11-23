@@ -56,6 +56,98 @@ function escHtml(s: string) {
          .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
+// ── Approved / production print sheets (soft-glass look, print-friendly) ──
+// The sheets open in a blank popup, so they can't use ui.css. Copy the page's
+// @font-face rules (Geist + the BP-JulietteEx2 script accent from next/font)
+// and their generated family names into the popup instead.
+function sheetFonts() {
+  const faces: string[] = []
+  for (const s of Array.from(document.styleSheets)) {
+    let rules: CSSRuleList
+    try { rules = s.cssRules } catch { continue }
+    for (const r of Array.from(rules)) if (r instanceof CSSFontFaceRule) faces.push(r.cssText)
+  }
+  const cs = getComputedStyle(document.documentElement)
+  const sans = cs.getPropertyValue('--font-geist-sans').trim()
+  const script = cs.getPropertyValue('--font-accent').trim()
+  return {
+    faces: faces.join('\n'),
+    sans: `${sans ? sans + ', ' : ''}'Helvetica Neue', Arial, sans-serif`,
+    script: `${script ? script + ', ' : ''}'Snell Roundhand', cursive`,
+  }
+}
+
+const SHEET = {
+  ink: '#121212', soft: '#2c2a29', muted: '#756e68', line: '#e6dfd8', tint: '#f6f3f0',
+  wine: '#772121', sage: '#4b6b53', sageWash: '#e3ebe3', amber: '#93601f', amberWash: '#f6ecdc',
+}
+
+function sheetHead(title: string) {
+  const f = sheetFonts()
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8" /><title>${escHtml(title)}</title>
+<style>
+  ${f.faces}
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: ${f.sans}; font-size: 13px; line-height: 1.45; color: ${SHEET.ink}; background: #fff; padding: 32px; -webkit-font-smoothing: antialiased; }
+  table { width: 100%; border-collapse: collapse; }
+  .script { font-family: ${f.script}; font-weight: 400; font-size: 1.15em; line-height: .9; color: ${SHEET.wine}; padding-right: .06em; }
+  .label { font-size: 10.5px; font-weight: 500; letter-spacing: .02em; color: ${SHEET.muted}; }
+  .num { font-variant-numeric: tabular-nums; }
+  .card { border: 1px solid ${SHEET.line}; border-radius: 16px; overflow: hidden; background: #fff; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 11px; font-weight: 500; }
+  .tb { font: 500 13px/1 ${f.sans}; padding: 11px 20px; border-radius: 999px; cursor: pointer; }
+  .tb:disabled { opacity: .5; cursor: default; }
+  @media print {
+    html, body { width: 7.3in; margin: 0 auto; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    @page { size: letter portrait; margin: 0.5in; }
+    .no-print { display: none !important; }
+    .sheet { width: 100% !important; max-width: 100% !important; margin: 0 !important; }
+    img { max-width: 100% !important; }
+  }
+</style></head>`
+}
+
+function sheetToolbar() {
+  return `<div class="no-print" style="margin:0 auto 24px;max-width:760px;display:flex;gap:10px;align-items:center;">
+    <button id="printBtn" class="tb" onclick="printWhenReady()" style="background:${SHEET.ink};color:#fff;border:1px solid ${SHEET.ink};">Print</button>
+    <button class="tb" onclick="window.close()" style="background:#fff;color:${SHEET.ink};border:1px solid ${SHEET.line};">Close</button>
+    <span id="loadNote" style="font-size:12px;color:${SHEET.muted};"></span>
+  </div>`
+}
+
+// Brand lockup + a right-hand block, then a hairline.
+function sheetBrand(right: string) {
+  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:20px;padding-bottom:16px;margin-bottom:22px;border-bottom:1px solid ${SHEET.line};">
+      <img src="${window.location.origin}/logo-ddfpixel.png" alt="DDF x Pixel" style="height:38px;width:auto;display:block;" />
+      <div style="text-align:right;">${right}</div>
+    </div>`
+}
+
+function sheetFooter(rightText: string) {
+  return `<div style="margin-top:26px;padding-top:12px;border-top:1px solid ${SHEET.line};display:flex;justify-content:space-between;font-size:11px;color:${SHEET.muted};">
+      <span>DDF x Pixel · hello@ddfevents.ca</span>
+      <span>${escHtml(rightText)}</span>
+    </div>`
+}
+
+// Wait for the designs and the fonts before opening the print dialog.
+const SHEET_PRINT_SCRIPT = `<script>
+    function printWhenReady(){
+      var btn=document.getElementById('printBtn'), note=document.getElementById('loadNote');
+      var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+      var imgs = Array.prototype.slice.call(document.images);
+      var pending = imgs.filter(function(i){ return !i.complete; });
+      function go(){ fontsReady.then(function(){ if(btn) btn.disabled=false; if(note) note.textContent=''; window.print(); }); }
+      if(pending.length===0){ go(); return; }
+      if(btn) btn.disabled=true;
+      var left=pending.length;
+      if(note) note.textContent='Loading designs… ('+left+' left)';
+      function done(){ left--; if(note) note.textContent = left>0 ? ('Loading designs… ('+left+' left)') : ''; if(left<=0){ go(); } }
+      pending.forEach(function(i){ i.addEventListener('load',done); i.addEventListener('error',done); });
+    }
+  </script>`
+
 // Items are often named "June 15 - Welcome Sign" — the part before " - " is the
 // event date used to group designs; the rest is the description.
 function parseItemDate(name: string): { label: string; short: string } {
@@ -1124,7 +1216,6 @@ export default function AdminPage() {
   }
 
   async function printApprovedSheet(job: Job) {
-    const CORAL = '#ff4d2d'
     const printDate = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
     const createdDate = new Date(job.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
@@ -1164,21 +1255,21 @@ export default function AdminPage() {
 
     const renderCell = (c: Cell) => {
       const u = urlMap[c.path]
-      const sizeBits = [c.size, c.total > 1 ? `${c.pi + 1} of ${c.total}` : ''].filter(Boolean).join('   ·   ')
+      const sizeBits = [c.size, c.total > 1 ? `${c.pi + 1} of ${c.total}` : ''].filter(Boolean).join(' · ')
       return `
-        <div style="page-break-inside:avoid;border:1px solid #e2e2e2;">
+        <div class="card" style="page-break-inside:avoid;break-inside:avoid;">
           ${u
-            ? `<img src="${u}" alt="${escHtml(c.short)}" style="width:100%;height:240px;object-fit:contain;display:block;background:#fafafa;border-bottom:1px solid #eee;" />`
-            : `<div style="height:240px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:12px;border-bottom:1px solid #eee;">Image unavailable</div>`}
-          <div style="padding:11px 12px;display:flex;align-items:center;gap:11px;">
-            <div style="flex:none;min-width:38px;height:38px;padding:0 9px;background:#1a1a1a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:800;line-height:1;">${c.qty}<span style="font-size:11px;font-weight:600;opacity:.6;margin-left:1px;">×</span></div>
+            ? `<img src="${u}" alt="${escHtml(c.short)}" style="width:100%;height:240px;object-fit:contain;display:block;background:${SHEET.tint};" />`
+            : `<div style="height:240px;display:flex;align-items:center;justify-content:center;color:${SHEET.muted};font-size:12px;background:${SHEET.tint};">Image unavailable</div>`}
+          <div style="padding:12px 14px;display:flex;align-items:center;gap:12px;border-top:1px solid ${SHEET.line};">
+            <div class="num" style="flex:none;min-width:40px;height:40px;padding:0 10px;border-radius:999px;background:${SHEET.ink};color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:600;line-height:1;">${c.qty}<span style="font-size:11px;font-weight:400;opacity:.65;margin-left:1px;">×</span></div>
             <div style="flex:1;min-width:0;">
-              <div style="font-size:13px;font-weight:800;color:#1a1a1a;line-height:1.2;">${escHtml(c.short)}</div>
-              ${sizeBits ? `<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.7px;color:#8a8a8a;margin-top:3px;">${escHtml(sizeBits)}</div>` : ''}
+              <div style="font-size:13.5px;font-weight:600;letter-spacing:-0.01em;line-height:1.25;">${escHtml(c.short)}</div>
+              ${sizeBits ? `<div class="label" style="margin-top:3px;">${escHtml(sizeBits)}</div>` : ''}
             </div>
             <div style="flex:none;text-align:right;">
-              <div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:#1B7F4F;white-space:nowrap;">✓ Approved</div>
-              ${c.when ? `<div style="font-size:9px;color:#aaa;margin-top:2px;white-space:nowrap;">${escHtml(c.when)}</div>` : ''}
+              <span class="pill" style="background:${SHEET.sageWash};color:${SHEET.sage};padding:4px 10px;font-size:10.5px;white-space:nowrap;">✓ Approved</span>
+              ${c.when ? `<div class="label num" style="margin-top:4px;white-space:nowrap;">${escHtml(c.when)}</div>` : ''}
             </div>
           </div>
         </div>`
@@ -1194,122 +1285,66 @@ export default function AdminPage() {
         : labels.map(lab => {
             const cells = allCells.filter(c => c.label === lab)
             return `
-              <div style="margin-bottom:18px;page-break-inside:avoid;break-inside:avoid;">
-                <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #ddd;padding-bottom:4px;margin-bottom:12px;">
-                  <span style="font-size:14px;font-weight:800;">${escHtml(lab || 'Other')}</span>
-                  <span style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:1px;">${cells.length} design${cells.length !== 1 ? 's' : ''}</span>
+              <div style="margin-bottom:20px;page-break-inside:avoid;break-inside:avoid;">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;padding-bottom:8px;margin-bottom:12px;border-bottom:1px solid ${SHEET.line};">
+                  <span style="font-size:17px;font-weight:300;letter-spacing:-0.03em;">${escHtml(lab || 'Other')}</span>
+                  <span class="label">${cells.length} design${cells.length !== 1 ? 's' : ''}</span>
                 </div>
                 ${grid(cells)}
               </div>`
           }).join('')
 
-    const cell = (label: string, value: string, strong = false) =>
-      `<td style="padding:14px 16px;border:1px solid #ececec;vertical-align:top;">
-        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#aaa;margin-bottom:4px;">${label}</div>
-        <div style="font-size:14px;font-weight:${strong ? 800 : 600};color:${strong ? '#1a1a1a' : '#333'};">${value || '—'}</div>
-      </td>`
+    const field = (label: string, value: string, strong = false) =>
+      `<div style="padding:12px 16px;">
+        <div class="label" style="margin-bottom:3px;">${label}</div>
+        <div style="font-size:14px;font-weight:${strong ? 600 : 400};color:${strong ? SHEET.ink : SHEET.soft};letter-spacing:-0.01em;overflow-wrap:anywhere;">${value || '—'}</div>
+      </div>`
+    const fieldGrid = (cols: number, cells: string[]) =>
+      `<div class="card" style="display:grid;grid-template-columns:repeat(${cols},1fr);margin-bottom:24px;">${cells.join('')}</div>`
 
     const statusPill = isFull
-      ? `<span style="display:inline-block;padding:4px 12px;background:#eef7f3;color:#1B7F4F;border:1px solid #1B7F4F33;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;">Fully Approved</span>`
-      : `<span style="display:inline-block;padding:4px 12px;background:#fff7ed;color:#b06a00;border:1px solid #b06a0033;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;">Partial · ${approved.length} of ${total} approved</span>`
+      ? `<span class="pill" style="background:${SHEET.sageWash};color:${SHEET.sage};">● Fully approved</span>`
+      : `<span class="pill" style="background:${SHEET.amberWash};color:${SHEET.amber};">● Partly approved · ${approved.length} of ${total}</span>`
 
-    const html = `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8" /><title>Approved Designs — ${escHtml(job.reference_number)}</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 32px; }
-  table { width: 100%; border-collapse: collapse; }
-  @media print {
-    html, body { width: 7.3in; margin: 0 auto; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    @page { size: letter portrait; margin: 0.5in; }
-    .no-print { display: none !important; }
-    .sheet { width: 100% !important; max-width: 100% !important; margin: 0 !important; }
-    img { max-width: 100% !important; }
-  }
-</style></head>
+    const html = `${sheetHead(`Approved Designs — ${job.reference_number}`)}
 <body>
-  <div class="no-print" style="margin-bottom:24px;display:flex;gap:10px;align-items:center;">
-    <button id="printBtn" onclick="printWhenReady()" style="background:#1a1a1a;color:#fff;border:none;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Print</button>
-    <button onclick="window.close()" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;padding:10px 24px;font-size:13px;cursor:pointer;">Close</button>
-    <span id="loadNote" style="font-size:12px;color:#999;"></span>
-  </div>
+  ${sheetToolbar()}
   <div class="sheet" style="max-width:760px;margin:0 auto;">
+    ${sheetBrand(`
+      <div class="num" style="font-size:22px;font-weight:300;letter-spacing:-0.03em;">#${escHtml(job.reference_number)}</div>
+      <div class="label num" style="margin-top:4px;">Printed ${escHtml(printDate)}</div>
+      <div class="label num">Created ${escHtml(createdDate)}</div>`)}
 
-    <!-- Header -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
-      <div>
-        <div style="font-size:22px;font-weight:900;letter-spacing:1px;color:#1a1a1a;">DDF <span style="font-weight:400;">X</span> PIXEL</div>
-        <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#999;margin-top:2px;">Approved Designs</div>
-      </div>
-      <div style="text-align:right;">
-        <div style="font-size:22px;font-weight:900;letter-spacing:0.5px;color:#1a1a1a;">#${escHtml(job.reference_number)}</div>
-        <div style="font-size:11px;color:#888;margin-top:4px;">Printed ${escHtml(printDate)}</div>
-        <div style="font-size:11px;color:#888;">Created ${escHtml(createdDate)}</div>
-      </div>
-    </div>
-
-    <!-- Accent bar -->
-    <div style="display:flex;height:4px;margin-bottom:22px;">
-      <div style="width:76px;background:${CORAL};"></div>
-      <div style="flex:1;background:#1a1a1a;"></div>
-    </div>
-
-    <!-- Title + status -->
-    <h1 style="font-size:26px;font-weight:800;line-height:1.15;margin-bottom:12px;">${escHtml(job.event_name || job.reference_number)}</h1>
+    <div class="label" style="margin-bottom:6px;">Approved <span class="script" style="font-size:15px;">designs</span></div>
+    <h1 style="font-size:32px;font-weight:300;letter-spacing:-0.04em;line-height:1.05;margin-bottom:12px;">${escHtml(job.event_name || job.company_name || job.client_name || job.reference_number)}</h1>
     <div style="margin-bottom:22px;">${statusPill}</div>
 
-    <!-- Job details -->
-    <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#999;margin-bottom:8px;">Job Details</div>
-    <table style="margin-bottom:26px;">
-      <tr>
-        ${cell('Client Name', escHtml(job.client_name))}
-        ${cell('Client Contact', escHtml(job.contact_email))}
-        ${cell('Due Date', escHtml(job.date_required), true)}
-      </tr>
-      <tr>
-        ${cell('Company', escHtml(job.company_name))}
-        ${cell('Event / Location', job.event_name ? escHtml(job.event_name) : '—')}
-        ${cell('Approved', `${approved.length} of ${total} items`, true)}
-      </tr>
-    </table>
+    ${fieldGrid(3, [
+      field('Client', escHtml(job.client_name)),
+      field('Contact', escHtml(job.contact_email)),
+      field('Due date', escHtml(job.date_required), true),
+      field('Company', escHtml(job.company_name)),
+      field('Event / location', job.event_name ? escHtml(job.event_name) : '—'),
+      field('Approved', `${approved.length} of ${total} items`, true),
+    ])}
 
-    ${(job.setup_location || job.setup_time || job.removal_location || job.removal_time) ? `
-    <!-- Setup & removal -->
-    <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#999;margin-bottom:8px;">Setup &amp; Removal</div>
-    <table style="margin-bottom:26px;">
-      <tr>
-        ${cell('Setup', escHtml([job.setup_location, job.setup_time].filter(Boolean).join(' — ') || '—'), true)}
-        ${cell('Removal', escHtml([job.removal_location, job.removal_time].filter(Boolean).join(' — ') || '—'), true)}
-      </tr>
-    </table>` : ''}
+    ${(job.setup_location || job.setup_time || job.removal_location || job.removal_time)
+      ? fieldGrid(2, [
+          field('Setup', escHtml([job.setup_location, job.setup_time].filter(Boolean).join(' — ') || '—'), true),
+          field('Removal', escHtml([job.removal_location, job.removal_time].filter(Boolean).join(' — ') || '—'), true),
+        ])
+      : ''}
 
-    <!-- Approved designs -->
-    <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#999;border-bottom:1px solid #e8e8e8;padding-bottom:6px;margin-bottom:16px;">
-      Approved Designs (${approved.length})${!isFull ? ' — partial; remaining items still awaiting client approval' : ''}
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin:4px 0 14px;">
+      <span style="font-size:20px;font-weight:300;letter-spacing:-0.03em;">Designs <span class="num" style="color:${SHEET.muted};">(${approved.length})</span></span>
+      ${!isFull ? `<span class="label">Remaining items are still with the client</span>` : ''}
     </div>
-    ${itemBlocks || '<p style="color:#aaa;">No approved designs yet.</p>'}
+    ${itemBlocks || `<p style="color:${SHEET.muted};">No approved designs yet.</p>`}
 
-    <!-- Footer -->
-    <div style="margin-top:24px;padding-top:12px;border-top:1px solid #e8e8e8;display:flex;justify-content:space-between;font-size:11px;color:#aaa;">
-      <span>DDF x Pixel — hello@ddfevents.ca</span>
-      <span>1 of 1</span>
-    </div>
+    ${sheetFooter('Approved for print')}
   </div>
-  <script>
-    function printWhenReady(){
-      var imgs = Array.prototype.slice.call(document.images);
-      var pending = imgs.filter(function(i){ return !i.complete; });
-      if(pending.length===0){ window.print(); return; }
-      var btn=document.getElementById('printBtn'), note=document.getElementById('loadNote');
-      if(btn) btn.disabled=true;
-      var left=pending.length;
-      if(note) note.textContent='Loading designs… ('+left+' left)';
-      function done(){ left--; if(note) note.textContent = left>0 ? ('Loading designs… ('+left+' left)') : ''; if(left<=0){ if(btn) btn.disabled=false; window.print(); } }
-      pending.forEach(function(i){ i.addEventListener('load',done); i.addEventListener('error',done); });
-    }
-  </script>
+  ${SHEET_PRINT_SCRIPT}
 </body></html>`
-
     const win = window.open('', '_blank', 'width=820,height=900')
     if (!win) return
     win.document.write(html)
@@ -1352,81 +1387,43 @@ export default function AdminPage() {
         const cells = list.map(e => {
           const u = urlMap[e.path]
           return `
-            <div style="page-break-inside:avoid;border:1px solid #e8e8e8;">
+            <div class="card" style="page-break-inside:avoid;break-inside:avoid;">
               ${u
-                ? `<img src="${u}" alt="${escHtml(e.short)}" style="width:100%;height:230px;object-fit:contain;display:block;background:#fafafa;border-bottom:1px solid #eee;" />`
-                : `<div style="height:230px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:12px;">Image unavailable</div>`}
-              <div style="padding:7px 10px;">
-                <div style="font-size:11px;font-weight:700;line-height:1.3;">${escHtml(e.qty + '× ' + e.short)}${e.size ? `<span style="font-weight:400;color:#888;"> · ${escHtml(e.size)}</span>` : ''}</div>
-                <div style="font-size:9px;color:#999;margin-top:2px;">${escHtml(e.jobRef)}${e.event ? ' · ' + escHtml(e.event) : ''}</div>
+                ? `<img src="${u}" alt="${escHtml(e.short)}" style="width:100%;height:230px;object-fit:contain;display:block;background:${SHEET.tint};" />`
+                : `<div style="height:230px;display:flex;align-items:center;justify-content:center;color:${SHEET.muted};font-size:12px;background:${SHEET.tint};">Image unavailable</div>`}
+              <div style="padding:10px 14px;display:flex;align-items:center;gap:10px;border-top:1px solid ${SHEET.line};">
+                <div class="num" style="flex:none;min-width:34px;height:34px;padding:0 9px;border-radius:999px;background:${SHEET.ink};color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;line-height:1;">${e.qty}<span style="font-size:10px;font-weight:400;opacity:.65;margin-left:1px;">×</span></div>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:12.5px;font-weight:600;letter-spacing:-0.01em;line-height:1.25;">${escHtml(e.short)}${e.size ? `<span style="font-weight:400;color:${SHEET.muted};"> · ${escHtml(e.size)}</span>` : ''}</div>
+                  <div class="label" style="margin-top:2px;">#${escHtml(e.jobRef)}${e.event ? ' · ' + escHtml(e.event) : ''}</div>
+                </div>
               </div>
             </div>`
         }).join('')
         return `
-          <section style="${gi > 0 ? 'page-break-before:always;' : ''}">
-            <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #1a1a1a;padding-bottom:6px;margin:0 0 14px;">
-              <span style="font-size:18px;font-weight:800;">${escHtml(g)}</span>
-              <span style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;">${list.length} design${list.length !== 1 ? 's' : ''}</span>
+          <section style="margin-bottom:24px;${gi > 0 ? 'page-break-before:always;' : ''}">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding-bottom:8px;margin:0 0 14px;border-bottom:1px solid ${SHEET.line};">
+              <span style="font-size:24px;font-weight:300;letter-spacing:-0.04em;">${escHtml(g)}</span>
+              <span class="label" style="white-space:nowrap;">${list.length} design${list.length !== 1 ? 's' : ''}</span>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">${cells}</div>
           </section>`
       }).join('')
 
-      const CORAL = '#ff4d2d'
       const printDate = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
-      const html = `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8" /><title>Production Sheet — Approved Designs by Date</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 32px; }
-  section { margin-bottom: 24px; }
-  @media print {
-    html, body { width: 7.3in; margin: 0 auto; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    @page { size: letter portrait; margin: 0.5in; }
-    .no-print { display: none !important; }
-    .sheet { width: 100% !important; max-width: 100% !important; margin: 0 !important; }
-    img { max-width: 100% !important; }
-  }
-</style></head>
+      const html = `${sheetHead('Production Sheet — Approved Designs by Date')}
 <body>
-  <div class="no-print" style="margin-bottom:24px;display:flex;gap:10px;align-items:center;">
-    <button id="printBtn" onclick="printWhenReady()" style="background:#1a1a1a;color:#fff;border:none;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Print</button>
-    <button onclick="window.close()" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;padding:10px 24px;font-size:13px;cursor:pointer;">Close</button>
-    <span id="loadNote" style="font-size:12px;color:#999;"></span>
-  </div>
+  ${sheetToolbar()}
   <div class="sheet" style="max-width:760px;margin:0 auto;">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
-      <div>
-        <div style="font-size:22px;font-weight:900;letter-spacing:1px;">DDF <span style="font-weight:400;">X</span> PIXEL</div>
-        <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#999;margin-top:2px;">Production Sheet · Approved designs by date</div>
-      </div>
-      <div style="text-align:right;font-size:11px;color:#888;">
-        <div>Printed ${escHtml(printDate)}</div>
-        <div>${entries.length} design${entries.length !== 1 ? 's' : ''} · ${groups.length} date${groups.length !== 1 ? 's' : ''}</div>
-      </div>
-    </div>
-    <div style="display:flex;height:4px;margin-bottom:22px;"><div style="width:76px;background:${CORAL};"></div><div style="flex:1;background:#1a1a1a;"></div></div>
+    ${sheetBrand(`
+      <div style="font-size:15px;font-weight:300;letter-spacing:-0.02em;">Production <span class="script">sheet</span></div>
+      <div class="label num" style="margin-top:4px;">Printed ${escHtml(printDate)}</div>
+      <div class="label num">${entries.length} design${entries.length !== 1 ? 's' : ''} · ${groups.length} date${groups.length !== 1 ? 's' : ''}</div>`)}
     ${sections}
-    <div style="margin-top:24px;padding-top:12px;border-top:1px solid #e8e8e8;display:flex;justify-content:space-between;font-size:11px;color:#aaa;">
-      <span>DDF x Pixel — hello@ddfevents.ca</span>
-      <span>Approved for print</span>
-    </div>
+    ${sheetFooter('Approved for print')}
   </div>
-  <script>
-    function printWhenReady(){
-      var imgs = Array.prototype.slice.call(document.images);
-      var pending = imgs.filter(function(i){ return !i.complete; });
-      if(pending.length===0){ window.print(); return; }
-      var btn=document.getElementById('printBtn'), note=document.getElementById('loadNote');
-      if(btn) btn.disabled=true;
-      var left=pending.length;
-      if(note) note.textContent='Loading designs… ('+left+' left)';
-      function done(){ left--; if(note) note.textContent = left>0 ? ('Loading designs… ('+left+' left)') : ''; if(left<=0){ if(btn) btn.disabled=false; window.print(); } }
-      pending.forEach(function(i){ i.addEventListener('load',done); i.addEventListener('error',done); });
-    }
-  </script>
+  ${SHEET_PRINT_SCRIPT}
 </body></html>`
-
       const win = window.open('', '_blank', 'width=820,height=900')
       if (!win) return
       win.document.write(html)
