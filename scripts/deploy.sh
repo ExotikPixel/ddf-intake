@@ -7,13 +7,13 @@ set -a; source .env; set +a
 : "${PUBLIC_BASE_URL:?set in .env}" "${AUTH_SECRET:?set in .env}" "${FILE_LINK_SECRET:?set in .env}" \
   "${REVIEW_LINK_SECRET:?set in .env}" "${CRON_SECRET:?set in .env}" "${POSTGRES_PASSWORD:?set in .env}"
 
-mkdir -p "$DDF_DATA_DIR"/files "$DDF_DATA_DIR"/backups "$DDF_DATA_DIR"/ops-state
-git pull --ff-only
+if [[ ${DDF_PULLED:-} != 1 ]]; then git pull --ff-only; DDF_PULLED=1 exec ./scripts/deploy.sh; fi   # run the version just pulled
 
+docker compose build db app ops      # the old version keeps running meanwhile
+./scripts/move-data.sh
 docker compose up -d --wait db   # healthcheck is TCP, so first boot waits for init scripts
 docker compose exec -T db psql -U ddf -d ddf -v ON_ERROR_STOP=1 -q < db/schema.sql
 
-docker compose build app ops
 profiles=()
 if [[ -n "${TUNNEL_TOKEN:-}" ]]; then profiles=(--profile public); fi
 docker compose ${profiles[@]+"${profiles[@]}"} up -d
