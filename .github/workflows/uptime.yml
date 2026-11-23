@@ -1,22 +1,40 @@
 name: uptime
+# Runs on GitHub, so it still works when the shop PC is off or offline. GitHub may run it late when busy.
 on:
   schedule:
-    - cron: "17 * * * *"   # hourly
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
+    inputs:
+      test_alert:
+        description: "Send a test alert to the phone"
+        type: boolean
+        default: false
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
-      - name: Check jobs.ddfpixel.com
+      - name: Check both systems
         env:
           NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
+          TEST_ALERT: ${{ inputs.test_alert }}
         run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 https://jobs.ddfpixel.com/api/health || echo 000)
-          echo "health: $code"
-          if [ "$code" != "200" ]; then
-            curl -fsS -H "Title: DDF intake unreachable" -H "Priority: 5" \
-              -d "jobs.ddfpixel.com/api/health returned $code at $(date -u). Check the shop PC (power, internet, Docker)." \
-              "$NTFY_TOPIC_URL" || true
-            exit 1
-          fi
+          alert() { curl -fsS -m 15 -H "Title: $1" -H "Priority: ${3:-5}" -d "$2" "$NTFY_TOPIC_URL" >/dev/null || echo "could not send the alert"; }
+          if [ "$TEST_ALERT" = "true" ]; then alert "Test alert" "Phone alerts for job intake and Command Centre work." 3; fi
+          bad=0
+          check() {
+            code=000
+            for try in 1 2 3; do
+              code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$2") || code=000
+              [ "$code" = "200" ] && break
+              sleep 20
+            done
+            echo "$1: $code"
+            if [ "$code" != "200" ]; then
+              bad=1
+              alert "$1 unreachable" "$2 returned $code (3 tries) at $(date -u). Check the shop PC: power, internet, signed in to Windows, Docker."
+            fi
+          }
+          check "Job intake" https://jobs.ddfpixel.com/api/health
+          check "Command Centre" https://www.getflowdesk.ca/api/health
+          exit $bad
