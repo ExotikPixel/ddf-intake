@@ -11,7 +11,8 @@ BUCKET="${R2_BACKUP_BUCKET:-ddf-backups}"
 # Off-site target: R2 by default; OFFSITE_REMOTE (e.g. gdrive:DDF-Backups) with
 # $DATA/rclone.conf for any other rclone backend (no-card alternative, spec D17).
 REMOTE="${OFFSITE_REMOTE:-r2:$BUCKET}"
-mkdir -p "$STATE" "$BACK"
+mkdir -p "$STATE" "$BACK" "$FILES"
+if [[ $(stat -c %u "$FILES") == 0 ]]; then chown 1000:1000 "$FILES"; fi      # a brand-new volume: the app runs as uid 1000
 if [[ -f "$DATA/rclone.conf" ]]; then export RCLONE_CONFIG="$DATA/rclone.conf"; fi
 offsite_configured() { [[ -n "${OFFSITE_REMOTE:-}" ]] || [[ -n "${R2_ACCOUNT_ID:-}" && -n "${R2_ACCESS_KEY_ID:-}" ]]; }
 

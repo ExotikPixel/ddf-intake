@@ -22,7 +22,7 @@
 
 ## Self-hosting (since 2026-11)
 - **Status:** built on branch `supabase-exit` (plan `docs/superpowers/plans/2026-11-15-supabase-exit-phase1.md`). Until plan Task 22 (go-live) is done, prod is still the old Vercel + Supabase deploy.
-- Host: Windows shop PC, Docker Desktop + WSL2 Ubuntu. Repo `~/ddf-intake`, data `~/DDF-Data/{files,backups,ops-state}`.
+- Host: Windows shop PC, Docker Desktop + WSL2 Ubuntu. Repo `~/ddf-intake`, data in Docker volumes `ddf_pgdata`, `ddf_files`, `ddf_ops` (moved from `~/DDF-Data` by `scripts/move-data.sh`; that folder is now only an old copy).
 - Services: db (Postgres 17), app (Next standalone), ops (health/backups/off-site/kanban loop), tunnel (cloudflared).
 - Files: local disk under the old Supabase keys (`uploads/...`). Upload: PUT `/upload/<token>`. Download: `/f/<token>` (HMAC, `FILE_LINK_SECRET`).
 - Admin login: `admin_users` + cookie JWT (`AUTH_SECRET`). Manage with `npm run admin:set -- <email>`; a password reset signs out existing sessions.

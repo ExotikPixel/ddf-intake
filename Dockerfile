@@ -14,8 +14,7 @@ RUN npm run build
 FROM node:22-alpine AS run
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0 FILES_DIR=/data/files
-# The `node` user is uid 1000 — the same as the first WSL2/Linux user, so the
-# bind-mounted ~/DDF-Data/files is writable without chmod tricks.
+# The `node` user is uid 1000; the ddf_files volume is owned by it (scripts/move-data.sh, ops/loop.sh).
 RUN mkdir -p /data/files && chown -R node:node /data
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static

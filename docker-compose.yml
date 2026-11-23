@@ -1,8 +1,12 @@
+# No folder links (bind mounts): after a Windows restart Docker can start containers before its links to Ubuntu folders exist.
+# On 2026-11-23 that kept the db from starting and showed the app an empty folder. Data lives in Docker volumes and SQL is baked
+# into the db image. WARNING: `docker compose down -v` deletes the database, the files and the local backups.
 name: ddf-intake
 
 services:
   db:
-    image: postgres:17-alpine
+    build: ./db
+    image: ddf-intake-db:17
     restart: unless-stopped
     environment:
       POSTGRES_USER: ddf
@@ -10,8 +14,6 @@ services:
       POSTGRES_DB: ddf
     volumes:
       - ddf_pgdata:/var/lib/postgresql/data
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
-      - ./db/test-db.sql:/docker-entrypoint-initdb.d/20-test-db.sql:ro
     ports:
       - "127.0.0.1:5433:5432"   # localhost only — for scripts and tests
     healthcheck:
@@ -28,7 +30,7 @@ services:
       DATABASE_URL: postgres://ddf:${POSTGRES_PASSWORD}@db:5432/ddf
       FILES_DIR: /data/files
     volumes:
-      - ${DDF_DATA_DIR:?set DDF_DATA_DIR in .env}/files:/data/files
+      - ddf_files:/data/files
     ports:
       - "127.0.0.1:3000:3000"   # localhost only — the public path is the tunnel
     healthcheck:
@@ -53,7 +55,8 @@ services:
       APP_URL: http://app:3000
       DATA_DIR: /ddf-data
     volumes:
-      - ${DDF_DATA_DIR}:/ddf-data
+      - ddf_ops:/ddf-data            # backups/ + ops-state/
+      - ddf_files:/ddf-data/files
     depends_on:
       db:
         condition: service_healthy
@@ -71,3 +74,5 @@ services:
 
 volumes:
   ddf_pgdata:
+  ddf_files:
+  ddf_ops:
