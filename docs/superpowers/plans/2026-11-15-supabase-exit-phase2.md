@@ -8,6 +8,8 @@
 
 **Tech Stack:** Postgres 17 (`postgres_fdw`), Docker, `tsx`, `postgres` (porsager), rsync. Runs on the Windows shop PC in WSL2 Ubuntu (`~/ddf-intake`).
 
+> **Implemented 2026-11-16 (branch `supabase-exit-phase2`).** Tasks 2–5 are now wrapped in scripts; the owner runbook is `LEGACY_IMPORT.md`. Differences from the code below: Task 3's schema diff is built into `db/import-legacy.sql` (it refuses to run if an old column is missing or has a different type, and `--dry-run` rolls back); `scripts/restore-legacy.sh` pre-creates `extensions`/`auth` stand-ins so Supabase defaults and FKs don't stop tables loading; fdw uses the Unix socket (no password var); `scripts/import-legacy.sh` does backup → import → rsync → verify in one go. Tests: `tests/legacy-import.test.ts`, `tests/legacy-scripts.test.ts`.
+
 **Prerequisite:** Phase 1 is live (`docs/superpowers/plans/2026-11-15-supabase-exit-phase1.md`). Spec: section 7 of `docs/superpowers/specs/2026-11-15-supabase-exit-design.md`.
 
 ---
